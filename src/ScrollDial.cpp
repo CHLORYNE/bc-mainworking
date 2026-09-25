@@ -1,0 +1,561 @@
+// Copyright (C) 2002-2012 Nikolaus Gebhardt
+// This file is part of the "Irrlicht Engine".
+// For conditions of distribution and use, see copyright notice in irrlicht.h
+
+#include "IGUISkin.h"
+#include "IGUIEnvironment.h"
+#include "IVideoDriver.h"
+#include "IGUIFont.h"
+#include "IGUIFontBitmap.h"
+
+#include "ScrollDial.h"
+
+namespace irr
+{
+namespace gui
+{
+
+
+//! constructor
+ScrollDial::ScrollDial(core::position2d< s32 > centre, u32 radius, IGUIEnvironment* environment,
+				IGUIElement* parent, s32 id, s32 maxAngle, bool showValue, bool noclip) :
+				IGUIScrollBar(environment, parent, id, core::rect<s32>(centre.X - radius, centre.Y - radius, centre.X + radius,centre.Y + radius)),
+				centre(centre), radius(radius), maxAngle(maxAngle), showValue(showValue),
+				Dragging(false), Pos(0), DrawPos(0), DrawAngle(0), DrawHeight(0),
+				Min(0), Max(100), SmallStep(10), LargeStep(50), DesiredPos(0)
+{
+
+	#ifdef _DEBUG
+	setDebugName("ScrollDial");
+	#endif
+
+//	refreshControls();
+
+	setNotClipped(noclip);
+
+	// this element can be tabbed to
+	setTabStop(true);
+	setTabOrder(-1);
+
+	setPos(0);
+
+	//Threshold angle is half way between the max angle and 360 degrees. Input between maxAngle and theshold goes to max, above theshold goes to 0
+	thresholdAngle = (maxAngle + 360) / 2;
+}
+
+
+//! destructor
+ScrollDial::~ScrollDial()
+{
+
+}
+
+
+//! called if an event happened.
+bool ScrollDial::OnEvent(const SEvent& event)
+{
+	if (isEnabled())
+	{
+
+		switch(event.EventType)
+		{
+		case EET_KEY_INPUT_EVENT:
+			if (event.KeyInput.PressedDown)
+			{
+				const s32 oldPos = Pos;
+				bool absorb = true;
+				switch (event.KeyInput.Key)
+				{
+				case KEY_LEFT:
+				case KEY_UP:
+					setPos(Pos-SmallStep);
+					break;
+				case KEY_RIGHT:
+				case KEY_DOWN:
+					setPos(Pos+SmallStep);
+					break;
+				case KEY_HOME:
+					setPos(Min);
+					break;
+				case KEY_PRIOR:
+					setPos(Pos-LargeStep);
+					break;
+				case KEY_END:
+					setPos(Max);
+					break;
+				case KEY_NEXT:
+					setPos(Pos+LargeStep);
+					break;
+				default:
+					absorb = false;
+				}
+
+				if (Pos != oldPos)
+				{
+					SEvent newEvent;
+					newEvent.EventType = EET_GUI_EVENT;
+					newEvent.GUIEvent.Caller = this;
+					newEvent.GUIEvent.Element = 0;
+					newEvent.GUIEvent.EventType = EGET_SCROLL_BAR_CHANGED;
+					Parent->OnEvent(newEvent);
+				}
+				if (absorb)
+					return true;
+			}
+			break;
+		case EET_GUI_EVENT:
+			if (event.GUIEvent.EventType == EGET_ELEMENT_FOCUS_LOST)
+			{
+				if (event.GUIEvent.Caller == this)
+					Dragging = false;
+			}
+			break;
+		case EET_MOUSE_INPUT_EVENT:
+		{
+			const core::position2di p(event.MouseInput.X, event.MouseInput.Y);
+			bool isInside = isPointInside ( p );
+			switch(event.MouseInput.Event)
+			{
+			case EMIE_MOUSE_WHEEL:
+				if (Environment->hasFocus(this))
+				{
+					// thanks to a bug report by REAPER
+					// thanks to tommi by tommi for another bugfix
+					// everybody needs a little thanking. hallo niko!;-)
+					setPos(	getPos() +
+							( (event.MouseInput.Wheel < 0 ? -1 : 1) * SmallStep )
+							);
+
+					SEvent newEvent;
+					newEvent.EventType = EET_GUI_EVENT;
+					newEvent.GUIEvent.Caller = this;
+					newEvent.GUIEvent.Element = 0;
+					newEvent.GUIEvent.EventType = EGET_SCROLL_BAR_CHANGED;
+					Parent->OnEvent(newEvent);
+					return true;
+				}
+				break;
+			case EMIE_LMOUSE_PRESSED_DOWN:
+			case EMIE_RMOUSE_PRESSED_DOWN: //JAMES: Allow right click for scroll bar movement
+			{
+				if (isInside)
+				{
+					Dragging = true;
+					//DraggedBySlider = SliderRect.isPointInside(p);
+					//TrayClick = !DraggedBySlider;
+					//DesiredPos = getPosFromMousePos(p);
+					setPos(getPosFromMousePos(p));
+					SEvent newEvent;
+					newEvent.EventType = EET_GUI_EVENT;
+					newEvent.GUIEvent.Caller = this;
+					newEvent.GUIEvent.Element = 0;
+					newEvent.GUIEvent.EventType = EGET_SCROLL_BAR_CHANGED;
+					Parent->OnEvent(newEvent);
+					Environment->setFocus ( this );
+					return true;
+				}
+				break;
+			}
+			case EMIE_LMOUSE_LEFT_UP:
+			case EMIE_RMOUSE_LEFT_UP: //JAMES: Allow right click for scroll bar movement
+			case EMIE_MOUSE_MOVED:
+			{
+				if ( !event.MouseInput.isLeftPressed () && !event.MouseInput.isRightPressed ()  ) //JAMES: Allow right click for scroll bar movement
+					Dragging = false;
+
+				if ( !Dragging )
+				{
+					if ( event.MouseInput.Event == EMIE_MOUSE_MOVED )
+						break;
+					return isInside;
+				}
+
+				if ( event.MouseInput.Event == EMIE_LMOUSE_LEFT_UP || event.MouseInput.Event == EMIE_RMOUSE_LEFT_UP ) //JAMES: Allow right click for scroll bar movement
+					Dragging = false;
+
+				const s32 newPos = getPosFromMousePos(p);
+				const s32 oldPos = Pos;
+                setPos(newPos);
+
+				if (Pos != oldPos && Parent)
+				{
+					SEvent newEvent;
+					newEvent.EventType = EET_GUI_EVENT;
+					newEvent.GUIEvent.Caller = this;
+					newEvent.GUIEvent.Element = 0;
+					newEvent.GUIEvent.EventType = EGET_SCROLL_BAR_CHANGED;
+					Parent->OnEvent(newEvent);
+				}
+				return isInside;
+			} break;
+
+			default:
+				break;
+			}
+		} break;
+		default:
+			break;
+		}
+	}
+
+	return IGUIElement::OnEvent(event);
+}
+
+void ScrollDial::OnPostRender(u32 timeMs)
+{
+
+}
+//CHANGES draws the element and its children
+void ScrollDial::draw()
+{
+	if (!IsVisible)
+		return;
+
+	// 1) Fetch skin alpha
+	IGUISkin* skin = Environment->getSkin();
+	u32 skinAlpha = skin
+		? skin->getColor(gui::EGDC_3D_FACE).getAlpha()
+		: 255;
+
+	// 2) Pick override colour or default to black
+	video::SColor dialCol = HasOverride
+		? OverrideColor
+		: video::SColor(skinAlpha, 0, 0, 0);
+
+	// 3) Compute centre of the dial
+	s32 offsetX = AbsoluteRect.LowerRightCorner.X - RelativeRect.LowerRightCorner.X;
+	s32 offsetY = AbsoluteRect.LowerRightCorner.Y - RelativeRect.LowerRightCorner.Y;
+	core::vector2d<s32> absoluteCentre(
+		centre.X + offsetX,
+		centre.Y + offsetY
+	);
+
+	// 4) Draw the circular face
+	Environment->getVideoDriver()
+		->draw2DPolygon(absoluteCentre, radius, dialCol, 30);
+
+	SliderRect = AbsoluteRect;
+	//RADAR SCROLLDIAL CHANGE
+	// Tick + number scale around the sweep (same colour as the dial, drawn on the empty interior)
+	if (showScale)
+	{
+		auto driver = Environment->getVideoDriver();
+		IGUIFont* font = Environment->getBuiltInFont();
+		const s32 totalMinor = scaleMajor * scaleMinorPerMajor;
+		for (s32 t = 0; t <= totalMinor; ++t)
+		{
+			f32 frac = (f32)t / (f32)totalMinor;
+			f32 ang = frac * (f32)maxAngle * core::DEGTORAD; // 0 = up, clockwise (matches the needle)
+			f32 sa = sin(ang), ca = cos(ang);
+			bool major = (t % scaleMinorPerMajor == 0);
+			f32 rIn = major ? radius * 0.74f : radius * 0.86f;
+			driver->draw2DLine(
+				core::vector2d<s32>(absoluteCentre.X + (s32)(rIn * sa), absoluteCentre.Y - (s32)(rIn * ca)),
+				core::vector2d<s32>(absoluteCentre.X + (s32)(radius * sa), absoluteCentre.Y - (s32)(radius * ca)),
+				dialCol);
+			if (major && font)
+			{
+				s32 val = Min + (s32)(frac * (f32)(Max - Min) + 0.5f);
+				core::stringw label(val);
+				core::dimension2du ts = font->getDimension(label.c_str());
+				s32 lx = absoluteCentre.X + (s32)(radius * 0.52f * sa);
+				s32 ly = absoluteCentre.Y - (s32)(radius * 0.52f * ca);
+				font->draw(label.c_str(),
+					core::rect<s32>(lx - (s32)ts.Width / 2, ly - (s32)ts.Height / 2, lx + (s32)ts.Width / 2, ly + (s32)ts.Height / 2),
+					dialCol, false, false, 0);
+			}
+		}
+	}
+	//CHANGES 5) Draw the needle if there's any range
+	if (core::isnotzero(range()))
+	{
+		// Calculate endpoint of the needle
+		core::vector2d<s32> endPoint;
+		endPoint.X = absoluteCentre.X + (s32)(radius * sin(DrawAngle));
+		endPoint.Y = absoluteCentre.Y - (s32)(radius * cos(DrawAngle));
+
+		auto driver = Environment->getVideoDriver();
+		if (LineThickness <= 1)
+		{
+			// simple 1px line
+			driver->draw2DLine(absoluteCentre, endPoint, dialCol);
+		}
+		else
+		{
+			// fake thickness by drawing multiple horizontal offsets
+			s32 half = (LineThickness - 1) / 2;
+			for (s32 dx = -half; dx <= half; ++dx)
+				driver->draw2DLine(
+					{ absoluteCentre.X + dx, absoluteCentre.Y },
+					{ endPoint.X + dx, endPoint.Y }, dialCol);
+		}
+
+	}
+}
+/*Original code ! draws the element and its children
+void ScrollDial::draw()
+{
+
+	if (!IsVisible)
+		return;
+
+
+    IGUISkin* skin = Environment->getSkin();
+    u32 skinAlpha = 255;
+    if (skin) {
+        skinAlpha = skin->getColor(gui::EGDC_3D_FACE).getAlpha();
+    }
+
+    s32 offsetX = AbsoluteRect.LowerRightCorner.X - RelativeRect.LowerRightCorner.X;
+    s32 offsetY = AbsoluteRect.LowerRightCorner.Y - RelativeRect.LowerRightCorner.Y;
+
+    core::vector2d<s32> absoluteCentre(centre.X + offsetX, centre.Y + offsetY);
+
+	Environment->getVideoDriver()->draw2DPolygon(absoluteCentre,radius,video::SColor(skinAlpha,0,0,0),30);
+
+	SliderRect = AbsoluteRect;
+
+	if ( core::isnotzero ( range() ) )
+	{
+		//Draw from centre
+		core::vector2d<s32> endPoint;
+		endPoint.X = absoluteCentre.X + radius*sin(DrawAngle);
+		endPoint.Y = absoluteCentre.Y - radius*cos(DrawAngle);
+
+		Environment->getVideoDriver()->draw2DLine(absoluteCentre,endPoint,video::SColor(skinAlpha,0,0,0));
+	}
+
+	// Display value on scroll dial
+	if (showValue) {
+		if (Environment->getHovered() == this) {
+			if (skin) {
+				irr::gui::IGUIFont* font = skin->getFont();
+				if (font) {
+					font->draw(irr::core::stringw(Pos),AbsoluteRect,video::SColor(skinAlpha,0,0,0),true,true,&AbsoluteRect);
+				}
+			}
+		}
+	}
+
+}*/
+
+
+void ScrollDial::updateAbsolutePosition()
+{
+	IGUIElement::updateAbsolutePosition();
+	// todo: properly resize
+//	refreshControls();
+	setPos ( Pos );
+}
+
+//!
+s32 ScrollDial::getPosFromMousePos(const core::position2di &pos) const
+{
+	//Get the angle (range 0-315 degrees), and convert into output position
+	s32 offsetX = AbsoluteRect.LowerRightCorner.X - RelativeRect.LowerRightCorner.X;
+    s32 offsetY = AbsoluteRect.LowerRightCorner.Y - RelativeRect.LowerRightCorner.Y;
+
+    s32 relX = pos.X - centre.X - offsetX;
+    s32 relY = pos.Y - centre.Y - offsetY;
+
+    f32 angle = atan2(relX,-1.0*relY)*core::RADTODEG;
+    while (angle<0) {angle+=360;} //As atan2 gives -pi to +pi
+    if (angle > thresholdAngle) {
+		//Closer to 0 than to max
+		angle=0;
+	} else if (angle > maxAngle) {
+		//Above max
+		angle=maxAngle;
+	} 
+    f32 proportion = angle/maxAngle;
+    return (s32) (proportion * range()) + Min;
+}
+
+
+//! sets the position of the scrollbar
+void ScrollDial::setPos(s32 pos)
+{
+	Pos = core::s32_clamp ( pos, Min, Max );
+
+	f32 f = RelativeRect.getHeight()/ range();
+
+    DrawPos = (s32)(( Pos - Min ) * f);
+    DrawAngle = (Pos-Min) * maxAngle / range() * core::DEGTORAD; //0-315 degrees for display
+    DrawHeight = RelativeRect.getWidth();
+
+
+}
+
+
+//! gets the small step value
+s32 ScrollDial::getSmallStep() const
+{
+	return SmallStep;
+}
+
+
+//! sets the small step value
+void ScrollDial::setSmallStep(s32 step)
+{
+	if (step > 0)
+		SmallStep = step;
+	else
+		SmallStep = 10;
+}
+
+
+//! gets the small step value
+s32 ScrollDial::getLargeStep() const
+{
+	return LargeStep;
+}
+
+
+//! sets the small step value
+void ScrollDial::setLargeStep(s32 step)
+{
+	if (step > 0)
+		LargeStep = step;
+	else
+		LargeStep = 50;
+}
+
+
+//! gets the maximum value of the scrollbar.
+s32 ScrollDial::getMax() const
+{
+	return Max;
+}
+
+
+//! sets the maximum value of the scrollbar.
+void ScrollDial::setMax(s32 max)
+{
+	Max = max;
+	if ( Min > Max )
+		Min = Max;
+
+//	bool enable = core::isnotzero ( range() );
+	setPos(Pos);
+}
+
+//! gets the minimum value of the scrollbar.
+s32 ScrollDial::getMin() const
+{
+	return Min;
+}
+
+
+//! sets the minimum value of the scrollbar.
+void ScrollDial::setMin(s32 min)
+{
+	Min = min;
+	if ( Max < Min )
+		Max = Min;
+
+
+//	bool enable = core::isnotzero ( range() );
+	setPos(Pos);
+}
+
+
+//! gets the current position of the scrollbar
+s32 ScrollDial::getPos() const
+{
+	return Pos;
+}
+
+
+//! Sets whether to draw a background color (EGDC_SCROLLBAR)
+/** Ignored */
+void ScrollDial::setDrawBackground(bool draw)
+{
+
+}
+
+//! Checks if a background is drawn
+/** Ignored */
+bool ScrollDial::isDrawBackgroundEnabled() const
+{
+	return false;
+}
+
+//! Access the up (vertical) or left (horizontal) button
+/** \return null, as no button exists for this type of scroll bar */
+IGUIButton* ScrollDial::getUpLeftButton() const
+{
+	return 0;
+}
+
+//! Access the right (vertical) or down (horizontal) button
+/** \return null, as no button exists for this type of scroll bar */
+IGUIButton* ScrollDial::getDownRightButton() const
+{
+	return 0;
+}
+
+/*
+
+
+
+
+/*
+//! refreshes the position and text on child buttons
+void ScrollDial::refreshControls()
+{
+	CurrentIconColor = video::SColor(255,255,255,255);
+
+	IGUISkin* skin = Environment->getSkin();
+
+	if (skin)
+	{
+		CurrentIconColor = skin->getColor(isEnabled() ? EGDC_WINDOW_SYMBOL : EGDC_GRAY_WINDOW_SYMBOL);
+	}
+
+	if (Horizontal)
+	{
+		s32 h = RelativeRect.getHeight();
+	}
+	else
+	{
+		s32 w = RelativeRect.getWidth();
+	}
+}
+*/
+
+/*
+//! Writes attributes of the element.
+void ScrollDial::serializeAttributes(io::IAttributes* out, io::SAttributeReadWriteOptions* options=0) const
+{
+	IGUIScrollBar::serializeAttributes(out,options);
+
+	out->addBool("Horizontal",	Horizontal);
+	out->addInt ("Value",		Pos);
+	out->addInt ("Min",			Min);
+	out->addInt ("Max",			Max);
+	out->addInt ("SmallStep",	SmallStep);
+	out->addInt ("LargeStep",	LargeStep);
+	// CurrentIconColor - not serialized as continuiously updated
+}
+
+
+//! Reads attributes of the element
+void ScrollDial::deserializeAttributes(io::IAttributes* in, io::SAttributeReadWriteOptions* options=0)
+{
+	IGUIScrollBar::deserializeAttributes(in,options);
+
+	Horizontal = in->getAttributeAsBool("Horizontal");
+	setMin(in->getAttributeAsInt("Min"));
+	setMax(in->getAttributeAsInt("Max"));
+	setPos(in->getAttributeAsInt("Value"));
+	setSmallStep(in->getAttributeAsInt("SmallStep"));
+	setLargeStep(in->getAttributeAsInt("LargeStep"));
+	// CurrentIconColor - not serialized as continuiously updated
+
+	refreshControls();
+}
+*/
+
+} // end namespace gui
+} // end namespace irr
+

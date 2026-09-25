@@ -1,0 +1,84 @@
+/*   Bridge Command 5.0 Ship Simulator
+     Copyright (C) 2014 James Packer
+
+     This program is free software; you can redistribute it and/or modify
+     it under the terms of the GNU General Public License version 2 as
+     published by the Free Software Foundation
+
+     This program is distributed in the hope that it will be useful,
+     but WITHOUT ANY WARRANTY; without even the implied warranty of
+     MERCHANTABILITY Or FITNESS For A PARTICULAR PURPOSE.  See the
+     GNU General Public License For more details.
+
+     You should have received a copy of the GNU General Public License along
+     with this program; if not, write to the Free Software Foundation, Inc.,
+     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
+
+#ifndef __OTHERSHIPS_HPP_INCLUDED__
+#define __OTHERSHIPS_HPP_INCLUDED__
+
+#include "irrlicht.h"
+
+#include <vector>
+#include <string>
+
+#include "Leg.hpp"
+#include "OperatingModeEnum.hpp"
+
+     //Forward declarations
+class SimulationModel;
+class OtherShip;
+struct RadarData;
+class OtherShipData;
+
+class OtherShips
+{
+public:
+    void setTowState(int number, bool active, irr::f32 x, irr::f32 z, irr::f32 hdg);
+    void setCasualty(int number, bool active); // Kyara FIRE
+    bool getUnderTow(int number) const;
+    OtherShips();
+    ~OtherShips();
+    void load(std::vector<OtherShipData> otherShipsData, irr::f32 scenarioStartTime, OperatingMode::Mode mode, irr::scene::ISceneManager* smgr, SimulationModel* model, irr::IrrlichtDevice* dev);
+    void update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHeight, irr::u32 lightLevel, irr::core::vector3df ownShipPosition, irr::f32 ownShipLength);
+    RadarData getRadarData(irr::u32 number, irr::core::vector3df scannerPosition) const;
+    irr::u32 getNumber() const;
+    irr::core::vector3df getPosition(int number) const;
+    irr::f32 getLength(int number) const;
+    irr::f32 getBreadth(int number) const;
+    irr::f32 getHeading(int number) const;
+    irr::f32 getSpeed(int number) const; //Speed in m/s
+    irr::u32 getMMSI(int number) const;
+    irr::f32 getEstimatedDisplacement(int number) const;
+    void setSpeed(int number, irr::f32 speed); //Speed in m/s
+    void setMMSI(int number, irr::u32 mmsi);
+    void setPos(int number, irr::f32 positionX, irr::f32 positionZ);
+    void setHeading(int number, irr::f32 hdg);
+    void setRateOfTurn(int number, irr::f32 rateOfTurn);
+    std::vector<Leg> getLegs(int number) const;
+    void changeLeg(int shipNumber, int legNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
+    void addLeg(int shipNumber, int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
+    void deleteLeg(int shipNumber, int legNumber, irr::f32 scenarioTime);
+    void resetLegs(int shipNumber, irr::f32 course, irr::f32 speedKts, irr::f32 distanceNm, irr::f32 scenarioTime);
+    std::string getName(int number) const;
+    void moveNode(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ);
+    void enableAllTriangleSelectors();
+    irr::scene::ISceneNode* getSceneNode(int number);
+    //FIREFIGHTING
+    bool isFireFightingVessel(int number) const;   // Kyara FIRE
+    void startSinking(int number);                 // Kyara FIRE (escalation)
+    bool isSunk(int number) const;                 // Kyara FIRE (escalation)
+    // AUTO RESCUE
+    void setScriptedPose(int number, irr::f32 x, irr::f32 z, irr::f32 hdg, irr::f32 spd); // Kyara SAR
+    int  findByName(const std::string& shipName) const;   // Kyara SAR: -1 if not present
+    //KYARA FEUX: the instructor sets what each vessel is doing, and her lights follow
+    void setLightSituation(int number, int situation);
+    int getLightSituation(int number);
+    void setDeckLights(int number, bool on);
+
+private:
+    std::vector<OtherShip*> otherShips;
+    SimulationModel* model;
+};
+
+#endif

@@ -1,0 +1,2 @@
+Each picture should be named with the same exact boat folder, and should be PNG 
+and should be 4:3 aspect ratio (800x600 pixels) 

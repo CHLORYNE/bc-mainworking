@@ -1,0 +1,62 @@
+# ------------------------------------------------------------
+# Build / compiler artifacts
+# ------------------------------------------------------------
+
+*.o
+*.d
+*.a
+*.depend
+*.layout
+*.cscope_file_list
+*~
+*.tlog
+*.log
+*.pdb
+*.iobj
+*.ipdb
+*.kdev4
+
+build/
+cmake-build-*/
+.vs/
+.vscode/
+
+# CodeBlocks generated files
+*.cbp.user
+*.workspace.layout
+
+# Visual Studio generated files
+Debug/
+Release/
+x64/
+x86/
+
+# ------------------------------------------------------------
+# OS files
+# ------------------------------------------------------------
+
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------
+# Git
+# ------------------------------------------------------------
+
+# Do NOT use .*
+# It would hide .github and other useful project files.
+
+# ------------------------------------------------------------
+# Irrlicht generated/build files
+# ------------------------------------------------------------
+
+src/libs/Irrlicht/irrlicht-svn/lib/Linux/
+src/libs/Irrlicht/irrlicht-svn/source/Irrlicht/src/
+src/libs/Irrlicht/irrlicht-svn/source/Irrlicht/tmp/
+
+# ------------------------------------------------------------
+# Temporary files
+# ------------------------------------------------------------
+
+*.tmp
+*.bak
+bin/Models/

@@ -1,0 +1,5 @@
+/* Visual Studio Settings File */
+{
+  "debugging.symbols.location.searchMicrosoftSymbolServer": true,
+  "debugging.general.justMyCode": false
+}
