@@ -99,7 +99,7 @@ set(BC_SOURCES
     Swell.cpp
     Splash.cpp
     ScreenSpray.cpp
-    Shiplights.cpp
+    ShipLights.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     BCTerrainSceneNode.cpp
