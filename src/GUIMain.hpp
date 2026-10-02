@@ -34,6 +34,7 @@
 
 // Forward declarations
 class SimulationModel;
+class ConsoleWindow;
 
 struct GUIData {
     irr::f32 radarOffsetX, radarOffsetY;
@@ -285,10 +286,26 @@ public:
         GUI_ID_INSTR_LIGHTS_0,                                                // 0 off, 1 dim, 2 bright
         GUI_ID_INSTR_LIGHTS_END = GUI_ID_INSTR_LIGHTS_0 + 3,
         GUI_ID_OWN_DECK_LIGHTS_CHECKBOX = GUI_ID_INSTR_LIGHTS_END,
+        GUI_ID_DETACH_CONSOLE_BUTTON, //instrument console in its own window (second screen)
 
     };
 
     bool getShowInterface() const;
+    //True when the 3D view only fills the top of the screen (2D interface shown with the console
+    //below it). False when the 3D view fills the screen - interface hidden, or console detached.
+    bool getCompact3dView() const;
+
+    //Instrument console in a separate window, so it can go on another screen and leave the whole
+    //main screen to the bridge view. The window's place is remembered for the next session.
+    void toggleConsoleDetached();
+    bool isConsoleDetached() const { return consoleDetached; }
+    //Call once per frame, after the main window's endScene(): handles the console window's input and
+    //draws it. Restores the driver's screen size for the main window before returning.
+    void renderDetachedConsole();
+    //Pass to the main window's beginScene() (switches the OpenGL context back from the console window).
+    const irr::video::SExposedVideoData& getMainVideoData() const;
+    //Saves the console window placement and puts the console back. Call before the device is dropped.
+    void shutdownConsoleWindow();
     bool getSmallRadarEnabled() const; //kyara: false when the instrument console replaces the small radar
     //kyara
     void togglePrimaryControls();
@@ -485,6 +502,36 @@ private:
     //KYARA: instrument console (replaces the text data box, heading tape and small radar in the normal view)
     irr::gui::GUIInstrumentPanel* instrumentPanel = 0;
     bool instrumentsEnabled = true;       //bc5.ini classic_panel=1 turns it off
+
+    //Detached console: the panel and its status column (RADAR, pumps, ack) are moved under
+    //consoleHost - a parentless element, so they leave the main GUI tree - and drawn in consoleWindow.
+    ConsoleWindow* consoleWindow = 0;
+    irr::gui::IGUIElement* consoleHost = 0;
+    bool consoleDetached = false;
+    bool consoleWindowUsed = false;                  //the OpenGL drawable has been switched at least once
+    irr::core::rect<irr::s32> consolePanelAttachedRect;
+    irr::core::rect<irr::s32> consoleStatusAttachedRect[4]; //RADAR, pump 1, pump 2, ack
+    irr::core::dimension2du consoleLaidOutSize;
+    irr::gui::IGUIElement* consoleInputTarget = 0;   //element under a button press in the console window
+    irr::gui::IGUIButton* detachConsoleButton = 0;
+    irr::u32 consoleLastRenderMs = 0;
+    irr::u32 consoleFrameMs = 33;                    //console window refresh, ~30 Hz
+    irr::u32 consoleRenderCount = 0, consoleRateStartMs = 0, consoleRenderRate = 0;
+    irr::video::SExposedVideoData noVideoData;
+    std::string consoleFontName;                     //bc5.ini font, for bigger lettering in a big console window
+    irr::s32 consoleBaseFontSize = 12;
+    irr::s32 consoleBaseStatusW = 0;                 //status column width with the normal font
+    irr::f32 consoleAttachedGaugeD = 0;              //dial diameter on the main screen
+    void layoutDetachedConsole(const irr::core::dimension2du& size);
+    irr::s32 consoleStatusWidthFor(irr::gui::IGUIFont* font) const;
+    irr::s32 consolePlaceX = 80, consolePlaceY = 80;  //console window placement (consoleWindow.ini)
+    irr::u32 consolePlaceW = 0, consolePlaceH = 0;
+    void setConsoleDetached(bool detached);
+    void layoutConsoleStatusColumn();
+    void dispatchConsoleWindowInput();
+    void applyDetachedConsoleVisibility();
+    void saveConsolePlacement(bool detached);
+    irr::u32 mainWindowFPS() const;                  //driver FPS minus the console window's own frames
     bool instrumentExtraRPM = false;      //bc5.ini instrument_extra
     bool instrumentExtraWind = false;
     irr::f32 guiCOG = 0;                  //deg

@@ -76,7 +76,7 @@ GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::s
     // create the window with a Title Bar (making it draggable) and an ID
     generalDataWindow = guienv->addWindow(
         irr::core::rect<irr::s32>(0.01f * su, 0.01f * sh, 0.49f * su, 0.49f * sh),
-        false, L"Paramètres du Scénario", nullptr, GUI_ID_GENERAL_WINDOW);
+        false, L"Param\u00E8tres du Sc\u00E9nario", nullptr, GUI_ID_GENERAL_WINDOW);
     // REMOVED the setVisible(false) line so the top-right 'X' button appears!
 
     tabControl = guienv->addTabControl(

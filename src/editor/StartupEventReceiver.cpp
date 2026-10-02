@@ -178,7 +178,7 @@ void StartupEventReceiver::updateMapMetadata() {
             descFile.close();
         }
         else {
-            mapThumbText->addItem(L"Aucune description trouvée.");
+            mapThumbText->addItem(L"Aucune description trouv\u00E9e.");
         }
     }
 }
@@ -228,7 +228,7 @@ void StartupEventReceiver::updateScenarioMetadata() {
         snprintf(windSpdStr, sizeof(windSpdStr), "%.1f", windSpeed);
 
         metadataPanel->clear();
-        metadataPanel->addItem(L"--- Détails du Scénario ---");
+        metadataPanel->addItem(L"--- D\u00E9tails du Sc\u00E9nario ---");
 
         // MAP & TIME
         irr::core::stringw lineMap = L"Carte: ";
@@ -240,18 +240,18 @@ void StartupEventReceiver::updateScenarioMetadata() {
         //THIS ADDS SPACE metadataPanel->addItem(L"");
 
         // ENVIRONMENT
-        irr::core::stringw lineEnv = L"Météo: "; lineEnv += meteoStr; lineEnv += L"  |  Visibilité: "; lineEnv += visStr; lineEnv += L" Nm";
+        irr::core::stringw lineEnv = L"M\u00E9t\u00E9o: "; lineEnv += meteoStr; lineEnv += L"  |  Visibilit\u00E9: "; lineEnv += visStr; lineEnv += L" Nm";
         metadataPanel->addItem(lineEnv.c_str());
 
         // WIND (Removed @ symbol)
-        irr::core::stringw lineWind = L"Vent: "; lineWind += windSpdStr; lineWind += L" nds | Direction: "; lineWind += windDirStr; lineWind += L"°";
+        irr::core::stringw lineWind = L"Vent: "; lineWind += windSpdStr; lineWind += L" nds | Direction: "; lineWind += windDirStr; lineWind += L"\u00B0";
         metadataPanel->addItem(lineWind.c_str());
         metadataPanel->addItem(L"");
 
         // OWN SHIP (Added Cap)
         irr::core::stringw lineOwn = L"Votre Navire: ";
         lineOwn += utf8_to_wstring(ownShipName).c_str();
-        lineOwn += L" (Cap: "; lineOwn += ownCrsStr; lineOwn += L"° | Vitesse: "; lineOwn += ownSpdStr; lineOwn += L" nds)";
+        lineOwn += L" (Cap: "; lineOwn += ownCrsStr; lineOwn += L"\u00B0 | Vitesse: "; lineOwn += ownSpdStr; lineOwn += L" nds)";
         metadataPanel->addItem(lineOwn.c_str());
         metadataPanel->addItem(L"");
 
@@ -283,7 +283,7 @@ void StartupEventReceiver::updateScenarioMetadata() {
                 s1 += L" (MMSI: "; s1 += sMmsi.c_str(); s1 += L")";
                 metadataPanel->addItem(s1.c_str());
 
-                irr::core::stringw s2 = L"      Cap: "; s2 += sCrs.c_str(); s2 += L"° | Vitesse: "; s2 += sSpd.c_str(); s2 += L" nds";
+                irr::core::stringw s2 = L"      Cap: "; s2 += sCrs.c_str(); s2 += L"\u00B0 | Vitesse: "; s2 += sSpd.c_str(); s2 += L" nds";
                 metadataPanel->addItem(s2.c_str());
             }
         }
@@ -402,7 +402,7 @@ bool StartupEventReceiver::OnEvent(const irr::SEvent& event)
                     scenarioListBox->removeItem(selectedIdx);
                     // --- CLEARS THE PANEL AFTER DELETION ---
                     metadataPanel->clear();
-                    metadataPanel->addItem(L"Sélectionnez un exercice pour voir les détails...");
+                    metadataPanel->addItem(L"S\u00E9lectionnez un exercice pour voir les d\u00E9tails...");
                 }
             }
         }

@@ -32,7 +32,36 @@
 
 #include <iostream> //for debugging
 #include <cmath> //For fmod
+#include <fstream>
 #include "IniFile.hpp"
+#include "ConsoleWindow.hpp"
+
+namespace {
+//Parent of the console's elements while the console is in its own window. It has no parent itself,
+//so the console is out of the main GUI tree: the main window's clicks can never reach it, and its
+//clicks (routed by GUIMain::dispatchConsoleWindowInput) never reach the main window's elements.
+//GUI events from the console's buttons go to the device's receiver, exactly as from the root.
+class ConsoleHostElement : public irr::gui::IGUIElement
+{
+public:
+    ConsoleHostElement(irr::gui::IGUIEnvironment* env, irr::IrrlichtDevice* dev, const irr::core::rect<irr::s32>& r)
+        : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, 0, -1, r), device(dev) {}
+    virtual bool OnEvent(const irr::SEvent& event)
+    {
+        if (event.EventType == irr::EET_GUI_EVENT && device->getEventReceiver()) {
+            return device->getEventReceiver()->OnEvent(event);
+        }
+        return false;
+    }
+private:
+    irr::IrrlichtDevice* device;
+};
+
+std::string consolePlacementFile()
+{
+    return Utilities::getUserDir() + "consoleWindow.ini";
+}
+} // namespace
 
 //using namespace irr;
 //KYARA: maritime formatting helpers for the instructor console readouts.
@@ -585,6 +614,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             }
         }
         instrumentPanel->setStatusColumnWidth(scW);
+        consolePanelAttachedRect = panelPos;
+        consoleBaseStatusW = scW;
+        consoleAttachedGaugeD = instrumentPanel->getGaugeDiameter();
+        consoleFontName = IniFile::iniFileToString(iniFilename, "font");
+        const irr::f32 fontScale = IniFile::iniFileTof32(iniFilename, "font_scale");
+        if (fontScale > 0) { consoleBaseFontSize = (irr::s32)(12 * fontScale + 0.5f); }
     }
     //Row i (0..3) of the status column: 0 = RADAR, 1 = pump 1, 2 = pump 2, 3 = Acquitter.
     //Only called when instrumentPanel exists.
@@ -1106,7 +1141,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         irr::core::rect<irr::s32>(0.46 * su + azimuthGUIOffsetL, 0.92 * sh,
             0.52 * su + azimuthGUIOffsetL, 0.95 * sh),
         true, 0, GUI_ID_LIGHTING_TIME_BOX);
-    lightingTimeBox->setToolTipText(L"Heure d'éclairage (HH:MM)");
+    lightingTimeBox->setToolTipText(L"Heure d'\u00E9clairage (HH:MM)");
     //Add an additional window for lines (will normally be hidden)
  //=============================================================================================
  //KYARA: AMARRES WINDOW - SIZED FROM THE TRANSLATED TEXT, NOT FROM su/sh.
@@ -1357,9 +1392,16 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     largeRadarControls = new irr::gui::IGUIRectangle(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(radarTL.X + 0.770 * radarSu, radarTL.Y + 0.020 * radarSu, radarTL.X + 0.980 * radarSu, radarTL.Y + 0.730 * radarSu));
     largeRadarPIControls = new irr::gui::IGUIRectangle(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(radarTL.X + 0.550 * radarSu, radarTL.Y + 0.020 * radarSu, radarTL.X + 0.770 * radarSu, radarTL.Y + 0.200 * radarSu), false);
     // SCROLL DIAL SIZE CHANGE
-    radarGainScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.040 * radarSu, 0.040 * radarSu), 0.026 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_GAIN_SCROLL_BAR);
-    radarClutterScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.105 * radarSu, 0.040 * radarSu), 0.026 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_CLUTTER_SCROLL_BAR);
-    radarRainScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.170 * radarSu, 0.040 * radarSu), 0.026 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_RAIN_SCROLL_BAR);
+    radarGainScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.040 * radarSu, 0.040 * radarSu), 0.030 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_GAIN_SCROLL_BAR);
+    radarClutterScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.105 * radarSu, 0.040 * radarSu), 0.030 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_CLUTTER_SCROLL_BAR);
+    radarRainScrollbar2 = new irr::gui::ScrollDial(irr::core::vector2d<irr::s32>(0.170 * radarSu, 0.040 * radarSu), 0.030 * radarSu, guienv, largeRadarControls, GUI_ID_RADAR_RAIN_SCROLL_BAR);
+    //Console rotary knobs (grab and turn, or mouse wheel), amber like the radar picture.
+    static_cast<irr::gui::ScrollDial*>(radarGainScrollbar2)->setKnobStyle(true);
+    static_cast<irr::gui::ScrollDial*>(radarClutterScrollbar2)->setKnobStyle(true);
+    static_cast<irr::gui::ScrollDial*>(radarRainScrollbar2)->setKnobStyle(true);
+    radarGainScrollbar2->setToolTipText(L"Gain : saisir et tourner, ou molette");
+    radarClutterScrollbar2->setToolTipText(L"Anti-clutter mer : saisir et tourner, ou molette");
+    radarRainScrollbar2->setToolTipText(L"Anti-clutter pluie : saisir et tourner, ou molette");
 
     static_cast<irr::gui::ScrollDial*>(radarGainScrollbar2)->setShowScale(true);
     static_cast<irr::gui::ScrollDial*>(radarClutterScrollbar2)->setShowScale(true);
@@ -1371,10 +1413,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //CHANGE COLOR OF RADAR COLOR
         //THE TEXT
     irr::gui::IGUIStaticText* gainLabel = guienv->addStaticText(
-        language->translate("gain").c_str(),
+        L"GAIN",
         irr::core::rect<irr::s32>(
-            0.010f * radarSu, 0.070f * radarSu,
-            0.070f * radarSu, 0.100f * radarSu
+            0.010f * radarSu, 0.071f * radarSu,
+            0.070f * radarSu, 0.093f * radarSu
         ),
         false,   // border
         true,    // background
@@ -1382,29 +1424,29 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     );
 
     gainLabel->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    gainLabel->setOverrideColor(irr::video::SColor(255, 255, 255, 255));
+    gainLabel->setOverrideColor(irr::video::SColor(255, 214, 218, 224));
 
 
     //CLUTTER LABEL COLOR
     irr::gui::IGUIStaticText* clutterLabel = guienv->addStaticText(
-        language->translate("clutter").c_str(),
+        L"MER",
         irr::core::rect<irr::s32>(
-            0.075 * radarSu, 0.070 * radarSu,
-            0.135 * radarSu, 0.100 * radarSu),
+            0.075 * radarSu, 0.071 * radarSu,
+            0.135 * radarSu, 0.093 * radarSu),
         false, true,
         largeRadarControls);
     clutterLabel->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    clutterLabel->setOverrideColor(irr::video::SColor(255, 255, 255, 255));
+    clutterLabel->setOverrideColor(irr::video::SColor(255, 214, 218, 224));
 
     //RAIN LABEL COLOR
-    irr::gui::IGUIStaticText* rainLabel = guienv->addStaticText(language->translate("rain").c_str(),
+    irr::gui::IGUIStaticText* rainLabel = guienv->addStaticText(L"PLUIE",
         irr::core::rect<irr::s32>(
-            0.140 * radarSu, 0.070 * radarSu,
-            0.200 * radarSu, 0.100 * radarSu),
+            0.140 * radarSu, 0.071 * radarSu,
+            0.200 * radarSu, 0.093 * radarSu),
         false, true,
         largeRadarControls);
     rainLabel->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    rainLabel->setOverrideColor(irr::video::SColor(255, 255, 255, 255));
+    rainLabel->setOverrideColor(irr::video::SColor(255, 214, 218, 224));
 
 
 
@@ -1465,7 +1507,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // Rangée B — portée + anneaux
     addRadarBtn(cell(0, 1, 0.132f, GRH), GUI_ID_RADAR_INCREASE_BUTTON, language->translate("increaserange").c_str(), accBtn);
     addRadarBtn(cell(1, 1, 0.132f, GRH), GUI_ID_RADAR_DECREASE_BUTTON, language->translate("decreaserange").c_str(), accBtn);
-    rangeRingsButton2 = addRadarBtn(cell(2, 1, 0.132f, GRH), GUI_ID_RADAR_RANGE_RINGS_BUTTON, L"Range Rng", accBtn);
+    rangeRingsButton2 = addRadarBtn(cell(2, 1, 0.132f, GRH), GUI_ID_RADAR_RANGE_RINGS_BUTTON, L"Anneaux", accBtn);
 
     // Rangée C — touches à bascule (remplacent les listes déroulantes)
     arpaModeButton2 = addRadarBtn(cell(0, 1, 0.160f, GRH), GUI_ID_BIG_ARPA_MODE_BUTTON, L"ARPA: Man", accSoft);
@@ -1484,8 +1526,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     eblDownButton2 = addRadarBtn(cell(1, 1, EY + 2 * EP, GRH), GUI_ID_RADAR_EBL_DOWN_BUTTON, language->translate("eblDown").c_str(), accBtn);
     vrmColourButton2 = addRadarBtn(cell(2, 1, EY + 2 * EP, GRH), GUI_ID_RADAR_VRM_COLOUR_BUTTON, L"Coul. VRM", accBtn);
     guardAlarmButton2 = addRadarBtn(cell(0, 2, EY + 3 * EP, GRH), GUI_ID_RADAR_GUARD_ALARM_BUTTON, L"Alarme", accBtn);
-    echoStretchButton2 = addRadarBtn(cell(2, 1, EY + 3 * EP, GRH), GUI_ID_RADAR_ECHO_STRETCH_BUTTON, L"Écho", accBtn); //kyara: cellule libre de la grille
-    //offCentreButton2 = addRadarBtn(cell(2, 1, EY + 4 * EP, GRH), GUI_ID_RADAR_OFFCENTRE_BUTTON, L"Décentr.", accBtn); //kyara: décentrage
+    echoStretchButton2 = addRadarBtn(cell(2, 1, EY + 3 * EP, GRH), GUI_ID_RADAR_ECHO_STRETCH_BUTTON, L"\u00C9cho", accBtn); //kyara: cellule libre de la grille
+    //offCentreButton2 = addRadarBtn(cell(2, 1, EY + 4 * EP, GRH), GUI_ID_RADAR_OFFCENTRE_BUTTON, L"D\u00E9centr.", accBtn); //kyara: décentrage
+    offCentreButton2 = 0; //not shown (line above); updateGuiData still highlights it, so it must be null, not garbage
 
     // Radar cursor buttons
     radarCursorLeftButton2 = guienv->addButton(irr::core::rect<irr::s32>(radarTL.X + 0.670 * radarSu, radarTL.Y + 0.640 * radarSu, radarTL.X + 0.700 * radarSu, radarTL.Y + 0.670 * radarSu), 0, GUI_ID_RADAR_DECREASE_X_BUTTON, L"<");
@@ -1694,6 +1737,17 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //Show internal log window button
     pcLogButton = guienv->addButton(irr::core::rect<irr::s32>(0.375 * su + azimuthGUIOffsetL, 0.92 * sh, 0.39 * su + azimuthGUIOffsetL, 0.95 * sh), 0, GUI_ID_SHOW_LOG_BUTTON, language->translate("log").c_str());
 
+    //Instrument console in its own window (second screen). Sized from its label, in the gap before
+    //the lighting time box.
+    if (instrumentPanel) {
+        irr::gui::IGUIFont* dcFont = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
+        const irr::s32 dcW = dcFont ? (irr::s32)dcFont->getDimension(L"Rattacher").Width + 24 : (irr::s32)(0.06 * su);
+        const irr::s32 dcX = (irr::s32)(0.39 * su + azimuthGUIOffsetL) + 6;
+        detachConsoleButton = guienv->addButton(irr::core::rect<irr::s32>(dcX, (irr::s32)(0.92 * sh), dcX + dcW, (irr::s32)(0.95 * sh)),
+            0, GUI_ID_DETACH_CONSOLE_BUTTON, L"D\u00E9tacher");
+        detachConsoleButton->setToolTipText(L"Instruments dans une fen\u00EAtre s\u00E9par\u00E9e, \u00E0 placer sur un autre \u00E9cran");
+    }
+
     // --- TOGGLE CONTROLS: top-left of large radar screen (clear of the circular display) ---
     // ARPA Buoys / Buoy Trails moved here from the bottom block below, since at the
     // bottom of the radar box the circle's curve extends far enough left to sit underneath
@@ -1706,22 +1760,22 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //kyara - to control position for toggle controls
         irr::s32 cbY = radarTL.Y + (irr::s32)(0.040f * radarSu);
 
-        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY, cbX + cbW, cbY + cbH), 0, GUI_ID_RADAR_ARPA_BUOYS_CHECKBOX, L"ARPA Buoys");
+        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY, cbX + cbW, cbY + cbH), 0, GUI_ID_RADAR_ARPA_BUOYS_CHECKBOX, L"Bou\u00E9es ARPA");
 
         //kyara: cases + combos couleur déplacés ici depuis le bas
-        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + cbPad, cbX + cbW, cbY + cbPad + cbH), 0, GUI_ID_RADAR_SHIP_TRAILS_CHECKBOX, L"Boat Trails");
-        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + 2 * cbPad, cbX + cbW, cbY + 2 * cbPad + cbH), 0, GUI_ID_RADAR_OWN_SHIP_TRAILS_CHECKBOX, L"Own Ship Trail");
-        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY + 3 * cbPad, cbX + cbW, cbY + 3 * cbPad + cbH), 0, GUI_ID_RADAR_MMSI_CHECKBOX, L"MMSI Numbers");
+        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + cbPad, cbX + cbW, cbY + cbPad + cbH), 0, GUI_ID_RADAR_SHIP_TRAILS_CHECKBOX, L"Traces navires");
+        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + 2 * cbPad, cbX + cbW, cbY + 2 * cbPad + cbH), 0, GUI_ID_RADAR_OWN_SHIP_TRAILS_CHECKBOX, L"Trace navire propre");
+        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY + 3 * cbPad, cbX + cbW, cbY + 3 * cbPad + cbH), 0, GUI_ID_RADAR_MMSI_CHECKBOX, L"Num\u00E9ros MMSI");
         irr::s32 cbWcol = (irr::s32)(0.080f * radarSu);
         irr::s32 cbHcol = (irr::s32)(0.020f * sh);
 
         irr::gui::IGUIComboBox* buoyColourBoxGlobal =
             guienv->addComboBox(irr::core::rect<irr::s32>((irr::s32)(0.010f * radarSu), (irr::s32)(0.655f * radarSu), (irr::s32)(0.150f * radarSu), (irr::s32)(0.678f * radarSu)), largeRadarControls, GUI_ID_RADAR_BUOY_COLOUR_BOX);
 
-        buoyColourBoxGlobal->addItem(L"Buoy: Yellow"); buoyColourBoxGlobal->addItem(L"Buoy: Cyan"); buoyColourBoxGlobal->addItem(L"Buoy: Green"); buoyColourBoxGlobal->addItem(L"Buoy: Red"); buoyColourBoxGlobal->addItem(L"Buoy: Magenta"); buoyColourBoxGlobal->addItem(L"Buoy: White"); buoyColourBoxGlobal->addItem(L"Buoy: Orange");
+        buoyColourBoxGlobal->addItem(L"Bou\u00E9es : jaune"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : cyan"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : vert"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : rouge"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : magenta"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : blanc"); buoyColourBoxGlobal->addItem(L"Bou\u00E9es : orange");
         buoyColourBoxGlobal->setSelected(1);
         irr::gui::IGUIComboBox* shipColourBoxGlobal = guienv->addComboBox(irr::core::rect<irr::s32>((irr::s32)(0.010f * radarSu), (irr::s32)(0.682f * radarSu), (irr::s32)(0.150f * radarSu), (irr::s32)(0.705f * radarSu)), largeRadarControls, GUI_ID_RADAR_SHIP_COLOUR_BOX);
-        shipColourBoxGlobal->addItem(L"Ship: Yellow"); shipColourBoxGlobal->addItem(L"Ship: Cyan"); shipColourBoxGlobal->addItem(L"Ship: Green"); shipColourBoxGlobal->addItem(L"Ship: Red"); shipColourBoxGlobal->addItem(L"Ship: Magenta"); shipColourBoxGlobal->addItem(L"Ship: White"); shipColourBoxGlobal->addItem(L"Ship: Orange");
+        shipColourBoxGlobal->addItem(L"Navires : jaune"); shipColourBoxGlobal->addItem(L"Navires : cyan"); shipColourBoxGlobal->addItem(L"Navires : vert"); shipColourBoxGlobal->addItem(L"Navires : rouge"); shipColourBoxGlobal->addItem(L"Navires : magenta"); shipColourBoxGlobal->addItem(L"Navires : blanc"); shipColourBoxGlobal->addItem(L"Navires : orange");
         shipColourBoxGlobal->setSelected(5);
     }
 
@@ -1731,7 +1785,23 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     updateVisibility();
     // Determine if primary controls should be visible
 
-
+    //Console window: put the console back where it was last session (its own window, if detached).
+    if (instrumentPanel) {
+        consoleStatusAttachedRect[0] = bigRadarButton->getRelativePosition();
+        consoleStatusAttachedRect[1] = pump1On->getRelativePosition();
+        consoleStatusAttachedRect[2] = pump2On->getRelativePosition();
+        consoleStatusAttachedRect[3] = ackAlarms->getRelativePosition();
+        const irr::u32 fps = IniFile::iniFileTou32(iniFilename, "console_window_fps");
+        if (fps > 0) { consoleFrameMs = 1000 / fps; }
+        const std::string placement = consolePlacementFile();
+        consolePlaceX = IniFile::iniFileTos32(placement, "X", consolePlaceX);
+        consolePlaceY = IniFile::iniFileTos32(placement, "Y", consolePlaceY);
+        consolePlaceW = IniFile::iniFileTou32(placement, "Width");
+        consolePlaceH = IniFile::iniFileTou32(placement, "Height");
+        if (IniFile::iniFileTou32(placement, "Detached") == 1) {
+            setConsoleDetached(true);
+        }
+    }
 }
 
 GUIMain::~GUIMain()
@@ -2115,6 +2185,13 @@ void GUIMain::updateVisibility()
         hideInSecondary();
     }
 
+    if (detachConsoleButton) {
+        detachConsoleButton->setVisible(showDisplayControls && showInterface);
+        detachConsoleButton->setText(consoleDetached ? L"Rattacher" : L"D\u00E9tacher");
+    }
+    if (consoleDetached) {
+        applyDetachedConsoleVisibility();
+    }
 }
 
 void GUIMain::hideInSecondary() {
@@ -2543,7 +2620,7 @@ void GUIMain::updateGuiData(GUIData* guiData)
         {
             int es = guiData->guiRadarEchoStretch;
             irr::video::SColor esCol = (es == 3) ? HL_RED : (es >= 1) ? HL_ORANGE : HL_NONE;
-            const wchar_t* esLbl = (es == 1) ? L"Echo 1" : (es == 2) ? L"Echo 2" : (es == 3) ? L"Echo 3" : L"Écho";
+            const wchar_t* esLbl = (es == 1) ? L"Echo 1" : (es == 2) ? L"Echo 2" : (es == 3) ? L"Echo 3" : L"\u00C9cho";
             setButtonHighlight(echoStretchButton2, esCol, esLbl);
             // Décentrage actif -> bouton orange (kyara)
             setButtonHighlight(offCentreButton2, (fabs(guiRadarOffsetX) > 0.001f || fabs(guiRadarOffsetY) > 0.001f) ? HL_ORANGE : HL_NONE);
@@ -2647,7 +2724,10 @@ void GUIMain::drawGUI()
     else if (showInterface && !getSmallRadarEnabled()) {
         //KYARA: console layout - no small radar, so paint the whole lower band. (Without this the
         //old radar hole shows the scene clear colour, since that viewport is no longer rendered.)
-        driver->draw2DRectangle(uiBgColor, irr::core::rect<irr::s32>(0, (irr::s32)(sh * VIEW_PROPORTION_3D), su, sh));
+        //With the console in its own window the bridge view fills the screen: nothing to paint.
+        if (!consoleDetached) {
+            driver->draw2DRectangle(uiBgColor, irr::core::rect<irr::s32>(0, (irr::s32)(sh * VIEW_PROPORTION_3D), su, sh));
+        }
     }
     else if (showInterface) {
         // Normal view mode: paint boxes around the small radar area on the bottom panel
@@ -2766,7 +2846,7 @@ void GUIMain::drawGUI()
         }
 
         displayText.append(language->translate("fps"));
-        displayText.append(irr::core::stringw(device->getVideoDriver()->getFPS()).c_str());
+        displayText.append(irr::core::stringw(mainWindowFPS()).c_str());
         displayText.append(L"\n");
 
         if (showTideHeight) {
@@ -2823,8 +2903,6 @@ void GUIMain::drawGUI()
     displayText.append(language->translate("deg"));
     displayText.append((guiRadarActiveEBL == 1) ? L" >EBL2 " : L"  EBL2 ");
     displayText.append(f32To1dp(displayEBLBearing[1]).c_str());
-    displayText.append(L"\nAlarme: ");
-    displayText.append((guiRadarGuardAlarmMode == 0) ? L"OFF" : (guiRadarGuardAlarmMode == 1) ? L"IN" : L"OUT");
     displayText.append(language->translate("deg"));
     if (guiRadarCursorRangeNm > 0) {
         displayText.append(" ");
@@ -2832,6 +2910,8 @@ void GUIMain::drawGUI()
         displayText.append(f32To2dp(displayCursorBearing).c_str());
         displayText.append(language->translate("deg"));
     }
+    displayText.append(L"\nAlarme : ");
+    displayText.append((guiRadarGuardAlarmMode == 0) ? L"OFF" : (guiRadarGuardAlarmMode == 1) ? L"IN" : L"OUT");
     radarText->setText(displayText.c_str());
     //kyara: grand radar - chaîne SANS curseur inline (le petit radar reste inchangé),
  //le curseur s'affiche sur ses deux lignes colorées dédiées.
@@ -2853,20 +2933,25 @@ void GUIMain::drawGUI()
         t2.append(language->translate("deg"));
         t2.append((guiRadarActiveEBL == 1) ? L" >EBL2 " : L"  EBL2 ");
         t2.append(f32To1dp(displayEBLBearing[1]).c_str());
-        t2.append(L"\nAlarme: ");
-        t2.append((guiRadarGuardAlarmMode == 0) ? L"OFF" : (guiRadarGuardAlarmMode == 1) ? L"IN" : L"OUT");
         t2.append(language->translate("deg"));
+        t2.append(L"\nAlarme : ");
+        t2.append((guiRadarGuardAlarmMode == 0) ? L"OFF" : (guiRadarGuardAlarmMode == 1) ? L"IN" : L"OUT");
         radarText2->setText(t2.c_str());
         //kyara: bloc données style Furuno (navire + curseur) dans radarPosText2
         {
             wchar_t ns[2] = { northSouth, 0 };
             wchar_t ew[2] = { eastWest, 0 };
+            //Own ship data the way a radar shows it: heading, position, then course and speed over ground.
+            wchar_t hdgBuf[16], cogBuf[16];
+            swprintf(hdgBuf, 16, L"%05.1f\u00B0", guiHeading < 0 ? guiHeading + 360.0f : guiHeading);
+            swprintf(cogBuf, 16, L"%03d\u00B0", ((int)(guiCOG + 0.5f) % 360 + 360) % 360);
             irr::core::stringw s = L"OWN SHIP\n";
+            s.append(L"HDG  "); s.append(hdgBuf); s.append(L"\n");
             s.append(L"LAT  "); s.append(irr::core::stringw((irr::s32)latDegrees)); s.append(L"\u00B0");
             s.append(f32To3dp(latMinutes).c_str()); s.append(L"'"); s.append(ns); s.append(L"\n");
             s.append(L"LON  "); s.append(irr::core::stringw((irr::s32)lonDegrees)); s.append(L"\u00B0");
             s.append(f32To3dp(lonMinutes).c_str()); s.append(L"'"); s.append(ew); s.append(L"\n");
-            s.append(L"SOG  "); s.append(f32To1dp(guiSpd).c_str()); s.append(L" kn");
+            s.append(L"COG  "); s.append(cogBuf); s.append(L"   SOG  "); s.append(f32To1dp(guiSOGKts).c_str()); s.append(L" kn");
 
             if (guiRadarCursorRangeNm > 0) {
                 wchar_t cns[2] = { (guiCursorLat >= 0) ? L'N' : L'S', 0 };
@@ -3203,7 +3288,7 @@ void GUIMain::drawGUI()
         d.rollDeg = guiRoll;   // KYARA HOULE
         d.timeMs = device->getTimer()->getTime(); // KYARA HOULE: peak markers
         d.timeText = irr::core::stringw(guiTime.c_str());
-        d.fps = (irr::u32)device->getVideoDriver()->getFPS();
+        d.fps = mainWindowFPS();
         d.paused = guiPaused;
         instrumentPanel->setData(d);
     }
@@ -3870,4 +3955,302 @@ irr::s32 GUIMain::adjustMagnification(irr::s32 delta)
     //setPos() clamps to the bar's min/max (10..200) for us.
     magnificationScrollbar->setPos(magnificationScrollbar->getPos() + delta);
     return magnificationScrollbar->getPos();
+}
+//=================================================================================================
+//Detachable instrument console
+//=================================================================================================
+
+bool GUIMain::getCompact3dView() const
+{
+    return showInterface && !consoleDetached;
+}
+
+const irr::video::SExposedVideoData& GUIMain::getMainVideoData() const
+{
+#ifdef _WIN32
+    return noVideoData;   //Irrlicht's WGL manager switches back to the main window by itself
+#else
+    return (consoleWindowUsed && consoleWindow) ? consoleWindow->mainVideoData() : noVideoData;
+#endif
+}
+
+irr::u32 GUIMain::mainWindowFPS() const
+{
+    //Every endScene() counts as a frame for the driver, the console window's included.
+    const irr::s32 fps = device->getVideoDriver()->getFPS();
+    const irr::s32 own = consoleDetached ? (irr::s32)consoleRenderRate : 0;
+    return (irr::u32)((fps > own) ? fps - own : fps);
+}
+
+void GUIMain::toggleConsoleDetached()
+{
+    setConsoleDetached(!consoleDetached);
+}
+
+void GUIMain::saveConsolePlacement(bool detached)
+{
+    if (consoleWindow && consoleWindow->isOpen()) {
+        consoleWindow->getPlacement(consolePlaceX, consolePlaceY, consolePlaceW, consolePlaceH);
+    }
+    std::ofstream f(consolePlacementFile().c_str());
+    if (!f) { return; }
+    f << "Detached=" << (detached ? 1 : 0) << std::endl;
+    f << "X=" << consolePlaceX << std::endl;
+    f << "Y=" << consolePlaceY << std::endl;
+    if (consolePlaceW > 0 && consolePlaceH > 0) {
+        f << "Width=" << consolePlaceW << std::endl;
+        f << "Height=" << consolePlaceH << std::endl;
+    }
+}
+
+void GUIMain::layoutConsoleStatusColumn()
+{
+    //Same rows as in load(): 0 = RADAR, 1 = pump 1, 2 = pump 2, 3 = Acquitter.
+    const irr::core::rect<irr::s32> col = instrumentPanel->getStatusColumnRect();
+    irr::core::position2di origin(0, 0);
+    if (instrumentPanel->getParent()) { origin = instrumentPanel->getParent()->getAbsolutePosition().UpperLeftCorner; }
+    const irr::s32 gapY = col.getHeight() / 20;
+    const irr::s32 rowH = (col.getHeight() - 3 * gapY) / 4;
+    irr::gui::IGUIElement* rows[4] = { bigRadarButton, pump1On, pump2On, ackAlarms };
+    for (int i = 0; i < 4; i++) {
+        if (!rows[i]) { continue; }
+        const irr::s32 top = col.UpperLeftCorner.Y + i * (rowH + gapY);
+        rows[i]->setRelativePosition(irr::core::rect<irr::s32>(col.UpperLeftCorner.X, top, col.LowerRightCorner.X, top + rowH) - origin);
+    }
+}
+
+irr::s32 GUIMain::consoleStatusWidthFor(irr::gui::IGUIFont* font) const
+{
+    //As in load(): as wide as the widest label, at least seven characters.
+    if (!font) { return consoleBaseStatusW; }
+    const irr::s32 ch = (irr::s32)font->getDimension(L"X").Height;
+    irr::s32 w = ch * 7;
+    irr::gui::IGUIElement* labels[4] = { bigRadarButton, pump1On, pump2On, ackAlarms };
+    for (int i = 0; i < 4; i++) {
+        if (!labels[i]) { continue; }
+        const irr::s32 lw = (irr::s32)font->getDimension(labels[i]->getText()).Width + 2 * ch;
+        if (lw > w) { w = lw; }
+    }
+    return w;
+}
+
+void GUIMain::layoutDetachedConsole(const irr::core::dimension2du& size)
+{
+    const irr::core::rect<irr::s32> all(0, 0, (irr::s32)size.Width, (irr::s32)size.Height);
+    consoleHost->setRelativePosition(all);
+
+    //First pass with the normal lettering: as many rows as make the dials biggest.
+    instrumentPanel->setOverrideFont(0);
+    instrumentPanel->setMaxRows(4);
+    instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
+    instrumentPanel->setRelativePosition(all);
+
+    //Lettering in proportion to the dials (from the main-screen size), within the fonts on disk.
+    irr::gui::IGUIFont* font = 0;
+    if (consoleAttachedGaugeD > 1.0f && !consoleFontName.empty()) {
+        //A little slower than the dials, so the big readouts (depth, heading) keep their room.
+        const irr::f32 ratio = instrumentPanel->getGaugeDiameter() / consoleAttachedGaugeD;
+        irr::s32 fontSize = (irr::s32)(consoleBaseFontSize * powf(ratio, 0.85f) + 0.5f);
+        if (fontSize > 30) { fontSize = 30; }
+        if (fontSize > consoleBaseFontSize) {
+            const std::string path = "media/fonts/" + consoleFontName + "/" + consoleFontName + "-" + std::to_string(fontSize) + ".xml";
+            font = guienv->getFont(path.c_str());
+        }
+    }
+    if (font) {
+        instrumentPanel->setOverrideFont(font);
+        instrumentPanel->setStatusColumnWidth(consoleStatusWidthFor(font));
+    }
+    bigRadarButton->setOverrideFont(font);
+    pump1On->setOverrideFont(font);
+    pump2On->setOverrideFont(font);
+    ackAlarms->setOverrideFont(font);
+    layoutConsoleStatusColumn();
+    consoleLaidOutSize = size;
+}
+
+void GUIMain::applyDetachedConsoleVisibility()
+{
+    //In the console window the panel and RADAR are always there; pumps and ack follow the station's
+    //role (a secondary station shows no ship controls).
+    const bool controls = !controlsHidden;
+    if (instrumentPanel) { instrumentPanel->setVisible(true); }
+    if (bigRadarButton) { bigRadarButton->setVisible(true); }
+    if (pump1On) { pump1On->setVisible(controls); }
+    if (pump2On) { pump2On->setVisible(controls); }
+    if (ackAlarms) { ackAlarms->setVisible(controls); }
+    //The console window shows heading and the ship's data: no need for the strip versions on the
+    //bridge view (they stay on the full-screen radar, which hides the rest).
+    if (!radarLarge) {
+        if (headingIndicator) { headingIndicator->setVisible(false); }
+        if (dataDisplay) { dataDisplay->setVisible(false); }
+    }
+}
+
+void GUIMain::setConsoleDetached(bool detached)
+{
+    if (!instrumentPanel || detached == consoleDetached) { return; }
+    irr::gui::IGUIElement* consoleElements[5] = { instrumentPanel, bigRadarButton, pump1On, pump2On, ackAlarms };
+
+    if (detached) {
+        if (!consoleWindow) { consoleWindow = new ConsoleWindow(); }
+        //Last place and size, or the console's own size on the main screen.
+        irr::u32 w = consolePlaceW;
+        irr::u32 h = consolePlaceH;
+        const irr::s32 x = consolePlaceX;
+        const irr::s32 y = consolePlaceY;
+        if (w < 200 || h < 80) {
+            w = (irr::u32)consolePanelAttachedRect.getWidth();
+            h = (irr::u32)consolePanelAttachedRect.getHeight();
+        }
+        if (!consoleWindow->open(device, L"NAUTITECH - Instruments", x, y, w, h)) {
+            std::cerr << "Could not open the instrument console window (OpenGL driver needed)." << std::endl;
+            return;
+        }
+        consoleWindowUsed = true;
+        consoleHost = new ConsoleHostElement(guienv, device, irr::core::rect<irr::s32>(0, 0, (irr::s32)w, (irr::s32)h));
+        for (int i = 0; i < 5; i++) {
+            if (consoleElements[i]) { consoleHost->addChild(consoleElements[i]); }
+        }
+        consoleDetached = true;
+        layoutDetachedConsole(irr::core::dimension2du(w, h));
+        consoleInputTarget = 0;
+        consoleRenderCount = 0;
+        consoleRenderRate = 0;
+        consoleRateStartMs = device->getTimer()->getRealTime();
+        saveConsolePlacement(true);
+    }
+    else {
+        saveConsolePlacement(false);
+        if (consoleInputTarget) { guienv->removeFocus(consoleInputTarget); }
+        consoleInputTarget = 0;
+        //Back into the main GUI tree, where they were.
+        irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+        for (int i = 0; i < 5; i++) {
+            if (consoleElements[i]) { root->addChild(consoleElements[i]); }
+        }
+        //Main-screen layout: one strip, normal lettering.
+        instrumentPanel->setOverrideFont(0);
+        bigRadarButton->setOverrideFont(0);
+        pump1On->setOverrideFont(0);
+        pump2On->setOverrideFont(0);
+        ackAlarms->setOverrideFont(0);
+        instrumentPanel->setMaxRows(1);
+        instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
+        instrumentPanel->setRelativePosition(consolePanelAttachedRect);
+        bigRadarButton->setRelativePosition(consoleStatusAttachedRect[0]);
+        pump1On->setRelativePosition(consoleStatusAttachedRect[1]);
+        pump2On->setRelativePosition(consoleStatusAttachedRect[2]);
+        ackAlarms->setRelativePosition(consoleStatusAttachedRect[3]);
+        if (consoleHost) {
+            consoleHost->drop();
+            consoleHost = 0;
+        }
+        if (consoleWindow) { consoleWindow->close(); }
+        consoleDetached = false;
+    }
+    updateVisibility();
+}
+
+void GUIMain::dispatchConsoleWindowInput()
+{
+    std::vector<irr::SEvent> events;
+    bool closeRequested = false;
+    consoleWindow->poll(events, closeRequested);
+    if (closeRequested) {
+        setConsoleDetached(false);   //closing the window puts the console back on the main screen
+        return;
+    }
+    //Straight to the element under the press - no hit testing by the GUI environment, which only
+    //knows the main window's elements.
+    for (size_t i = 0; i < events.size() && consoleDetached; i++) {
+        const irr::SEvent& e = events[i];
+        const irr::core::position2di p(e.MouseInput.X, e.MouseInput.Y);
+        switch (e.MouseInput.Event) {
+        case irr::EMIE_LMOUSE_PRESSED_DOWN:
+        case irr::EMIE_RMOUSE_PRESSED_DOWN: {
+            const bool left = (e.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN);
+            irr::gui::IGUIElement* target = 0;
+            irr::gui::IGUIButton* buttons[2] = { bigRadarButton, ackAlarms };
+            for (int b = 0; b < 2 && left; b++) {
+                if (buttons[b] && buttons[b]->isVisible() && buttons[b]->isEnabled() && buttons[b]->getAbsolutePosition().isPointInside(p)) {
+                    target = buttons[b];
+                }
+            }
+            if (!target && instrumentPanel->isPointInside(p)) { target = instrumentPanel; }   //rudder dial = helm
+            consoleInputTarget = target;
+            if (target) { target->OnEvent(e); }
+            break;
+        }
+        case irr::EMIE_MOUSE_MOVED:
+            if (consoleInputTarget) { consoleInputTarget->OnEvent(e); }
+            break;
+        case irr::EMIE_LMOUSE_LEFT_UP:
+        case irr::EMIE_RMOUSE_LEFT_UP:
+            if (consoleInputTarget) {
+                irr::gui::IGUIElement* target = consoleInputTarget;
+                consoleInputTarget = 0;
+                target->OnEvent(e);
+                //No keyboard focus left on the console: Space/Enter in the bridge view must not
+                //press its buttons.
+                if (consoleDetached) { guienv->removeFocus(target); }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void GUIMain::renderDetachedConsole()
+{
+    if (!consoleDetached || !consoleWindow) { return; }
+    dispatchConsoleWindowInput();
+    if (!consoleDetached) { return; }
+
+    const irr::u32 now = device->getTimer()->getRealTime();
+    if (now - consoleRateStartMs >= 1000) {
+        consoleRenderRate = consoleRenderCount * 1000 / (now - consoleRateStartMs);
+        consoleRenderCount = 0;
+        consoleRateStartMs = now;
+    }
+    if (now - consoleLastRenderMs < consoleFrameMs) { return; }
+
+    const irr::core::dimension2du size = consoleWindow->getClientSize();
+    if (size.Width < 64 || size.Height < 32) { return; }   //minimised
+    if (size != consoleLaidOutSize) {
+        layoutDetachedConsole(size);
+    }
+    consoleLastRenderMs = now;
+    consoleRenderCount++;
+
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::core::dimension2du mainSize = driver->getScreenSize();
+    driver->OnResize(size);
+    driver->beginScene(irr::video::ECBF_COLOR, irr::video::SColor(255, 24, 27, 33), 1.0f, 0, consoleWindow->videoData());
+    consoleHost->draw();
+    driver->endScene();
+    driver->OnResize(mainSize);
+}
+
+void GUIMain::shutdownConsoleWindow()
+{
+    if (!consoleWindow) { return; }
+    if (consoleDetached) {
+        saveConsolePlacement(true);   //detached again next session
+        //Put the elements back (they belong to the GUI tree for clean-up) without forgetting the state.
+        irr::gui::IGUIElement* consoleElements[5] = { instrumentPanel, bigRadarButton, pump1On, pump2On, ackAlarms };
+        irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+        for (int i = 0; i < 5; i++) {
+            if (consoleElements[i]) { root->addChild(consoleElements[i]); }
+        }
+        if (consoleHost) {
+            consoleHost->drop();
+            consoleHost = 0;
+        }
+        consoleDetached = false;
+    }
+    consoleWindow->close();
+    delete consoleWindow;
+    consoleWindow = 0;
 }

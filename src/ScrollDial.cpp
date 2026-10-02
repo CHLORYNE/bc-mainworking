@@ -9,6 +9,7 @@
 #include "IGUIFontBitmap.h"
 
 #include "ScrollDial.h"
+#include "GUIPanelDraw.hpp"
 
 namespace irr
 {
@@ -54,7 +55,10 @@ ScrollDial::~ScrollDial()
 //! called if an event happened.
 bool ScrollDial::OnEvent(const SEvent& event)
 {
-	if (isEnabled())
+	if (knobStyle && isEnabled() && knobEvent(event))
+		return true;
+
+	if (isEnabled() && !knobStyle)
 	{
 
 		switch(event.EventType)
@@ -205,6 +209,217 @@ void ScrollDial::OnPostRender(u32 timeMs)
 {
 
 }
+
+//-------------------------------------------------------------------------------------------------
+// Knob style
+//-------------------------------------------------------------------------------------------------
+
+namespace
+{
+	const f32 KNOB_START = -150.0f;   //screen angle of the minimum (7 o'clock), deg clockwise from 12
+	const f32 KNOB_TRAVEL = 300.0f;   //to the maximum at 5 o'clock
+}
+
+void ScrollDial::sendChanged()
+{
+	if (!Parent)
+		return;
+	SEvent newEvent;
+	newEvent.EventType = EET_GUI_EVENT;
+	newEvent.GUIEvent.Caller = this;
+	newEvent.GUIEvent.Element = 0;
+	newEvent.GUIEvent.EventType = EGET_SCROLL_BAR_CHANGED;
+	Parent->OnEvent(newEvent);
+}
+
+f32 ScrollDial::mouseAngle(const core::position2di& p) const
+{
+	const s32 offsetX = AbsoluteRect.LowerRightCorner.X - RelativeRect.LowerRightCorner.X;
+	const s32 offsetY = AbsoluteRect.LowerRightCorner.Y - RelativeRect.LowerRightCorner.Y;
+	const f32 dx = (f32)(p.X - centre.X - offsetX);
+	const f32 dy = (f32)(p.Y - centre.Y - offsetY);
+	return (f32)atan2(dx, -dy) * core::RADTODEG;
+}
+
+bool ScrollDial::knobEvent(const SEvent& event)
+{
+	switch (event.EventType)
+	{
+	case EET_KEY_INPUT_EVENT:
+		if (event.KeyInput.PressedDown && Environment->hasFocus(this))
+		{
+			const s32 oldPos = Pos;
+			switch (event.KeyInput.Key)
+			{
+			case KEY_LEFT: case KEY_DOWN: setPos(Pos - SmallStep); break;
+			case KEY_RIGHT: case KEY_UP: setPos(Pos + SmallStep); break;
+			case KEY_PRIOR: setPos(Pos + LargeStep); break;
+			case KEY_NEXT: setPos(Pos - LargeStep); break;
+			case KEY_HOME: setPos(Min); break;
+			case KEY_END: setPos(Max); break;
+			default: return false;
+			}
+			if (Pos != oldPos)
+				sendChanged();
+			return true;
+		}
+		return false;
+	case EET_GUI_EVENT:
+		if (event.GUIEvent.Caller == this)
+		{
+			if (event.GUIEvent.EventType == EGET_ELEMENT_FOCUS_LOST)
+				Dragging = false;
+			else if (event.GUIEvent.EventType == EGET_ELEMENT_HOVERED)
+				knobHovered = true;
+			else if (event.GUIEvent.EventType == EGET_ELEMENT_LEFT)
+				knobHovered = false;
+		}
+		return false;
+	case EET_MOUSE_INPUT_EVENT:
+	{
+		const core::position2di p(event.MouseInput.X, event.MouseInput.Y);
+		const bool inside = isPointInside(p);
+		switch (event.MouseInput.Event)
+		{
+		case EMIE_MOUSE_WHEEL:
+			if (inside || Environment->hasFocus(this))
+			{
+				const s32 oldPos = Pos;
+				setPos(Pos + (event.MouseInput.Wheel < 0 ? -1 : 1) * SmallStep);
+				if (Pos != oldPos)
+					sendChanged();
+				return true;
+			}
+			return false;
+		case EMIE_LMOUSE_PRESSED_DOWN:
+		case EMIE_RMOUSE_PRESSED_DOWN:
+			if (!inside)
+				return false;
+			//Grab the knob where it is: nothing changes until it is turned.
+			Dragging = true;
+			knobLastAngle = mouseAngle(p);
+			knobDragValue = (f32)Pos;
+			Environment->setFocus(this);
+			return true;
+		case EMIE_MOUSE_MOVED:
+		{
+			if (!Dragging)
+				return false;
+			if (!event.MouseInput.isLeftPressed() && !event.MouseInput.isRightPressed())
+			{
+				Dragging = false;
+				return false;
+			}
+			//Turn by the change of angle around the centre. Very close to the centre the angle is
+			//meaningless, so follow the pointer there without turning.
+			const s32 offsetX = AbsoluteRect.LowerRightCorner.X - RelativeRect.LowerRightCorner.X;
+			const s32 offsetY = AbsoluteRect.LowerRightCorner.Y - RelativeRect.LowerRightCorner.Y;
+			const f32 dx = (f32)(p.X - centre.X - offsetX), dy = (f32)(p.Y - centre.Y - offsetY);
+			const f32 a = mouseAngle(p);
+			if (dx * dx + dy * dy > 0.04f * (f32)(radius * radius))
+			{
+				f32 d = a - knobLastAngle;
+				while (d > 180.0f) d -= 360.0f;
+				while (d < -180.0f) d += 360.0f;
+				knobDragValue = core::clamp(knobDragValue + d / KNOB_TRAVEL * range(), (f32)Min, (f32)Max);
+				const s32 oldPos = Pos;
+				setPos(core::round32(knobDragValue));
+				if (Pos != oldPos)
+					sendChanged();
+			}
+			knobLastAngle = a;
+			return true;
+		}
+		case EMIE_LMOUSE_LEFT_UP:
+		case EMIE_RMOUSE_LEFT_UP:
+			if (!Dragging)
+				return inside;
+			Dragging = false;
+			return true;
+		default:
+			return false;
+		}
+	}
+	default:
+		return false;
+	}
+}
+
+void ScrollDial::drawKnob(const core::vector2d<s32>& absoluteCentre)
+{
+	video::IVideoDriver* driver = Environment->getVideoDriver();
+	const core::vector2df c((f32)absoluteCentre.X, (f32)absoluteCentre.Y);
+	const f32 R = (f32)radius;
+	const f32 frac = core::isnotzero(range()) ? core::clamp((f32)(Pos - Min) / range(), 0.0f, 1.0f) : 0.0f;
+	const f32 angle = KNOB_START + KNOB_TRAVEL * frac;
+	const bool lit = isEnabled();
+
+	const video::SColor tick(255, 196, 200, 206);
+	const video::SColor tickDim(255, 105, 110, 118);
+	const video::SColor track(255, 44, 47, 52);
+	video::SColor accent = knobAccent;
+	if (Dragging || knobHovered)
+		accent = video::SColor(255, core::min_(255u, accent.getRed() + 30), core::min_(255u, accent.getGreen() + 40), core::min_(255u, accent.getBlue() + 40));
+
+	PanelBatch b;
+	b.begin(driver);
+
+	//Printed scale: 21 ticks, long ones every 10 %, lit up to the setting.
+	for (s32 t = 0; t <= 20; t++)
+	{
+		const f32 a = KNOB_START + KNOB_TRAVEL * (f32)t / 20.0f;
+		const bool major = (t % 2 == 0);
+		const f32 rIn = major ? R * 0.85f : R * 0.905f;
+		b.line(panelPolar(c, rIn, a), panelPolar(c, R * 0.985f, a), major ? core::max_(1.3f, R * 0.035f) : core::max_(1.0f, R * 0.02f),
+			(f32)t / 20.0f <= frac + 0.001f ? tick : tickDim);
+	}
+
+	//Lit value arc inside the scale, like the LED ring of a console encoder.
+	const f32 arcIn = R * 0.765f, arcOut = R * 0.815f;
+	b.sector(c, arcIn, arcOut, KNOB_START, KNOB_START + KNOB_TRAVEL, track, track);
+	if (lit && frac > 0.002f)
+		b.sector(c, arcIn, arcOut, KNOB_START, angle, accent, accent);
+
+	//Knob: soft drop shadow, fluted rubber skirt, metal cap.
+	const f32 rk = R * 0.66f;
+	b.disc(c + core::vector2df(R * 0.025f, R * 0.06f), rk * 1.06f, video::SColor(150, 0, 0, 0), video::SColor(0, 0, 0, 0));
+	b.disc(c, rk, video::SColor(255, 30, 32, 36), video::SColor(255, 22, 23, 26));
+	const s32 flutes = (rk > 22.0f) ? 30 : 20;
+	for (s32 i = 0; i < flutes; i++)
+	{
+		//Ridges turn with the knob; their light comes from the top-left, fixed.
+		const f32 a0 = angle + 360.0f * (f32)i / (f32)flutes;
+		const f32 a1 = a0 + 360.0f / (f32)flutes * 0.45f;
+		const f32 light = 0.5f + 0.5f * cosf((a0 + 45.0f) * core::DEGTORAD);
+		const u32 v = (u32)(52 + 52 * light);
+		const video::SColor ridge(255, v, v + 2, v + 6);
+		b.sector(c, rk * 0.80f, rk * 0.985f, a0, a1, ridge, ridge, false);
+	}
+	b.sector(c, rk * 0.76f, rk * 0.80f, 0.0f, 360.0f, video::SColor(255, 16, 17, 19), video::SColor(255, 16, 17, 19), false);
+	b.disc(c, rk * 0.76f, video::SColor(255, 104, 108, 116), video::SColor(255, 54, 57, 63));
+	//Brushed highlight on the cap, light from the top-left.
+	b.disc(c + core::vector2df(-rk * 0.20f, -rk * 0.24f), rk * 0.42f, video::SColor(70, 255, 255, 255), video::SColor(0, 255, 255, 255));
+
+	//Pointer line across the cap and skirt, with a coloured tip on the skirt.
+	const f32 pw = core::max_(2.0f, rk * 0.11f);
+	b.line(panelPolar(c, rk * 0.12f, angle), panelPolar(c, rk * 0.97f, angle), pw, video::SColor(255, 236, 238, 232));
+	b.line(panelPolar(c, rk * 0.80f, angle), panelPolar(c, rk * 0.97f, angle), pw * 1.25f, lit ? accent : video::SColor(255, 160, 160, 160));
+
+	b.flush();
+
+	//Value in the gap of the scale, under the knob.
+	IGUISkin* skin = Environment->getSkin();
+	IGUIFont* font = skin ? skin->getFont() : 0;
+	if (font && R >= 22.0f)
+	{
+		core::stringw v((s32)Pos);
+		const core::dimension2du d = font->getDimension(v.c_str());
+		const s32 x = absoluteCentre.X - (s32)d.Width / 2;
+		const s32 y = absoluteCentre.Y + (s32)(R * 0.93f) - (s32)d.Height / 2;
+		font->draw(v.c_str(), core::rect<s32>(x, y, x + (s32)d.Width + 2, y + (s32)d.Height), accent, false, false, 0);
+	}
+}
+
 //CHANGES draws the element and its children
 void ScrollDial::draw()
 {
@@ -229,6 +444,13 @@ void ScrollDial::draw()
 		centre.X + offsetX,
 		centre.Y + offsetY
 	);
+
+	if (knobStyle)
+	{
+		SliderRect = AbsoluteRect;
+		drawKnob(absoluteCentre);
+		return;
+	}
 
 	// 4) Draw the circular face
 	Environment->getVideoDriver()

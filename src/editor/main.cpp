@@ -214,15 +214,15 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     irr::gui::IGUIListBox* mapThumbText = device->getGUIEnvironment()->addListBox(mapMetaRect, scnWorldChoiceWindow, -1, true);
 
     // Centered relative to 0.55 - 0.95
-    irr::gui::IGUIButton* worldOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.46 * sh, 0.875 * su, 0.51 * sh), scnWorldChoiceWindow, OK_WORLD_BUTTON_ID, L"Nouveau Scénario");
+    irr::gui::IGUIButton* worldOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.46 * sh, 0.875 * su, 0.51 * sh), scnWorldChoiceWindow, OK_WORLD_BUTTON_ID, L"Nouveau Sc\u00E9nario");
 
     // --- BOTTOM SECTION (SCENARIOS) ---
     device->getGUIEnvironment()->addStaticText(L"Exercices existants", irr::core::rect<irr::s32>(0.10 * su, 0.52 * sh, 0.45 * su, 0.55 * sh), false, true, scnWorldChoiceWindow);
     irr::gui::IGUIListBox* scenarioListBox = device->getGUIEnvironment()->addListBox(irr::core::rect<irr::s32>(0.10 * su, 0.56 * sh, 0.45 * su, 0.94 * sh), scnWorldChoiceWindow, SCENARIO_BOX_ID); // Extends lower
 
     // Centered relative to 0.55 - 0.95
-    irr::gui::IGUIButton* scenarioOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.55 * sh, 0.875 * su, 0.60 * sh), scnWorldChoiceWindow, OK_SCENARIO_BUTTON_ID, L"Éditer le Scénario");
-    irr::gui::IGUIButton* deleteScenario = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.61 * sh, 0.875 * su, 0.66 * sh), scnWorldChoiceWindow, DELETE_SCENARIO_BUTTON_ID, L"Supprimer le Scénario");
+    irr::gui::IGUIButton* scenarioOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.55 * sh, 0.875 * su, 0.60 * sh), scnWorldChoiceWindow, OK_SCENARIO_BUTTON_ID, L"\u00C9diter le Sc\u00E9nario");
+    irr::gui::IGUIButton* deleteScenario = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.61 * sh, 0.875 * su, 0.66 * sh), scnWorldChoiceWindow, DELETE_SCENARIO_BUTTON_ID, L"Supprimer le Sc\u00E9nario");
     deleteScenario->setOverrideColor(irr::video::SColor(255, 255, 100, 100));
 
     // HUGE METADATA PANEL (Widened to 0.95)

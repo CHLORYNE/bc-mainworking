@@ -105,6 +105,7 @@ set(BC_SOURCES
     IncidentConfig.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
+    ConsoleWindow.cpp
     BCTerrainSceneNode.cpp
     BCTerrainTriangleSelector.cpp
 )

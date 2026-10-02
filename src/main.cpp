@@ -1386,7 +1386,7 @@ int main(int argc, char** argv)
             driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight)); //Full screen before beginScene
             //KYARA Changes color 
             driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight)); //Full screen before beginScene
-            driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 50, 20));//        renderSetupProfile.toc();
+            driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 50, 20), 1.0f, 0, guiMain.getMainVideoData());//        renderSetupProfile.toc();
 
             //        renderRadarProfile.tic();
 
@@ -1425,8 +1425,8 @@ int main(int argc, char** argv)
             if (!fullScreenRadar) {
                 if (triScreen) {
                     //NAUTITECH triple-screen: split the 3D area into three columns, one per TV.
-                    irr::s32 baseW = guiMain.getShowInterface() ? (irr::s32)graphicsWidth3d : (irr::s32)graphicsWidth;
-                    irr::s32 baseH = guiMain.getShowInterface() ? (irr::s32)graphicsHeight3d : (irr::s32)graphicsHeight;
+                    irr::s32 baseW = guiMain.getCompact3dView() ? (irr::s32)graphicsWidth3d : (irr::s32)graphicsWidth;
+                    irr::s32 baseH = guiMain.getCompact3dView() ? (irr::s32)graphicsHeight3d : (irr::s32)graphicsHeight;
                     irr::s32 colW = baseW / 3;
                     irr::f32 colAspect = (irr::f32)colW / (irr::f32)baseH;
                     irr::f32 yaw[3] = { -bezelYaw, 0.0f, bezelYaw }; // left(port), centre, right(stbd)
@@ -1439,7 +1439,7 @@ int main(int argc, char** argv)
                     driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight));
                 }
                 else {
-                    if (guiMain.getShowInterface()) {
+                    if (guiMain.getCompact3dView()) {
                         driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth3d, graphicsHeight3d));
                         model.updateViewport(aspect3d);
                     }
@@ -1495,6 +1495,8 @@ int main(int argc, char** argv)
             driver->endScene();
             //       renderFinishProfile.toc();
         }
+        //Instrument console in its own window (if detached): its input, then its frame.
+        guiMain.renderDetachedConsole();
 
         //KYARA FRAME PACING --------------------------------------------------------------------
       //Removing the 10ms enet block gave the frames back, but that block was also accidentally
@@ -1531,6 +1533,9 @@ int main(int argc, char** argv)
         "\nAll times in micro seconds\n"
         << InternalProfiler::stats << std::endl;
 #endif
+
+    //Remember where the console window was, and close it while the device is still alive.
+    guiMain.shutdownConsoleWindow();
 
     //networking should be stopped (presumably with destructor when it goes out of scope?)
     device->getLogger()->log("About to stop network");

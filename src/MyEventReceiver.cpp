@@ -172,7 +172,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 if (clickElement == rootGUIElement)
                 {
                     // Scale if required because 3d view may be different
-                    irr::core::line3df rayForLines = model->getMooringRay(mouseClickX, mouseClickY, gui->getShowInterface());
+                    irr::core::line3df rayForLines = model->getMooringRay(mouseClickX, mouseClickY, gui->getCompact3dView());
                     handleMooringLines(rayForLines);
                 }
             }
@@ -193,6 +193,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.MouseInput.Event == irr::EMIE_MOUSE_WHEEL)
         {
+            //Over a control (radar knob, list, scroll bar) the wheel belongs to that control. Given to
+            //it directly: Irrlicht would only pass the wheel to whichever control has the focus.
+            irr::gui::IGUIElement* wheelRoot = device->getGUIEnvironment()->getRootGUIElement();
+            irr::gui::IGUIElement* wheelOver = wheelRoot->getElementFromPoint(irr::core::position2d<irr::s32>(event.MouseInput.X, event.MouseInput.Y));
+            if (wheelOver && wheelOver != wheelRoot) {
+                wheelOver->OnEvent(event);
+                return true;
+            }
             //KYARA: the wheel now drives the ZOOM (magnification) bar. It used to drive the
             //rudder, which is far too easy to nudge by accident while looking around.
             irr::s32 step = (event.MouseInput.Wheel > 0) ? 5 : -5;
@@ -795,6 +803,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_SHOW_LOG_BUTTON)
             {
                 gui->showLogWindow();
+            }
+
+            if (id == GUIMain::GUI_ID_DETACH_CONSOLE_BUTTON)
+            {
+                gui->toggleConsoleDetached();
             }
 
             if (id == GUIMain::GUI_ID_HIDE_EXTRA_CONTROLS_BUTTON)
@@ -2419,7 +2432,7 @@ void MyEventReceiver::aimMonitor(irr::s32 mx, irr::s32 my)
 {
     // Reuse the SAME column-aware pick ray as mooring, so aiming is correct on the
     // triple-screen (Eyefinity) build - no separate ray maths to drift out of sync.
-    irr::core::line3df ray = model->getMooringRay(mx, my, gui->getShowInterface());
+    irr::core::line3df ray = model->getMooringRay(mx, my, gui->getCompact3dView());
     model->setMonitorAimFromRay(ray);
 }
 void MyEventReceiver::handleMooringLines(irr::core::line3df rayForLines)

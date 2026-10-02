@@ -91,6 +91,14 @@ namespace irr
             //Where those buttons should go (absolute screen coordinates). Valid after setFit/setStatusColumnWidth.
             core::rect<s32> getStatusColumnRect() const;
 
+            //Up to maxRows rows of dials, whichever count gives the biggest dials (1 = the classic strip).
+            //Used when the console has a window of its own, which may be as tall as a whole screen.
+            void setMaxRows(int maxRows);
+            //Diameter of the dials in the current layout, pixels.
+            f32 getGaugeDiameter() const { return gaugeD; }
+            //Font for the dial lettering instead of the skin's (0 = skin font) - bigger dials, bigger text.
+            void setOverrideFont(IGUIFont* font);
+
             void setData(const InstrumentData& data);
 
             virtual void draw();
@@ -172,6 +180,8 @@ namespace irr
             s32 statusWidth;
             core::rect<s32> statusRect; //absolute
             f32 gaugeD;                 //diameter used by the current layout
+            int maxRows = 1;
+            IGUIFont* overrideFont = 0;
         };
 
     } // end namespace gui

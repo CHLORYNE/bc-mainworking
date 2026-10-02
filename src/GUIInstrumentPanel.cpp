@@ -356,53 +356,112 @@ namespace irr
 
             const f32 NAV_WEIGHT = 1.45f;
             const f32 GAP_K = 0.07f;
+            auto weightOf = [&](GaugeKind k) { return (k == G_NAV) ? NAV_WEIGHT : 1.0f; };
 
             f32 sumWeights = 0;
-            for (size_t i = 0; i < kinds.size(); i++) { sumWeights += (kinds[i] == G_NAV) ? NAV_WEIGHT : 1.0f; }
+            for (size_t i = 0; i < kinds.size(); i++) { sumWeights += weightOf(kinds[i]); }
 
-            const f32 pad = core::max_(4.0f, H * 0.045f);
+            const f32 pad = core::max_(4.0f, core::min_(H, W * 0.25f) * 0.045f);
             const f32 statusSpace = (statusWidth > 0) ? (f32)statusWidth + 1.5f * pad : 0.0f;
             const f32 availW = W - 2.0f * pad - statusSpace;
 
-            f32 D = H - 2.0f * pad;
-            const f32 dFromWidth = availW / (sumWeights + GAP_K * (f32)(kinds.size() - 1));
-            if (dFromWidth < D) D = dFromWidth;
+            //Rows: split the dials in order, each row holding about the same width of instruments, and
+            //keep the row count that gives the biggest diameter. One row unless setMaxRows allows more.
+            std::vector<size_t> bestStarts(1, 0);
+            f32 D = 0;
+            const int rowLimit = core::max_(1, core::min_(maxRows, (int)kinds.size()));
+            for (int rows = 1; rows <= rowLimit; rows++) {
+                std::vector<size_t> starts(1, 0);
+                f32 acc = 0;
+                const f32 target = sumWeights / (f32)rows;
+                for (size_t i = 0; i < kinds.size(); i++) {
+                    const f32 w = weightOf(kinds[i]);
+                    if ((int)starts.size() < rows && acc > 0 && acc + w * 0.5f > target * (f32)starts.size()) {
+                        starts.push_back(i);
+                    }
+                    acc += w;
+                }
+                const f32 rowGapK = 0.10f;
+                f32 d = (H - 2.0f * pad) / ((f32)starts.size() + rowGapK * (f32)(starts.size() - 1));
+                for (size_t r = 0; r < starts.size(); r++) {
+                    const size_t from = starts[r], to = (r + 1 < starts.size()) ? starts[r + 1] : kinds.size();
+                    f32 rowWeight = 0;
+                    for (size_t i = from; i < to; i++) { rowWeight += weightOf(kinds[i]); }
+                    const f32 dRow = availW / (rowWeight + GAP_K * (f32)(to - from - 1));
+                    if (dRow < d) d = dRow;
+                }
+                if (d > D * 1.02f) {   //a clearly bigger dial is worth another row
+                    D = d;
+                    bestStarts = starts;
+                }
+            }
             if (D < 40.0f) D = 40.0f;
             gaugeD = D;
-
             const f32 gap = GAP_K * D;
-            const f32 groupW = sumWeights * D + gap * (f32)(kinds.size() - 1) + statusSpace;
+            const size_t rowCount = bestStarts.size();
+            const f32 rowGap = 0.10f * D;
+            const f32 blockH = D * (f32)rowCount + rowGap * (f32)(rowCount - 1);
 
-            //Centre on the SCREEN (= the middle TV on Eyefinity), but never leave the panel.
+            //Centre on the SCREEN (= the middle TV on Eyefinity), but never leave the panel. In a
+            //window of its own the panel is the screen.
             f32 screenCentreX = (f32)AbsoluteRect.getCenter().X;
-            if (Environment && Environment->getRootGUIElement()) {
+            if (Environment && Environment->getRootGUIElement() && Parent == Environment->getRootGUIElement()) {
                 screenCentreX = (f32)Environment->getRootGUIElement()->getAbsolutePosition().getCenter().X;
             }
             const f32 panelL = (f32)AbsoluteRect.UpperLeftCorner.X + pad;
             const f32 panelR = (f32)AbsoluteRect.LowerRightCorner.X - pad;
-            f32 x = screenCentreX - groupW * 0.5f;
-            if (x + groupW > panelR) x = panelR - groupW;
-            if (x < panelL) x = panelL;
-            const f32 yTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - D) * 0.5f;
+            const f32 blockTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - blockH) * 0.5f;
 
-            for (size_t i = 0; i < kinds.size(); i++) {
-                Slot s;
-                s.kind = kinds[i];
-                const f32 w = ((kinds[i] == G_NAV) ? NAV_WEIGHT : 1.0f) * D;
-                s.box = core::rect<f32>(x, yTop, x + w, yTop + D);
-                s.c = core::vector2df(x + w * 0.5f, yTop + D * 0.5f);
-                s.R = D * 0.5f;
-                slots.push_back(s);
-                x += w + gap;
+            //Every row is centred on the same axis; the status column sits right of the widest row.
+            f32 widest = 0;
+            for (size_t r = 0; r < rowCount; r++) {
+                const size_t from = bestStarts[r], to = (r + 1 < rowCount) ? bestStarts[r + 1] : kinds.size();
+                f32 rw = gap * (f32)(to - from - 1);
+                for (size_t i = from; i < to; i++) { rw += weightOf(kinds[i]) * D; }
+                if (rw > widest) widest = rw;
+            }
+            const f32 groupW = widest + statusSpace;
+            f32 groupX = screenCentreX - groupW * 0.5f;
+            if (groupX + groupW > panelR) groupX = panelR - groupW;
+            if (groupX < panelL) groupX = panelL;
+
+            for (size_t r = 0; r < rowCount; r++) {
+                const size_t from = bestStarts[r], to = (r + 1 < rowCount) ? bestStarts[r + 1] : kinds.size();
+                f32 rw = gap * (f32)(to - from - 1);
+                for (size_t i = from; i < to; i++) { rw += weightOf(kinds[i]) * D; }
+                f32 x = groupX + (widest - rw) * 0.5f;
+                const f32 yTop = blockTop + (f32)r * (D + rowGap);
+                for (size_t i = from; i < to; i++) {
+                    Slot s;
+                    s.kind = kinds[i];
+                    const f32 w = weightOf(kinds[i]) * D;
+                    s.box = core::rect<f32>(x, yTop, x + w, yTop + D);
+                    s.c = core::vector2df(x + w * 0.5f, yTop + D * 0.5f);
+                    s.R = D * 0.5f;
+                    slots.push_back(s);
+                    x += w + gap;
+                }
             }
 
             if (statusWidth > 0) {
-                const f32 sx = x - gap + 1.5f * pad;
-                statusRect = core::rect<s32>((s32)sx, (s32)yTop, (s32)(sx + statusWidth), (s32)(yTop + D));
+                const f32 sx = groupX + widest + 1.5f * pad;
+                const f32 sTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - D) * 0.5f;
+                statusRect = core::rect<s32>((s32)sx, (s32)sTop, (s32)(sx + statusWidth), (s32)(sTop + D));
             }
             else {
                 statusRect = core::rect<s32>(0, 0, 0, 0);
             }
+        }
+
+        void GUIInstrumentPanel::setMaxRows(int rows)
+        {
+            maxRows = core::max_(1, rows);
+            layout();
+        }
+
+        void GUIInstrumentPanel::setOverrideFont(IGUIFont* font)
+        {
+            overrideFont = font;
         }
 
         //-------------------------------------------------------------------------------------------------
@@ -1197,7 +1256,7 @@ namespace irr
 
             video::IVideoDriver* driver = Environment->getVideoDriver();
             IGUISkin* skin = Environment->getSkin();
-            IGUIFont* font = skin ? skin->getFont() : 0;
+            IGUIFont* font = overrideFont ? overrideFont : (skin ? skin->getFont() : 0);
 
             //Console plate: vertical gradient with a lit top edge and a shadowed bottom edge.
             const core::rect<s32>& r = AbsoluteRect;
