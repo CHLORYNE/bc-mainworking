@@ -20,6 +20,9 @@
 #include "../Lang.hpp"
 #include "../Utilities.hpp"
 #include "../Constants.hpp"
+#include "../GUIPanelDraw.hpp"
+#include <string>
+#include <vector>
 
 //headers for execl
 #ifdef _WIN32
@@ -151,6 +154,17 @@ void showKeyHelp()
     irr::gui::IGUIListBox* list = env->addListBox(
         irr::core::rect<irr::s32>(10, 34, w - 10, h - 52), g_keysWindow, -1, true);
 
+    //Key column width in pixels (the font is proportional, so pad by measured width, not characters).
+    irr::gui::IGUIFont* listFont = env->getSkin() ? env->getSkin()->getFont() : 0;
+    irr::u32 keyColumn = 0;
+    for (int i = 0; i < KEY_ROW_COUNT && listFont; i++) {
+        if (KEY_ROWS[i].keys) {
+            const irr::u32 w = listFont->getDimension(KEY_ROWS[i].keys).Width;
+            if (w > keyColumn) { keyColumn = w; }
+        }
+    }
+    keyColumn += 28;
+
     for (int i = 0; i < KEY_ROW_COUNT; i++) {
         irr::core::stringw line;
         if (KEY_ROWS[i].keys == 0) {
@@ -163,7 +177,12 @@ void showKeyHelp()
         else {
             //Pad the key column so the descriptions line up down the list.
             irr::core::stringw keys(KEY_ROWS[i].keys);
-            while (keys.size() < 26) { keys += L" "; }
+            if (listFont) {
+                while (listFont->getDimension(keys.c_str()).Width < keyColumn) { keys += L" "; }
+            }
+            else {
+                while (keys.size() < 26) { keys += L" "; }
+            }
             line = L"  ";
             line += keys;
             line += g_keysFrench ? KEY_ROWS[i].fr : KEY_ROWS[i].en;
@@ -176,6 +195,412 @@ void showKeyHelp()
         KEYS_LANG_BUTTON, g_keysFrench ? L"English" : L"Fran\u00E7ais");
     env->addButton(irr::core::rect<irr::s32>(w - 210, h - 44, w - 10, h - 12), g_keysWindow,
         KEYS_CLOSE_BUTTON, g_keysFrench ? L"Fermer" : L"Close");
+}
+
+//=================================================================================================
+//Launcher look: the background picture full-window, a dark gradient at the bottom, and custom-drawn
+//cards (main applications) and chips (settings, shortcuts, quit) on it. Everything is drawn with
+//Irrlicht 2D triangles (GUIPanelDraw.hpp), so edges are smooth and nothing depends on image files
+//apart from the background. Cards and chips are GUI elements that send EGET_BUTTON_CLICKED like
+//ordinary buttons, so the Receiver above launches exactly as before.
+//=================================================================================================
+
+namespace Theme {
+    const irr::video::SColor text(255, 244, 247, 251);
+    const irr::video::SColor textDim(255, 178, 192, 208);
+    const irr::video::SColor accent(255, 64, 156, 240);
+    const irr::video::SColor accentHi(255, 120, 190, 255);
+    const irr::video::SColor primaryTop(255, 36, 122, 222);
+    const irr::video::SColor primaryBottom(255, 16, 78, 168);
+    const irr::video::SColor glass(158, 9, 20, 36);
+    const irr::video::SColor glassHover(190, 16, 34, 58);
+    const irr::video::SColor border(64, 255, 255, 255);
+    const irr::video::SColor danger(255, 214, 72, 72);
+    const irr::video::SColor shade(255, 3, 10, 22);   //bottom gradient
+}
+
+irr::video::SColor mixColour(irr::video::SColor a, irr::video::SColor b, irr::f32 t)
+{
+    return b.getInterpolated(a, irr::core::clamp(t, 0.0f, 1.0f));
+}
+
+//Rounded rectangle, vertical gradient, soft edges.
+void roundRect(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& r, irr::f32 rad, irr::video::SColor top, irr::video::SColor bottom)
+{
+    using irr::core::vector2df;
+    const irr::f32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
+    rad = irr::core::min_(rad, irr::core::min_((x1 - x0) * 0.5f, (y1 - y0) * 0.5f));
+    const irr::f32 h = y1 - y0;
+    const irr::video::SColor cTop = mixColour(top, bottom, rad / h);
+    const irr::video::SColor cBot = mixColour(top, bottom, 1.0f - rad / h);
+    b.rectV(irr::core::rect<irr::f32>(x0 + rad, y0, x1 - rad, y0 + rad), top, cTop);
+    b.rectV(irr::core::rect<irr::f32>(x0, y0 + rad, x1, y1 - rad), cTop, cBot);
+    b.rectV(irr::core::rect<irr::f32>(x0 + rad, y1 - rad, x1 - rad, y1), cBot, bottom);
+    b.sector(vector2df(x0 + rad, y0 + rad), 0, rad, 270, 360, cTop, top);
+    b.sector(vector2df(x1 - rad, y0 + rad), 0, rad, 0, 90, cTop, top);
+    b.sector(vector2df(x1 - rad, y1 - rad), 0, rad, 90, 180, cBot, bottom);
+    b.sector(vector2df(x0 + rad, y1 - rad), 0, rad, 180, 270, cBot, bottom);
+}
+
+void roundRectOutline(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& r, irr::f32 rad, irr::f32 w, irr::video::SColor col)
+{
+    using irr::core::vector2df;
+    const irr::f32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
+    rad = irr::core::min_(rad, irr::core::min_((x1 - x0) * 0.5f, (y1 - y0) * 0.5f));
+    b.rect(irr::core::rect<irr::f32>(x0 + rad, y0, x1 - rad, y0 + w), col);
+    b.rect(irr::core::rect<irr::f32>(x0 + rad, y1 - w, x1 - rad, y1), col);
+    b.rect(irr::core::rect<irr::f32>(x0, y0 + rad, x0 + w, y1 - rad), col);
+    b.rect(irr::core::rect<irr::f32>(x1 - w, y0 + rad, x1, y1 - rad), col);
+    b.sector(vector2df(x0 + rad, y0 + rad), rad - w, rad, 270, 360, col, col);
+    b.sector(vector2df(x1 - rad, y0 + rad), rad - w, rad, 0, 90, col, col);
+    b.sector(vector2df(x1 - rad, y1 - rad), rad - w, rad, 90, 180, col, col);
+    b.sector(vector2df(x0 + rad, y1 - rad), rad - w, rad, 180, 270, col, col);
+}
+
+enum LauncherIcon { Icon_Helm, Icon_Route, Icon_Flame, Icon_Network, Icon_Gear, Icon_Keys, Icon_Power };
+
+//Line icons, drawn in a box of half-size s around c.
+void drawIcon(irr::gui::PanelBatch& b, LauncherIcon icon, irr::core::vector2df c, irr::f32 s, irr::video::SColor col)
+{
+    using irr::core::vector2df;
+    using irr::gui::panelPolar;
+    const irr::f32 lw = irr::core::max_(1.6f, s * 0.13f);
+    switch (icon) {
+    case Icon_Helm: {   //ship's wheel
+        b.sector(c, s * 0.50f, s * 0.50f + lw, 0, 360, col, col);
+        b.disc(c, s * 0.20f, col, col);
+        for (int i = 0; i < 8; i++) {
+            const irr::f32 a = 22.5f + 45.0f * i;
+            b.line(panelPolar(c, s * 0.18f, a), panelPolar(c, s * 0.86f, a), lw, col);
+            b.disc(panelPolar(c, s * 0.92f, a), lw * 0.85f, col, col);
+        }
+        break;
+    }
+    case Icon_Route: {  //planned track with waypoints
+        const vector2df p[4] = { vector2df(c.X - s * 0.80f, c.Y + s * 0.62f), vector2df(c.X - s * 0.20f, c.Y + s * 0.05f),
+            vector2df(c.X + s * 0.28f, c.Y + s * 0.38f), vector2df(c.X + s * 0.78f, c.Y - s * 0.55f) };
+        for (int i = 0; i < 3; i++) { b.line(p[i], p[i + 1], lw, col); }
+        for (int i = 0; i < 3; i++) { b.disc(p[i], lw * 1.25f, col, col); }
+        b.sector(p[3], s * 0.18f, s * 0.18f + lw, 0, 360, col, col);
+        break;
+    }
+    case Icon_Flame: {  //flame: outer tongues in the icon colour, a warm core inside
+        static const irr::f32 outer[][2] = {
+            { 0.00f, 1.00f }, { 0.42f, 0.86f }, { 0.66f, 0.52f }, { 0.64f, 0.10f }, { 0.50f, -0.24f }, { 0.36f, -0.02f },
+            { 0.30f, -0.48f }, { 0.12f, -0.78f }, { -0.02f, -1.05f }, { -0.18f, -0.62f }, { -0.42f, -0.36f },
+            { -0.56f, -0.58f }, { -0.64f, -0.12f }, { -0.66f, 0.40f }, { -0.44f, 0.84f } };
+        static const irr::f32 inner[][2] = {
+            { 0.00f, 0.98f }, { 0.30f, 0.84f }, { 0.38f, 0.50f }, { 0.24f, 0.10f }, { 0.04f, -0.30f },
+            { -0.10f, 0.02f }, { -0.30f, 0.30f }, { -0.34f, 0.70f } };
+        const int no = sizeof(outer) / sizeof(outer[0]), ni = sizeof(inner) / sizeof(inner[0]);
+        const irr::f32 k = s * 0.90f;
+        const vector2df co(c.X, c.Y + 0.30f * k), ci(c.X, c.Y + 0.55f * k);
+        for (int i = 0; i < no; i++) {
+            const int n = (i + 1) % no;
+            b.tri(co, vector2df(c.X + outer[i][0] * k, c.Y + outer[i][1] * k), vector2df(c.X + outer[n][0] * k, c.Y + outer[n][1] * k), col);
+        }
+        const irr::video::SColor coreCol(col.getAlpha(), 255, 206, 96);
+        for (int i = 0; i < ni; i++) {
+            const int n = (i + 1) % ni;
+            b.tri(ci, vector2df(c.X + inner[i][0] * k, c.Y + inner[i][1] * k), vector2df(c.X + inner[n][0] * k, c.Y + inner[n][1] * k), coreCol);
+        }
+        break;
+    }
+    case Icon_Network: {  //stations linked to a hub
+        const vector2df hub(c.X, c.Y + s * 0.05f);
+        const vector2df n[3] = { panelPolar(hub, s * 0.78f, 0), panelPolar(hub, s * 0.78f, 120), panelPolar(hub, s * 0.78f, 240) };
+        for (int i = 0; i < 3; i++) { b.line(hub, n[i], lw, col); }
+        b.disc(hub, s * 0.24f, col, col);
+        for (int i = 0; i < 3; i++) { b.sector(n[i], s * 0.17f, s * 0.17f + lw, 0, 360, col, col); }
+        break;
+    }
+    case Icon_Gear: {
+        for (int i = 0; i < 8; i++) {
+            const irr::f32 a = 45.0f * i;
+            b.line(panelPolar(c, s * 0.50f, a), panelPolar(c, s * 0.90f, a), s * 0.30f, col);
+        }
+        b.sector(c, s * 0.28f, s * 0.66f, 0, 360, col, col);
+        break;
+    }
+    case Icon_Keys: {   //keyboard
+        const irr::core::rect<irr::f32> r(c.X - s * 0.95f, c.Y - s * 0.58f, c.X + s * 0.95f, c.Y + s * 0.58f);
+        roundRectOutline(b, r, s * 0.18f, lw, col);
+        for (int row = 0; row < 2; row++) {
+            for (int k = 0; k < 4; k++) {
+                const irr::f32 x = r.UpperLeftCorner.X + s * (0.38f + 0.40f * k), y = r.UpperLeftCorner.Y + s * (0.38f + 0.36f * row);
+                b.rect(irr::core::rect<irr::f32>(x - s * 0.11f, y - s * 0.09f, x + s * 0.11f, y + s * 0.09f), col);
+            }
+        }
+        b.rect(irr::core::rect<irr::f32>(c.X - s * 0.45f, c.Y + s * 0.26f, c.X + s * 0.45f, c.Y + s * 0.40f), col);
+        break;
+    }
+    case Icon_Power: {
+        b.sector(c, s * 0.62f, s * 0.62f + lw, 35, 325, col, col);
+        b.line(vector2df(c.X, c.Y - s * 0.90f), vector2df(c.X, c.Y - s * 0.15f), lw, col);
+        break;
+    }
+    }
+}
+
+//Word-wrap text into the given width.
+std::vector<std::wstring> wrapText(irr::gui::IGUIFont* font, const std::wstring& text, irr::s32 width)
+{
+    std::vector<std::wstring> lines;
+    if (!font) { lines.push_back(text); return lines; }
+    std::wstring line, word;
+    for (size_t i = 0; i <= text.size(); i++) {
+        const wchar_t ch = (i < text.size()) ? text[i] : L' ';
+        if (ch == L' ' || ch == L'\n') {
+            const std::wstring candidate = line.empty() ? word : line + L" " + word;
+            if (!line.empty() && (irr::s32)font->getDimension(candidate.c_str()).Width > width) {
+                lines.push_back(line);
+                line = word;
+            }
+            else {
+                line = candidate;
+            }
+            word.clear();
+            if (ch == L'\n') { lines.push_back(line); line.clear(); }
+        }
+        else {
+            word += ch;
+        }
+    }
+    if (!line.empty()) { lines.push_back(line); }
+    return lines;
+}
+
+enum TileStyle { Tile_Primary, Tile_Card, Tile_Chip, Tile_ChipDanger };
+
+class LauncherTile : public irr::gui::IGUIElement
+{
+public:
+    LauncherTile(irr::gui::IGUIEnvironment* env, irr::s32 id, const std::wstring& title, const std::wstring& subtitle,
+        LauncherIcon icon, TileStyle style)
+        : irr::gui::IGUIElement(irr::gui::EGUIET_BUTTON, env, env->getRootGUIElement(), id, irr::core::rect<irr::s32>(0, 0, 10, 10)),
+        title(title), subtitle(subtitle), icon(icon), style(style), hovered(false), pressed(false), hover(0), lastMs(0),
+        titleFont(0), subFont(0)
+    {
+        setTabStop(true);
+        setText(title.c_str());
+    }
+
+    void setFonts(irr::gui::IGUIFont* t, irr::gui::IGUIFont* s) { titleFont = t; subFont = s; }
+
+    //Width a chip needs for its label.
+    irr::s32 preferredChipWidth() const
+    {
+        const irr::s32 tw = titleFont ? (irr::s32)titleFont->getDimension(title.c_str()).Width : 100;
+        return tw + 62;
+    }
+
+    bool isAnimating() const { return (hovered && hover < 1.0f) || (!hovered && hover > 0.0f); }
+
+    virtual bool OnEvent(const irr::SEvent& event)
+    {
+        if (!isEnabled()) { return IGUIElement::OnEvent(event); }
+        if (event.EventType == irr::EET_GUI_EVENT && event.GUIEvent.Caller == this) {
+            if (event.GUIEvent.EventType == irr::gui::EGET_ELEMENT_HOVERED) { hovered = true; }
+            if (event.GUIEvent.EventType == irr::gui::EGET_ELEMENT_LEFT) { hovered = false; pressed = false; }
+        }
+        if (event.EventType == irr::EET_MOUSE_INPUT_EVENT) {
+            if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN) {
+                pressed = true;
+                Environment->setFocus(this);
+                return true;
+            }
+            if (event.MouseInput.Event == irr::EMIE_LMOUSE_LEFT_UP) {
+                const bool click = pressed && AbsoluteRect.isPointInside(irr::core::position2di(event.MouseInput.X, event.MouseInput.Y));
+                pressed = false;
+                if (click) { fire(); }
+                return true;
+            }
+        }
+        if (event.EventType == irr::EET_KEY_INPUT_EVENT && !event.KeyInput.PressedDown &&
+            (event.KeyInput.Key == irr::KEY_RETURN || event.KeyInput.Key == irr::KEY_SPACE)) {
+            fire();
+            return true;
+        }
+        return IGUIElement::OnEvent(event);
+    }
+
+    virtual void draw()
+    {
+        if (!IsVisible) { return; }
+        irr::video::IVideoDriver* driver = Environment->getVideoDriver();
+
+        //Hover eases in and out over ~150 ms.
+        const irr::u32 now = g_device ? g_device->getTimer()->getRealTime() : 0;
+        const irr::f32 dt = lastMs ? (irr::f32)(now - lastMs) / 1000.0f : 0.0f;
+        lastMs = now;
+        hover = irr::core::clamp(hover + (hovered ? 1.0f : -1.0f) * dt / 0.15f, 0.0f, 1.0f);
+        const irr::f32 k = hover * hover * (3.0f - 2.0f * hover);
+        const bool chip = (style == Tile_Chip || style == Tile_ChipDanger);
+        const bool focusRing = Environment->hasFocus(this) && !pressed;
+
+        irr::core::rect<irr::f32> r((irr::f32)AbsoluteRect.UpperLeftCorner.X, (irr::f32)AbsoluteRect.UpperLeftCorner.Y,
+            (irr::f32)AbsoluteRect.LowerRightCorner.X, (irr::f32)AbsoluteRect.LowerRightCorner.Y);
+        const irr::f32 lift = chip ? 0.0f : 3.0f * k - (pressed ? 1.0f : 0.0f);
+        r.UpperLeftCorner.Y -= lift;
+        r.LowerRightCorner.Y -= lift;
+        const irr::f32 rad = chip ? r.getHeight() * 0.5f : 14.0f;
+
+        irr::gui::PanelBatch b;
+        b.begin(driver);
+        //Shadow
+        if (!chip) {
+            irr::core::rect<irr::f32> s = r;
+            s.UpperLeftCorner.Y += 6 + 3 * k; s.LowerRightCorner.Y += 6 + 3 * k;
+            s.UpperLeftCorner.X += 2; s.LowerRightCorner.X -= 2;
+            roundRect(b, s, rad, irr::video::SColor((irr::u32)(70 + 50 * k), 0, 0, 0), irr::video::SColor((irr::u32)(70 + 50 * k), 0, 0, 0));
+        }
+        //Body
+        if (style == Tile_Primary) {
+            const irr::video::SColor top = mixColour(Theme::primaryTop, irr::video::SColor(255, 66, 150, 240), k);
+            const irr::video::SColor bottom = mixColour(Theme::primaryBottom, irr::video::SColor(255, 26, 98, 196), k);
+            roundRect(b, r, rad, pressed ? bottom : top, bottom);
+            roundRectOutline(b, r, rad, 1.0f, irr::video::SColor((irr::u32)(70 + 80 * k), 190, 225, 255));
+        }
+        else {
+            const irr::video::SColor fill = mixColour(Theme::glass, Theme::glassHover, pressed ? 1.0f : k);
+            roundRect(b, r, rad, irr::video::SColor(fill.getAlpha(), fill.getRed() + 8, fill.getGreen() + 10, fill.getBlue() + 14), fill);
+            const irr::video::SColor edge = (style == Tile_ChipDanger) ? Theme::danger : Theme::accent;
+            roundRectOutline(b, r, rad, 1.0f, mixColour(Theme::border, irr::video::SColor(220, edge.getRed(), edge.getGreen(), edge.getBlue()), k));
+        }
+        if (focusRing) {
+            irr::core::rect<irr::f32> f = r;
+            f.UpperLeftCorner -= irr::core::vector2df(3, 3); f.LowerRightCorner += irr::core::vector2df(3, 3);
+            roundRectOutline(b, f, rad + 3, 1.5f, irr::video::SColor(150, 150, 205, 255));
+        }
+
+        //Icon
+        irr::video::SColor iconCol = Theme::text;
+        if (style == Tile_Card) { iconCol = mixColour(Theme::accentHi, Theme::text, k); }
+        if (style == Tile_ChipDanger) { iconCol = mixColour(Theme::textDim, Theme::danger, k); }
+        if (style == Tile_Chip) { iconCol = mixColour(Theme::textDim, Theme::accentHi, k); }
+        irr::core::vector2df iconCentre;
+        if (chip) {
+            iconCentre = irr::core::vector2df(r.UpperLeftCorner.X + 24, r.getCenter().Y);
+            drawIcon(b, icon, iconCentre, 9.0f, iconCol);
+        }
+        else {
+            const irr::f32 badge = 23.0f;
+            iconCentre = irr::core::vector2df(r.UpperLeftCorner.X + 22 + badge, r.UpperLeftCorner.Y + 22 + badge);
+            const irr::video::SColor badgeCol = (style == Tile_Primary) ? irr::video::SColor(48, 255, 255, 255)
+                : irr::video::SColor((irr::u32)(40 + 40 * k), 64, 156, 240);
+            b.disc(iconCentre, badge, badgeCol, badgeCol);
+            drawIcon(b, icon, iconCentre, 14.5f, iconCol);
+            //Arrow on hover: "go".
+            if (k > 0.01f) {
+                const irr::core::vector2df a(r.LowerRightCorner.X - 26 + 4 * k, r.UpperLeftCorner.Y + 22 + badge);
+                const irr::video::SColor ac((irr::u32)(255 * k), 255, 255, 255);
+                b.line(irr::core::vector2df(a.X - 12, a.Y), a, 2.0f, ac);
+                b.line(irr::core::vector2df(a.X - 6, a.Y - 6), a, 2.0f, ac);
+                b.line(irr::core::vector2df(a.X - 6, a.Y + 6), a, 2.0f, ac);
+            }
+        }
+        b.flush();
+
+        //Text
+        const irr::core::rect<irr::s32> clip = AbsoluteClippingRect;
+        if (chip) {
+            if (titleFont) {
+                const irr::core::dimension2du d = titleFont->getDimension(title.c_str());
+                const irr::s32 x = (irr::s32)r.UpperLeftCorner.X + 42;
+                const irr::s32 y = (irr::s32)r.getCenter().Y - (irr::s32)d.Height / 2;
+                titleFont->draw(title.c_str(), irr::core::rect<irr::s32>(x, y, x + (irr::s32)d.Width + 2, y + (irr::s32)d.Height),
+                    mixColour(Theme::textDim, Theme::text, 0.55f + 0.45f * k), false, false, &clip);
+            }
+        }
+        else {
+            irr::s32 y = (irr::s32)(r.UpperLeftCorner.Y + 22 + 46 + 14);
+            const irr::s32 x = (irr::s32)r.UpperLeftCorner.X + 22;
+            const irr::s32 w = (irr::s32)r.getWidth() - 44;
+            if (titleFont) {
+                const irr::core::dimension2du d = titleFont->getDimension(title.c_str());
+                titleFont->draw(title.c_str(), irr::core::rect<irr::s32>(x, y, x + w, y + (irr::s32)d.Height), Theme::text, false, false, &clip);
+                y += (irr::s32)d.Height + 4;
+            }
+            if (subFont) {
+                const std::vector<std::wstring> lines = wrapText(subFont, subtitle, w);
+                for (size_t i = 0; i < lines.size() && i < 2; i++) {
+                    const irr::core::dimension2du d = subFont->getDimension(lines[i].c_str());
+                    subFont->draw(lines[i].c_str(), irr::core::rect<irr::s32>(x, y, x + w, y + (irr::s32)d.Height),
+                        style == Tile_Primary ? irr::video::SColor(255, 214, 230, 248) : Theme::textDim, false, false, &clip);
+                    y += (irr::s32)d.Height + 1;
+                }
+            }
+        }
+    }
+
+private:
+    void fire()
+    {
+        if (!Parent) { return; }
+        irr::SEvent e;
+        e.EventType = irr::EET_GUI_EVENT;
+        e.GUIEvent.Caller = this;
+        e.GUIEvent.Element = 0;
+        e.GUIEvent.EventType = irr::gui::EGET_BUTTON_CLICKED;
+        Parent->OnEvent(e);
+    }
+
+    std::wstring title, subtitle;
+    LauncherIcon icon;
+    TileStyle style;
+    bool hovered, pressed;
+    irr::f32 hover;
+    irr::u32 lastMs;
+    irr::gui::IGUIFont* titleFont;
+    irr::gui::IGUIFont* subFont;
+};
+
+//Background picture scaled to cover the window, plus the gradient that the cards sit on.
+void drawBackdrop(irr::video::IVideoDriver* driver, irr::video::ITexture* bg, const irr::core::dimension2du& screen)
+{
+    const irr::s32 W = (irr::s32)screen.Width, H = (irr::s32)screen.Height;
+    driver->draw2DRectangle(irr::video::SColor(255, 8, 18, 34), irr::core::rect<irr::s32>(0, 0, W, H));
+    if (bg) {
+        const irr::core::dimension2du ts = bg->getOriginalSize();
+        const irr::f32 scale = irr::core::max_((irr::f32)W / ts.Width, (irr::f32)H / ts.Height);
+        const irr::f32 sw = W / scale, sh = H / scale;
+        const irr::f32 sx = (ts.Width - sw) * 0.5f, sy = (ts.Height - sh) * 0.5f;
+        driver->getMaterial2D().TextureLayer[0].BilinearFilter = true;
+        driver->getMaterial2D().TextureLayer[0].TrilinearFilter = true;
+        driver->enableMaterial2D(true);
+        driver->draw2DImage(bg, irr::core::rect<irr::s32>(0, 0, W, H),
+            irr::core::rect<irr::s32>((irr::s32)sx, (irr::s32)sy, (irr::s32)(sx + sw), (irr::s32)(sy + sh)));
+        driver->enableMaterial2D(false);
+    }
+    //Fade to deep navy behind the controls.
+    const irr::video::SColor clear(0, Theme::shade.getRed(), Theme::shade.getGreen(), Theme::shade.getBlue());
+    const irr::video::SColor mid(150, Theme::shade.getRed(), Theme::shade.getGreen(), Theme::shade.getBlue());
+    const irr::video::SColor deep(232, Theme::shade.getRed(), Theme::shade.getGreen(), Theme::shade.getBlue());
+    const irr::s32 y0 = (irr::s32)(H * 0.42f), y1 = (irr::s32)(H * 0.64f);
+    driver->draw2DRectangle(irr::core::rect<irr::s32>(0, y0, W, y1), clear, clear, mid, mid);
+    driver->draw2DRectangle(irr::core::rect<irr::s32>(0, y1, W, H), mid, mid, deep, deep);
+}
+
+//Toast shown for a moment after an application is launched.
+std::wstring g_toastText;
+irr::u32 g_toastStartMs = 0;
+
+void drawToast(irr::video::IVideoDriver* driver, irr::gui::IGUIFont* font, const irr::core::dimension2du& screen, irr::s32 y)
+{
+    if (g_toastText.empty() || !font || !g_device) { return; }
+    const irr::u32 age = g_device->getTimer()->getRealTime() - g_toastStartMs;
+    if (age > 3000) { g_toastText.clear(); return; }
+    const irr::f32 alpha = (age < 200) ? age / 200.0f : (age > 2400 ? (3000 - age) / 600.0f : 1.0f);
+    const irr::core::dimension2du d = font->getDimension(g_toastText.c_str());
+    const irr::f32 w = (irr::f32)d.Width + 48, h = (irr::f32)d.Height + 18;
+    const irr::f32 x = (screen.Width - w) * 0.5f;
+    irr::gui::PanelBatch b;
+    b.begin(driver);
+    roundRect(b, irr::core::rect<irr::f32>(x, (irr::f32)y, x + w, y + h), h * 0.5f,
+        irr::video::SColor((irr::u32)(215 * alpha), 22, 96, 190), irr::video::SColor((irr::u32)(215 * alpha), 16, 74, 158));
+    b.flush();
+    font->draw(g_toastText.c_str(), irr::core::rect<irr::s32>((irr::s32)x + 24, y + 9, (irr::s32)(x + w), y + 9 + (irr::s32)d.Height),
+        irr::video::SColor((irr::u32)(255 * alpha), 255, 255, 255), false, false);
 }
 
 //Event receiver: This does the actual launching
@@ -208,6 +633,12 @@ public:
                 if (id == KEYS_CLOSE_BUTTON) {
                     if (g_keysWindow) { g_keysWindow->remove(); g_keysWindow = 0; }
                     return true;
+                }
+
+                //Feedback while the application starts (it can take a few seconds).
+                if (id != DOC_BUTTON && id != USER_BUTTON && g_device) {
+                    g_toastText = std::wstring(L"Lancement : ") + event.GUIEvent.Caller->getText() + L"...";
+                    g_toastStartMs = g_device->getTimer()->getRealTime();
                 }
 
 #ifndef _WIN32
@@ -440,24 +871,33 @@ int main(int argc, char** argv)
     }
 
     Lang language(languageFile);
+    const bool french = (modifier == "fr");
 
-    int fontSize = FONT_SIZE_DEFAULT;
     float fontScale = IniFile::iniFileTof32(iniFilename, "font_scale");
-    if (fontScale > 1) {
-        fontSize = (int)(fontSize * fontScale + 0.5);
-    }
-    else {
+    if (fontScale < 1) {
         fontScale = 1.0;
     }
 
-    irr::u32 graphicsWidth = 1000;
-    irr::u32 graphicsHeight = 600;
+    //Window: 1280 x 720, or 90 % of a smaller desktop. Resizable: the layout follows.
+    irr::u32 graphicsWidth = 1280;
+    irr::u32 graphicsHeight = 720;
+    {
+        irr::IrrlichtDevice* nulldevice = irr::createDevice(irr::video::EDT_NULL);
+        if (nulldevice) {
+            const irr::core::dimension2du desk = nulldevice->getVideoModeList()->getDesktopResolution();
+            nulldevice->drop();
+            if (desk.Width > 0 && graphicsWidth > desk.Width * 0.9f) { graphicsWidth = (irr::u32)(desk.Width * 0.9f); }
+            if (desk.Height > 0 && graphicsHeight > desk.Height * 0.9f) { graphicsHeight = (irr::u32)(desk.Height * 0.9f); }
+        }
+    }
     irr::u32 graphicsDepth = 32;
     bool fullScreen = false;
 
     irr::IrrlichtDevice* device = irr::createDevice(irr::video::EDT_OPENGL, irr::core::dimension2d<irr::u32>(graphicsWidth, graphicsHeight), graphicsDepth, fullScreen, false, false, 0);
     irr::video::IVideoDriver* driver = device->getVideoDriver();
+    irr::gui::IGUIEnvironment* env = device->getGUIEnvironment();
     g_device = device; //KYARA TOUCHES
+    device->setResizable(true);
 
 
 #ifdef __APPLE__
@@ -471,8 +911,8 @@ int main(int argc, char** argv)
 #endif
 
 
-    //icon - kyara 
-    device->setWindowCaption(L"Simulateur de Navigation Maritime");
+    //icon - kyara
+    device->setWindowCaption(L"NAUTITECH - Simulateur de Navigation Maritime");
 
     // --- ADD THIS BLOCK TO LOAD YOUR CUSTOM WINDOW ICON ---
 #ifdef _WIN32
@@ -490,130 +930,131 @@ int main(int argc, char** argv)
 #endif
     // ------------------------------------------------------
 
-    irr::gui::IGUISkin* newskin = device->getGUIEnvironment()->createSkin(irr::gui::EGST_WINDOWS_CLASSIC);
-    device->getGUIEnvironment()->setSkin(newskin);
-    //BUTTONS MODIFICATION 
+    //Fonts: the simulator's font (bc5.ini font=, normally noto-sans), in a few sizes.
+    std::string fontName = IniFile::iniFileToString(iniFilename, "font");
+    if (fontName.empty()) { fontName = "noto-sans"; }
+    auto loadFont = [&](int size) -> irr::gui::IGUIFont* {
+        size = (int)(size * fontScale + 0.5f);
+        if (size > 36) { size = 36; }
+        const std::string path = "media/fonts/" + fontName + "/" + fontName + "-" + std::to_string(size) + ".xml";
+        return env->getFont(path.c_str());
+    };
+    irr::gui::IGUIFont* titleFont = loadFont(20);
+    irr::gui::IGUIFont* textFont = loadFont(15);
+    irr::gui::IGUIFont* smallFont = loadFont(13);
 
-    irr::gui::IGUISkin* skin = device->getGUIEnvironment()->getSkin();
+    //Dark skin, for the keyboard-shortcut sheet.
+    irr::gui::IGUISkin* skin = env->createSkin(irr::gui::EGST_WINDOWS_CLASSIC);
+    env->setSkin(skin);
+    skin->drop();
+    skin->setColor(irr::gui::EGDC_WINDOW, irr::video::SColor(255, 20, 28, 40));
+    skin->setColor(irr::gui::EGDC_3D_FACE, irr::video::SColor(255, 34, 46, 62));
+    skin->setColor(irr::gui::EGDC_3D_SHADOW, irr::video::SColor(255, 12, 18, 26));
+    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, irr::video::SColor(255, 8, 12, 18));
+    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, irr::video::SColor(255, 60, 76, 96));
+    skin->setColor(irr::gui::EGDC_3D_LIGHT, irr::video::SColor(255, 48, 62, 80));
+    skin->setColor(irr::gui::EGDC_ACTIVE_BORDER, irr::video::SColor(255, 40, 120, 210));
+    skin->setColor(irr::gui::EGDC_ACTIVE_CAPTION, irr::video::SColor(255, 244, 247, 251));
+    skin->setColor(irr::gui::EGDC_INACTIVE_BORDER, irr::video::SColor(255, 34, 46, 62));
+    skin->setColor(irr::gui::EGDC_INACTIVE_CAPTION, irr::video::SColor(255, 178, 192, 208));
+    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, irr::video::SColor(255, 244, 247, 251));
+    skin->setColor(irr::gui::EGDC_HIGH_LIGHT, irr::video::SColor(255, 40, 120, 210));
+    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 255, 255, 255));
+    skin->setColor(irr::gui::EGDC_EDITABLE, irr::video::SColor(255, 14, 20, 30));
+    skin->setColor(irr::gui::EGDC_FOCUSED_EDITABLE, irr::video::SColor(255, 18, 26, 38));
+    skin->setColor(irr::gui::EGDC_GRAY_TEXT, irr::video::SColor(255, 130, 144, 160));
+    skin->setColor(irr::gui::EGDC_WINDOW_SYMBOL, irr::video::SColor(255, 220, 228, 238));
+    skin->setColor(irr::gui::EGDC_TOOLTIP, irr::video::SColor(255, 236, 242, 248));
+    skin->setColor(irr::gui::EGDC_TOOLTIP_BACKGROUND, irr::video::SColor(235, 18, 30, 46));
+    if (textFont) { skin->setFont(textFont); }
 
+    //Background picture: bc5.ini launcher_image=<file> (in media/ or a path), else the usual one.
+    std::string bgName = IniFile::iniFileToString(iniFilename, "launcher_image");
+    if (bgName.empty()) { bgName = "media/bg_main.png"; }
+    else if (!Utilities::pathExists(bgName) && Utilities::pathExists("media/" + bgName)) { bgName = "media/" + bgName; }
+    driver->setTextureCreationFlag(irr::video::ETCF_CREATE_MIP_MAPS, true);
+    irr::video::ITexture* bgTex = driver->getTexture(bgName.c_str());
 
-    // Custom color palette from kyara
-    irr::video::SColor deepestBlue(255, 165, 224, 255);        // Light blue
-    irr::video::SColor mediumBlueGray(255, 142, 210, 225); // #427AA1  
-    irr::video::SColor lightBlueWhite(255, 235, 242, 250); // #EBF2FA
-    irr::video::SColor blackText(255, 0, 0, 0);      // Black nigger
-
-    // 1. Set Button Background to Deep Navy Blue
-    skin->setColor(irr::gui::EGDC_3D_FACE, deepestBlue);
-
-    // 2. Set Button Text to black
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, blackText);
-
-    // 3. Highlight and Shadow colors to match the Navy buttons
-    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, mediumBlueGray);
-    skin->setColor(irr::gui::EGDC_3D_SHADOW, irr::video::SColor(255, 2, 15, 30)); // Very dark blue for 3D shadow effect
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, irr::video::SColor(255, 0, 0, 0));
-    skin->setColor(irr::gui::EGDC_3D_LIGHT, deepestBlue);
-
-    // Additional GUI element colors for complete customization
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, deepestBlue);
-    skin->setColor(irr::gui::EGDC_3D_LIGHT, mediumBlueGray);
-
-    // BUTTONS MODIFICATION 
-    // Set the background color to match your classic Nautitech Deep Blue
-    irr::video::SColor colBg(255, 0, 70, 130);
-
-    // --- NEW FULLSCREEN BACKGROUND ---
-    irr::video::ITexture* bgTex = driver->getTexture("media/bg_main.png");
-
-    if (bgTex) {
-        irr::gui::IGUIImage* bgImg = device->getGUIEnvironment()->addImage(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight));
-        bgImg->setImage(bgTex);
-        bgImg->setScaleImage(true); // Stretches to fit the window perfectly
-        bgImg->setEnabled(false);
-    }
-
-
-
-    // Set standard button text to black for classic readability
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, irr::video::SColor(255, 0, 0, 0));
-
-
-
-    // --- ADD THIS FONT LOADING BLOCK ---
-    irr::gui::IGUIFont* customFont = device->getGUIEnvironment()->getFont("media/lucida.xml");
-    if (customFont) {
-        skin->setFont(customFont);
-    }
-    // -----------------------------------
-
-
-
-
-
-
-
-    // 3. Horizontal Grid Layout for Classic Buttons
-    int startX = 50;
-    int startY = 310;
-    int btnW = 240;
-    int btnH = 35;
-    int gapX = 30;
-
-    // Trim trailing/leading whitespace from language strings so button text centers properly
+    // Trim trailing/leading whitespace from language strings so labels sit where they should
     auto trimLabel = [](std::wstring s) -> std::wstring {
         size_t start = s.find_first_not_of(L" \t\r\n");
         size_t end = s.find_last_not_of(L" \t\r\n");
         return (start == std::wstring::npos) ? L"" : s.substr(start, end - start + 1);
         };
-    auto T = [&](const std::string& key) -> irr::core::stringw {
+    auto T = [&](const std::string& key) -> std::wstring {
         std::wstring ws = language.translate(key.c_str()).c_str();
-        return irr::core::stringw(trimLabel(ws).c_str());
+        return trimLabel(ws);
+        };
+    //Optional phrase: from the language file if it has it, else the built-in French / English.
+    auto tr = [&](const std::string& key, const wchar_t* fr, const wchar_t* en) -> std::wstring {
+        const std::wstring ws = trimLabel(IniFile::iniFileToWString(languageFile, key));
+        return ws.empty() ? std::wstring(french ? fr : en) : ws;
         };
 
-    // Left group: c1 at x=50
-    int c1 = startX;
-    // Right group: mirrored, flush against right edge (margin=50)
-    int c2r = (int)graphicsWidth - startX - btnW; // = 710
+    //Main applications: cards. The simulator is the primary action.
+    std::vector<LauncherTile*> cards;
+    cards.push_back(new LauncherTile(env, BC_BUTTON, T("startBC"),
+        tr("startBCInfo", L"Lancer un exercice : passerelle, radar et instruments", L"Run an exercise: bridge view, radar and instruments"), Icon_Helm, Tile_Primary));
+    cards.push_back(new LauncherTile(env, ED_BUTTON, T("startED"),
+        tr("startEDInfo", L"Cr\u00E9er et modifier les exercices de navigation", L"Create and edit navigation exercises"), Icon_Route, Tile_Card));
+    cards.push_back(new LauncherTile(env, FE_BUTTON, T("startFE"),
+        tr("startFEInfo", L"Incendie \u00E0 bord, naufrag\u00E9s et moyens SAR", L"Fire on board, survivors and SAR units"), Icon_Flame, Tile_Card));
+    cards.push_back(new LauncherTile(env, MH_BUTTON, T("startMH"),
+        tr("startMHInfo", L"Relier plusieurs postes pour un exercice commun", L"Link several stations in one exercise"), Icon_Network, Tile_Card));
 
-    int c1Y = startY;
-    int c2rY = startY;
+    //Settings and tools: chips.
+    std::vector<LauncherTile*> chips;
+    chips.push_back(new LauncherTile(env, INI_BC_BUTTON, T("startINIBC"), L"", Icon_Gear, Tile_Chip));
+    chips.push_back(new LauncherTile(env, INI_MC_BUTTON, T("startINIMC"), L"", Icon_Gear, Tile_Chip));
+    chips.push_back(new LauncherTile(env, INI_MH_BUTTON, T("startINIMH"), L"", Icon_Gear, Tile_Chip));
+    chips.push_back(new LauncherTile(env, KEYS_BUTTON, french ? L"Raccourcis clavier" : L"Keyboard shortcuts", L"", Icon_Keys, Tile_Chip));
+    LauncherTile* exitTile = new LauncherTile(env, EXIT_BUTTON, T("leave"), L"", Icon_Power, Tile_ChipDanger);
 
-    // Left Column — 4 launcher buttons
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, BC_BUTTON, T("startBC").c_str()); c1Y += btnH;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, ED_BUTTON, T("startED").c_str()); c1Y += btnH;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, FE_BUTTON, T("startFE").c_str()); c1Y += btnH;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, MH_BUTTON, T("startMH").c_str());
+    std::vector<LauncherTile*> all(cards);
+    all.insert(all.end(), chips.begin(), chips.end());
+    all.push_back(exitTile);
+    for (size_t i = 0; i < cards.size(); i++) { cards[i]->setFonts(titleFont, textFont); }
+    for (size_t i = 0; i < chips.size(); i++) { chips[i]->setFonts(textFont, 0); }
+    exitTile->setFonts(textFont, 0);
+    chips[3]->setToolTipText(french ? L"Liste des touches du simulateur (FR / EN)" : L"Simulator keys (FR / EN)");
+    for (size_t i = 0; i < all.size(); i++) { all[i]->drop(); } //the GUI tree holds them
 
-    // Right Column — 3 settings buttons
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c2r, c2rY, c2r + btnW, c2rY + btnH), 0, INI_BC_BUTTON, T("startINIBC").c_str()); c2rY += btnH;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c2r, c2rY, c2r + btnW, c2rY + btnH), 0, INI_MC_BUTTON, T("startINIMC").c_str()); c2rY += btnH;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c2r, c2rY, c2r + btnW, c2rY + btnH), 0, INI_MH_BUTTON, T("startINIMH").c_str());
+    irr::s32 toastY = 0;
+    irr::core::dimension2du laidOut(0, 0);
+    auto layout = [&](const irr::core::dimension2du& scr) {
+        const irr::s32 W = (irr::s32)scr.Width, H = (irr::s32)scr.Height;
+        const irr::s32 margin = irr::core::max_(28, (irr::s32)(W * 0.04f));
+        const irr::s32 gap = irr::core::max_(14, (irr::s32)(W * 0.016f));
+        const irr::s32 cardH = irr::core::clamp((irr::s32)(H * 0.23f), 150, 200);
+        const irr::s32 chipH = (irr::s32)(42 * fontScale);
+        const irr::s32 footerH = 34;
+        const irr::s32 chipY = H - footerH - chipH - 14;
+        const irr::s32 cardY = chipY - 22 - cardH;
+        const irr::s32 cardW = (W - 2 * margin - 3 * gap) / 4;
+        for (int i = 0; i < 4; i++) {
+            const irr::s32 x = margin + i * (cardW + gap);
+            cards[i]->setRelativePosition(irr::core::rect<irr::s32>(x, cardY, x + cardW, cardY + cardH));
+        }
+        irr::s32 x = margin;
+        for (size_t i = 0; i < chips.size(); i++) {
+            const irr::s32 w = chips[i]->preferredChipWidth();
+            chips[i]->setRelativePosition(irr::core::rect<irr::s32>(x, chipY, x + w, chipY + chipH));
+            x += w + 12;
+        }
+        const irr::s32 ew = exitTile->preferredChipWidth();
+        exitTile->setRelativePosition(irr::core::rect<irr::s32>(W - margin - ew, chipY, W - margin, chipY + chipH));
+        toastY = cardY - 64;
+        laidOut = scr;
+        };
 
-    //KYARA TOUCHES: the shortcut sheet, sitting just above the exit button
-    {
-        int keysW = 200;
-        int keysH = 35;
-        int keysX = (int)(graphicsWidth - keysW) / 2;
-        int keysY = (int)graphicsHeight - keysH - 80;
-        device->getGUIEnvironment()->addButton(
-            irr::core::rect<irr::s32>(keysX, keysY, keysX + keysW, keysY + keysH), 0, KEYS_BUTTON,
-            L"Raccourcis clavier", L"Liste des touches du simulateur (FR / EN)");
+    env->setFocus(cards[0]);
+
+    //Footer text
+    std::wstring footer = L"NAUTITECH  \u00B7  Simulateur de Navigation Maritime";
+    if (!LONGVERSION.empty()) {
+        footer += L"  \u00B7  v";
+        footer += irr::core::stringw(LONGVERSION.c_str()).c_str();
     }
-
-    // Exit button — centered at the bottom
-    int exitW = 200;
-    int exitH = 35;
-    int exitX = (int)(graphicsWidth - exitW) / 2;
-    int exitY = (int)graphicsHeight - exitH - 40;
-    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(exitX, exitY, exitX + exitW, exitY + exitH), 0, EXIT_BUTTON, T("leave").c_str());
-
-    // 4. Version Info
-    std::string version = "v" + LONGVERSION;
-    irr::core::stringw wVer(version.c_str());
-    device->getGUIEnvironment()->addStaticText(wVer.c_str(), irr::core::rect<irr::s32>(20, graphicsHeight - 30, 200, graphicsHeight), false);
-
-    device->getGUIEnvironment()->setFocus(device->getGUIEnvironment()->getRootGUIElement()->getElementFromId(BC_BUTTON));
 
     Receiver receiver;
     device->setEventReceiver(&receiver);
@@ -624,10 +1065,25 @@ int main(int argc, char** argv)
 
     // Render loop
     while (device->run()) {
-        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, colBg);
-        device->getGUIEnvironment()->drawAll();
+        const irr::core::dimension2du screen = driver->getScreenSize();
+        if (screen != laidOut) { layout(screen); }
+
+        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 8, 18, 34));
+        drawBackdrop(driver, bgTex, screen);
+        env->drawAll();
+        drawToast(driver, textFont, screen, toastY);
+        if (smallFont) {
+            const irr::core::dimension2du d = smallFont->getDimension(footer.c_str());
+            const irr::s32 margin = irr::core::max_(28, (irr::s32)(screen.Width * 0.04f));
+            smallFont->draw(footer.c_str(), irr::core::rect<irr::s32>(margin, (irr::s32)screen.Height - 26, margin + (irr::s32)d.Width + 2, (irr::s32)screen.Height - 26 + (irr::s32)d.Height),
+                irr::video::SColor(170, 200, 214, 230), false, false);
+        }
         driver->endScene();
-        device->sleep(100);
+
+        //Smooth while something moves, light on the CPU otherwise.
+        bool animating = !g_toastText.empty();
+        for (size_t i = 0; i < all.size() && !animating; i++) { animating = all[i]->isAnimating(); }
+        device->sleep(animating ? 15 : 40);
     }
 
     return EXIT_SUCCESS;
