@@ -56,6 +56,7 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "ManOverboard.hpp"
 #include "Fire.hpp"          // FIRE FEATURE
 #include "FireMonitor.hpp"   // FIRE FEATURE
+#include "IncidentConfig.hpp" // SCENARIO INCENDIE: per-scenario fire / SAR settings (incident.ini)
 #include "Camera.hpp"
 #include "RadarCalculation.hpp"
 #include "RadarScreen.hpp"
@@ -280,7 +281,6 @@ public:
     std::string getOwnShipGroanSound() const;
     std::string getOwnShipSteamSound() const;
     std::string getOwnShipVhfSound() const;
-    std::vector<irr::scene::ISceneNode*> rescueCarried;   // rafts riding on the aft deck
     void toggleMonitorFiring();   // FIRE FEATURE: Ctrl+E on/off, auto-aims at the blaze
     bool isMonitorFiring() const;
     //KYARA CONTACT SOUND
@@ -494,13 +494,11 @@ public:
     void setMonitorAimFromRay(irr::core::line3d<irr::f32> ray);
     bool hasFireBoat() const;
     bool anyFireActive() const;
-    // SAR RESCUE RUN (Kyara): a named rescue craft recovers the abandon-ship group once the
-// fire is out or the casualty has foundered, then returns to her berth.
+    // SAR RESCUE RUN (Kyara): the rescue craft recover the abandon-ship rafts once everyone is
+// in the water, then return to their berths.
     void beginRescueRun();
     void beginRescueDeparture();
     void abortRescueRun();
-    void buildReturnRoute();                                     // fixed homeward route, clear of the quay
-    int  nearestRemainingRaft(irr::f32 fromX, irr::f32 fromZ);   // rescan for rafts still afloat
     bool isRescueRunActive() const;
     int  getRescuedCount() const;
     irr::scene::ISceneNode* getContactFromRay(irr::core::line3d<irr::f32> ray, irr::s32 linesMode);
@@ -603,31 +601,57 @@ private:
     bool     casualtySinking;
     bool     mobDropped;
     std::wstring distressTimer;   // shown atop the comms overlay
+    // SCENARIO INCENDIE -------------------------------------------------------
+    // Timings, survivor positions, SAR boats and helicopters for this scenario. Read from the
+    // scenario's incident.ini (fire scenario editor); without one, the built-in DAKHLA preset.
+    IncidentConfig incident;
+    bool incidentFromFile;
+    bool casualtyStartKnown;        // the configured casualty's scenario start position, to measure her drift
+    IncidentPoint casualtyStart;
+    irr::f32 abandonDriftX, abandonDriftZ;   // how far she has drifted when abandon ship starts (m)
+    void loadIncident(const std::vector<OtherShipData>& shipsData);
     // SAR RESCUE RUN ---------------------------------------------------------
-// Name of the rescue craft as it appears in the scenario (OtherShip name / model folder).
-// The instructor is free to berth her anywhere; the route is solved from the terrain.
-    enum RescueState { RescueOff, RescueRunning, RescueHolding, RescueDeparting, RescueMoored };
+    // One entry per rescue craft. Each walks her outbound route, recovers her rafts (or the
+    // nearest free ones), then follows her homeward route and moors.
+    enum RescueState { RescueOff, RescueWaiting, RescueRunning, RescueHolding, RescueDeparting, RescueMoored };
     struct RescueWaypoint {
         irr::f32 x, z;      // local metres
         int nodeIndex;      // >=0 -> pick up abandonNodes[nodeIndex]; -1 -> transit; -2 -> berth
     };
-    RescueState rescueState;
-    int rescueIndex;                          // OtherShip index of the rescue craft, -1 = absent
-    irr::f32 homeX, homeZ, homeHdg;           // berth, local metres
-    irr::f32 rescueX, rescueZ, rescueHdg;     // live scripted pose
-    irr::f32 rescueSpd;                       // m/s
-    irr::f32 pickupHold;
-    int rescuedCount;
-    bool rescuePending;      // SAR RESCUE RUN: counting down to slipping the berth
-    irr::f32 rescueDelay;    // seconds remaining
-    std::vector<RescueWaypoint> rescueRoute;
-    size_t rescueWp;
-    irr::f32 rescuePrevDist;   // last frame's range to the active waypoint (capture test)
-    irr::f32 rescueDepartRun;   // metres run since departure began
-    bool rescueReturnStarted;   // committed to the homeward route
-    int  rescueTarget;          // abandonNodes index of the raft being worked, -1 = none
+    struct RescueBoat {
+        int shipIndex;                         // OtherShip index of the rescue craft
+        int number;                            // 1-based boat number, as in incident.ini (raft assignment)
+        RescueState state;
+        irr::f32 homeX, homeZ, homeHdg;        // where she started, local metres
+        irr::f32 x, z, hdg, spd;               // live scripted pose (m/s)
+        irr::f32 speedMps;                     // transit speed
+        irr::f32 moorHdg;                      // heading once alongside, < 0 = homeHdg
+        irr::f32 launchDelay;                  // s after the run is ordered before she slips
+        irr::f32 launchTimer;                  // s remaining before she slips
+        irr::f32 pickupHold;
+        int rescued;
+        std::vector<IncidentPoint> outLatLong; // configured routes, lat/long
+        std::vector<IncidentPoint> homeLatLong;
+        std::vector<RescueWaypoint> outRoute;  // outbound, local metres
+        size_t outWp;
+        std::vector<RescueWaypoint> route;     // homeward, local metres
+        size_t wp;
+        irr::f32 prevDist;                     // last frame's range to the active waypoint
+        irr::f32 departRun;                    // metres run since departure began
+        bool returnStarted;                    // committed to the homeward route
+        int target;                            // abandonNodes index of the raft being worked, -1 = none
+        std::vector<irr::scene::ISceneNode*> carried;   // rafts riding on the aft deck
+    };
+    std::vector<RescueBoat> rescueBoats;
     int rescueCasualtyIndex;   // the wreck the survivors cluster around, -1 if none
+    void addRescueBoat(int shipIndex, int number, irr::f32 speedKts, irr::f32 launchDelay, irr::f32 moorHeading,
+        const std::vector<IncidentPoint>& outbound, const std::vector<IncidentPoint>& homeward);
+    bool isRescueBoat(int shipIndex) const;
+    std::wstring rescueLabel(const RescueBoat& b) const;
     void updateRescueRun(irr::f32 deltaTime);
+    void updateRescueBoat(RescueBoat& b, irr::f32 deltaTime);
+    void buildReturnRoute(RescueBoat& b);
+    int  nearestRemainingRaft(const RescueBoat& b, irr::f32 fromX, irr::f32 fromZ);   // rafts still afloat for this boat
     void rescueMoveNode(irr::f32 deltaX, irr::f32 deltaZ);   // world re-centring
     irr::f32 sarSweepPhase;   // SAR helo searchlight sweep
 
@@ -645,14 +669,27 @@ private:
     std::vector<irr::scene::ISceneNode*> sarBeams;
     std::vector<irr::scene::ILightSceneNode*> sarLights;
 
-    void activateSarHelicopters();
+    // Called by the trainee (3rd Ctrl+A): on scene incident.heloDelay later, flying in from their base.
+    bool heloCalled;            // call made, helos pending or inbound
+    irr::f32 heloCallElapsed;   // s since the call
+    bool sarOnScene;            // every helo has reached the scene
+    std::vector<bool> heloInbound;   // per helo: still flying in (or not yet in sight)
+    void callSarHelicopters();
+    void updateHeloCall(irr::f32 deltaTime);
+    irr::core::vector3df heloStation(size_t k) const;   // search station over the datum
+    irr::f32 heloInboundFlightSecs() const;            // longest base -> station leg
+    bool heloPadPosition(size_t k, irr::core::vector3df& pad) const;   // false = no pad, fly off scene
+
+    void activateSarHelicopters(bool inbound);
     void updateSarHelicopters();
     void deactivateSarHelicopters();
     void departSarHelicopters();
-    void placeCarriedRafts();   // header
+    void placeCarriedRafts(RescueBoat& b);
     std::vector<irr::scene::ISceneNode*> abandonNodes;
     enum AbandonKind { Ab_MOB = 0, Ab_Raft = 1 };
     std::vector<int> abandonKind;         // parallel to abandonNodes
+    std::vector<int> abandonBoat;         // parallel to abandonNodes: rafts' assigned boat number, 0 = any
+    int abandonMobTotal;                  // MOB put in the water this run
     // Staggered spawn sequencer.
     bool abandonSpawning;                 // mid-sequence
     int  abandonSpawnStep;                // how many nodes dropped so far

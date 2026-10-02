@@ -23,52 +23,21 @@
 #else
 #define IPROF(a) //intentionally empty placeholder
 #endif
-/*static const irr::f32 kAbandonAlarmSeconds = 120.0f;   // abandon-ship alarm at 2 min
-static const irr::f32 kFirePermanentListSecs = 180.0f; // past 3 min the list is permanent
-static const irr::f32 kFireSpreadSeconds = 150.0f;    // full involvement ~3.5 min
-static const irr::f32 kAbandonSceneSeconds = 60.0f;   // survivors + rafts in the water at T+1 min*/
-static const irr::f32 kAbandonAlarmSeconds = 20.0f;   // abandon-ship alarm at 2 min
-static const irr::f32 kFirePermanentListSecs = 180.0f; // past 3 min the list is permanent
-static const irr::f32 kFireSpreadSeconds = 30.0f;    // full involvement ~3.5 min
-static const irr::f32 kAbandonSceneSeconds = 60.0f;   // survivors + rafts in the water at T+1 min
-static const irr::f32 kFireSinkSeconds = 45.0f;      // founders at 6 min
+// SCENARIO INCENDIE: the fire timings (abandon, spread, sinking, permanent list, survivor drop
+// interval) now come from the scenario's incident.ini, written by the fire scenario editor.
+// Without that file the IncidentConfig defaults apply, which are the values used here before.
 // SAR RESCUE RUN (Kyara) --------------------------------------------------------------
-//CHANGE BOAT NAME FOR sar       
-// The boat and the helicopters both recover into Dakhla harbour: the boat follows
-// kBoatPath and moors, the helicopters fly to kHeloPad and land on the quay.
-static const char* kRescueBoatName = "CQPM DAKHLA SAR-1";
+// The boats' routes and the helicopter pads come from incident.ini too. Without it, the built-in
+// DAKHLA preset (rescue boat name, homeward path, helo pads) in IncidentConfig.cpp applies.
 static const irr::f32 kRescuePickupSecs = 3.0f;   // alongside each raft
 static const irr::f32 kRescueArriveR = 15.0f;  // m: capture gate
-// ================= SAR PRESET - EVERY TUNABLE VALUE LIVES HERE =================
-// Boat path, walked strictly in order. Last entry = where she moors.
-// Read each pair off the sim HUD as (lat, long). Add or remove rows freely.
-static const irr::f32 kBoatPath[][2] = {
-    { 23.6608f, -15.9400f },   // P1  clear of the wreck
-    { 23.6553f, -15.9467f },   // P2  swing OUT into open water
-    { 23.6568f, -15.9499f },   // P3  come back in past the land finger
-    { 23.6593f, -15.9468f },   // ...as many as the bend needs
-
-};
-static const irr::f32 kBoatMoorHdg = 47.0f;   // matches Rotation(1)=47 in LandObject.ini
-//SAR BOAT SPEED 
-static const irr::f32 kBoatSpeedKts = 35.0f;   // constant transit speed
-
-// Helo pads: one row per helo - { lat, long, height above sea level }.
-// Height is the number you tweak: too low = inside the quay model, too high = floating.
-static const irr::f32 kHeloPad[2][3] = {
-    { 23.6582f, -15.9460f,  12.0f },   // helo 0
-    { 23.6585f, -15.9455f,  12.0f },   // helo 1
-};
-static const irr::f32 kHeloLandSpeed = 41.0f;   // m/s flying in to the pad
 static const irr::f32 kHeloDescendRate = 4.0f;    // m/s settling onto the deck
 // ==============================================================================
 // Helicopter airframe
 static const irr::f32 kHeloYawRate = 80.0f;         // deg/s
 static const irr::f32 kHeloModelYawOffset = 0.0f;   // add if the model's nose isn't +Z
 
-static const irr::f32 kRescueLaunchDelay = 60.0f;  // s after the abandon scene spawns
-// SAR staggered spawn + air winch (Kyara)
-static const irr::f32 kAbandonSpawnInterval = 4.0f;   // s between each survivor/raft
+// SAR air winch (Kyara)
 static const irr::f32 kHeloHoverAlt = 40.0f;        // m, cruise/search altitude above datum
 static const irr::f32 kHeloWinchAlt = 18.0f;        // m, drops to this to winch
 // HELICOPTER CORD 
@@ -412,17 +381,8 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     if (loadingScreen) { loadingScreen->setStage(0.58f, "Navires de l'exercice"); } //KYARA CHARGEMENT
     //Load other ships
     otherShips.load(scenarioData.otherShipsData, scenarioTime, modelParameters.mode, smgr, this, device);
-    // SAR RESCUE RUN: locate the rescue craft and remember where the instructor berthed her.
-    rescueIndex = otherShips.findByName(kRescueBoatName);
-
-    if (rescueIndex >= 0) {
-        irr::core::vector3df bp = otherShips.getPosition(rescueIndex);
-        homeX = bp.X; homeZ = bp.Z; homeHdg = otherShips.getHeading(rescueIndex);
-        if (device) { device->getLogger()->log("SAR rescue craft found in scenario."); }
-    }
-    else if (device) {
-        device->getLogger()->log("SAR rescue craft not in scenario - rescue run disabled.");
-    }
+    // SCENARIO INCENDIE: fire timings, survivors, SAR boats (and where they are berthed), helicopters.
+    loadIncident(scenarioData.otherShipsData);
     if (loadingScreen) { loadingScreen->setStage(0.68f, "Bouées et balisage"); } //KYARA CHARGEMENT
     //Load buoys
     buoys.load(worldPath, smgr, this, device);
@@ -521,21 +481,14 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     fireElapsed = 0.0f; casualtySinking = false; // Kyara FIRE (escalation)
     // SAR HELICOPTER FEATURE
     sarActive = false;
-    // SAR RESCUE RUN
-    rescueState = RescueOff;
-    rescuePending = false;
-    rescueDelay = 0.0f;
-    rescueX = rescueZ = rescueHdg = rescueSpd = 0.0f;
-    pickupHold = 0.0f;
-    rescuedCount = 0;
+    // SAR RESCUE RUN (the boats themselves are set up by loadIncident)
     heloRescuedCount = 0;
-    rescueWp = 0;
-    rescueReturnStarted = false;
-    rescueTarget = -1;
     sarDeparting = false;
     sarDepartTimer = 0.0f;
-    rescueDepartRun = 0.0f;
-    rescuePrevDist = 1.0e9f;
+    heloCalled = false;
+    heloCallElapsed = 0.0f;
+    sarOnScene = false;
+    abandonMobTotal = 0;
 
     rescueCasualtyIndex = -1;
     sarDatum = irr::core::vector3df(0, 0, 0);
@@ -2561,9 +2514,12 @@ void SimulationModel::igniteNearestOtherShipFire()
  // CASUALTY alight, not the helo/pilot boat that happens to be closest.
     irr::core::vector3df ownPos = ownShip.getPosition();
     int best = -1; irr::f32 bestDist = 1.0e30f;
-    for (irr::u32 i = 0; i < n; i++) {
+    // SCENARIO INCENDIE: the ship chosen in the fire scenario editor, if there is one.
+    bool casualtyChosen = (incident.casualtyShip >= 1 && incident.casualtyShip <= (int)n);
+    if (casualtyChosen) { best = incident.casualtyShip - 1; }
+    for (irr::u32 i = 0; i < n && !casualtyChosen; i++) {
         if (otherShips.isFireFightingVessel(i)) { continue; }
-        if ((int)i == rescueIndex) { continue; }   // SAR RESCUE RUN: never the rescuer
+        if (isRescueBoat((int)i)) { continue; }   // SAR RESCUE RUN: never a rescuer
         irr::f32 d = otherShips.getPosition(i).getDistanceFrom(ownPos);
         if (d < bestDist) { bestDist = d; best = (int)i; }
     }
@@ -2671,32 +2627,190 @@ irr::scene::ISceneNode* SimulationModel::spawnModelNode(const std::string& folde
     return node;
 }
 
-void SimulationModel::activateSarHelicopters()
+// SCENARIO INCENDIE: search station of helo k over the datum. Two helos sit either side of it
+// as before; any more are fanned out between those two bearings.
+static irr::f32 heloStationAngle(size_t k, size_t count)
 {
-    if (sarActive || burningShipIndex < 0) { return; }
+    if (count < 2) { return 0.7f; }
+    return 0.7f - 1.4f * (irr::f32)k / (irr::f32)(count - 1);
+}
 
-    irr::core::vector3df cpos = otherShips.getPosition(burningShipIndex);
-    // Kyara SAR: freeze the hover altitude to the casualty's deck level AT SPAWN (she's still
-    // floating here). All vertical placement below uses sarBaseY, never the live cpos.Y - so when
+irr::core::vector3df SimulationModel::heloStation(size_t k) const
+{
+    irr::f32 ang = heloStationAngle(k, incident.helos.size());
+    const irr::f32 off = 55.0f;
+    return irr::core::vector3df(sarDatum.X + off * std::sin(ang),
+        sarBaseY + kHeloHoverAlt,
+        sarDatum.Z + off * std::cos(ang));
+}
+
+// Longest base -> station leg at the configured speed: the helos lift off this long before
+// they are due, so the furthest one still arrives on time.
+irr::f32 SimulationModel::heloInboundFlightSecs() const
+{
+    irr::f32 speed = incident.heloSpeedKts * KTS_TO_MPS;
+    if (speed <= 0.0f) { return 0.0f; }
+    irr::f32 longest = 0.0f;
+    for (size_t k = 0; k < incident.helos.size(); k++) {
+        const IncidentHelo& h = incident.helos[k];
+        if (!h.hasBase) { continue; }
+        irr::core::vector3df st = heloStation(k);
+        irr::f32 dx = st.X - longToSceneX((irr::f32)h.base.lon);
+        irr::f32 dz = st.Z - latToSceneZ((irr::f32)h.base.lat);
+        irr::f32 t = std::sqrt(dx * dx + dz * dz) / speed;
+        if (t > longest) { longest = t; }
+    }
+    return longest;
+}
+
+// Where helo k lands once the operation is over: her pad, else her base. False = neither set,
+// she just flies off scene.
+bool SimulationModel::heloPadPosition(size_t k, irr::core::vector3df& pad) const
+{
+    if (k >= incident.helos.size()) { return false; }
+    const IncidentHelo& h = incident.helos[k];
+    if (h.hasPad) {
+        pad = irr::core::vector3df(longToSceneX((irr::f32)h.pad.lon), sarBaseY + h.padHeight, latToSceneZ((irr::f32)h.pad.lat));
+        return true;
+    }
+    if (h.hasBase) {
+        pad = irr::core::vector3df(longToSceneX((irr::f32)h.base.lon), sarBaseY + h.baseHeight, latToSceneZ((irr::f32)h.base.lat));
+        return true;
+    }
+    return false;
+}
+
+// The trainee has made the OSC call (3rd Ctrl+A). With no delay set the helicopters are on
+// scene at once, as before; otherwise they arrive incident.heloDelay seconds later.
+void SimulationModel::callSarHelicopters()
+{
+    if (sarActive || heloCalled || burningShipIndex < 0) { return; }
+    heloCalled = true;
+    heloCallElapsed = 0.0f;
+    sarOnScene = false;
+    // Kyara SAR: freeze the hover altitude to the casualty's deck level NOW (she's still
+    // floating here). All vertical placement uses sarBaseY, never the live casualty Y - so when
     // the hull founders the helos keep station overhead instead of riding it under.
-    sarBaseY = cpos.Y;
-    //CHANGE HELICOPTER
-    const char* heloNames[2] = { "MAC SAR Eurocopter", "MAC SAR Eurocopter" };
+    sarDatum = otherShips.getPosition(burningShipIndex);
+    sarDatumSet = true;
+    sarBaseY = sarDatum.Y;
 
-    for (int hIdx = 0; hIdx < 2; hIdx++) {
-        irr::f32 ang = (hIdx == 0) ? 0.7f : -0.7f;
-        irr::f32 off = 55.0f;
-        irr::core::vector3df hpos(cpos.X + off * std::sin(ang),
-            sarBaseY + 40.0f,
-            cpos.Z + off * std::cos(ang));
+    if (incident.heloDelay <= 0.0f) {
+        activateSarHelicopters(false);
+        return;
+    }
+    int secs = (int)(incident.heloDelay + 0.5f);
+    wchar_t line[128];
+    swprintf(line, 128, L"H\u00E9licopt\u00E8res SAR en route - sur zone dans %02d:%02d", secs / 60, secs % 60);
+    pushComms(line);
+}
 
-        irr::scene::ISceneNode* node = spawnModelNode(heloNames[hIdx], hpos, 1.6f);
-        if (node) { sarNodes.push_back(node); }
+void SimulationModel::updateHeloCall(irr::f32 deltaTime)
+{
+    if (!heloCalled || sarOnScene || sarDeparting) { return; }
+    if (burningShipIndex >= 0) { sarDatum = otherShips.getPosition(burningShipIndex); }   // follow her drift while she floats
+    heloCallElapsed += deltaTime;
+    irr::f32 remaining = incident.heloDelay - heloCallElapsed;
+
+    if (!sarActive) {
+        if (remaining > heloInboundFlightSecs()) { return; }   // not time to lift off yet
+        activateSarHelicopters(true);
+        if (!sarActive) { heloCalled = false; return; }        // nothing could be spawned
+    }
+
+    bool allThere = true;
+    irr::f32 nearest = 1.0e9f;
+    irr::core::vector3df ownPos = ownShip.getPosition();
+    for (size_t k = 0; k < sarNodes.size(); k++) {
+        if (k >= heloInbound.size() || !heloInbound[k]) { continue; }
+        irr::scene::ISceneNode* node = sarNodes[k];
+        if (!node) { heloInbound[k] = false; continue; }
+        irr::core::vector3df st = heloStation(k);
+
+        if (!node->isVisible()) {
+            // No base set: she comes into sight on station when due.
+            node->setPosition(st);
+            if (remaining <= 0.0f) {
+                node->setVisible(true);
+                if (k < sarLights.size() && sarLights[k]) { sarLights[k]->setVisible(true); }
+                heloInbound[k] = false;
+            }
+            else { allThere = false; }
+            continue;
+        }
+
+        // Close the remaining distance in the remaining time, so she is on station exactly
+        // when the delay runs out.
+        irr::core::vector3df p = node->getPosition();
+        irr::core::vector3df d = st - p;
+        if (remaining <= deltaTime || d.getLength() < 1.0f) {
+            p = st;
+            heloInbound[k] = false;
+        }
+        else {
+            p += d * (deltaTime / remaining);
+            node->setRotation(irr::core::vector3df(0.0f, std::atan2(d.X, d.Z) * irr::core::RADTODEG + kHeloModelYawOffset, 0.0f));
+            allThere = false;
+        }
+        node->setPosition(p);
+        if (k < sarLights.size() && sarLights[k]) { sarLights[k]->setPosition(p + irr::core::vector3df(0, -6.0f, 0)); }
+        irr::f32 ox = p.X - ownPos.X, oz = p.Z - ownPos.Z;
+        irr::f32 dOwn = std::sqrt(ox * ox + oz * oz);
+        if (dOwn < nearest) { nearest = dOwn; }
+    }
+
+    if (sound) {
+        // Rotor noise builds as they close: full inside 400 m, silent beyond 3 km.
+        irr::f32 vol = 1.0f - (nearest - 400.0f) / 2600.0f;
+        if (vol > 1.0f) { vol = 1.0f; }
+        if (vol < 0.0f) { vol = 0.0f; }
+        sound->setVolumeHelo(allThere ? 1.0f : vol);
+    }
+
+    if (allThere) {
+        sarOnScene = true;
+        pushComms(L"H\u00E9licopt\u00E8res SAR sur zone");
+        if (abandonComplete && !heloRunActive) { beginHeloRun(); }   // survivors already waiting
+    }
+}
+
+void SimulationModel::activateSarHelicopters(bool inbound)
+{
+    if (sarActive || !sarDatumSet) { return; }
+
+    irr::core::vector3df cpos = sarDatum;
+    size_t count = incident.helos.size();
+    heloInbound.assign(count, false);
+
+    for (size_t hIdx = 0; hIdx < count; hIdx++) {
+        const IncidentHelo& cfg = incident.helos[hIdx];
+        irr::core::vector3df hpos = heloStation(hIdx);
+        bool hidden = false;
+        if (inbound) {
+            heloInbound[hIdx] = true;
+            if (cfg.hasBase) {
+                hpos = irr::core::vector3df(longToSceneX((irr::f32)cfg.base.lon), sarBaseY + cfg.baseHeight, latToSceneZ((irr::f32)cfg.base.lat));
+            }
+            else {
+                hidden = true;   // no base: appears on station when due
+            }
+        }
+
+        irr::scene::ISceneNode* node = spawnModelNode(cfg.model, hpos, 1.6f);
+        if (node) {
+            node->setVisible(!hidden);
+            if (inbound && !hidden) {
+                irr::core::vector3df st = heloStation(hIdx);
+                node->setRotation(irr::core::vector3df(0.0f, std::atan2(st.X - hpos.X, st.Z - hpos.Z) * irr::core::RADTODEG + kHeloModelYawOffset, 0.0f));
+            }
+        }
+        sarNodes.push_back(node);   // may be 0 if the model is missing: every user null-checks, and indices stay aligned
 
         // Downward SPOT light on the casualty deck (point lights barely register here).
+        irr::core::vector3df lightPos = inbound ? hpos + irr::core::vector3df(0, -6.0f, 0)
+            : irr::core::vector3df(cpos.X, sarBaseY + 26.0f, cpos.Z);
         irr::scene::ILightSceneNode* L =
-            smgr->addLightSceneNode(0,
-                irr::core::vector3df(cpos.X, sarBaseY + 26.0f, cpos.Z),
+            smgr->addLightSceneNode(0, lightPos,
                 irr::video::SColorf(1.0f, 1.0f, 0.95f), 340.0f);   // was 0.85,0.85,0.75 / 200.0f
         if (L) {
             L->setLightType(irr::video::ELT_SPOT);
@@ -2704,8 +2818,9 @@ void SimulationModel::activateSarHelicopters()
             ld.Direction = irr::core::vector3df(0.0f, -1.0f, 0.0f);
             ld.InnerCone = 10.0f; ld.OuterCone = 26.0f; ld.Falloff = 3.0f;
             ld.DiffuseColor = irr::video::SColorf(1.0f, 1.0f, 0.90f);
-            sarLights.push_back(L);
+            L->setVisible(!hidden);
         }
+        sarLights.push_back(L);
 
         // Visible searchlight beam: additive cone from the helo down onto the deck.
         const irr::scene::IGeometryCreator* gc = smgr->getGeometryCreator();
@@ -2726,48 +2841,61 @@ void SimulationModel::activateSarHelicopters()
         cone->setMaterialType(irr::video::EMT_TRANSPARENT_ADD_COLOR);
         beamPivot->setPosition(beamBase);
         beamPivot->setRotation((hpos - beamBase).getHorizontalAngle());
-        beamPivot->setVisible(light.getLightLevel() < 160);   // a shaft only reads as light at dusk/night
+        beamPivot->setVisible(!inbound && light.getLightLevel() < 160);   // a shaft only reads as light at dusk/night
         sarBeams.push_back(beamPivot);
     }
 
-    sarActive = (!sarNodes.empty() || !sarLights.empty());
-    if (sarActive && sound) { sound->setVolumeHelo(1.0f); }   // rotor noise on scene
+    sarActive = !sarNodes.empty();
+    if (sarActive && sound) { sound->setVolumeHelo(inbound ? 0.0f : 1.0f); }   // inbound: faded in by updateHeloCall
+    if (sarActive && !inbound) {
+        sarOnScene = true;
+        if (abandonComplete && !heloRunActive) { beginHeloRun(); }   // survivors already waiting
+    }
 }
 
 
 void SimulationModel::updateSarHelicopters()
 {
     if (!sarActive) { return; }
-    if (sarDeparting) {   // now: recover to the quay and land
+    if (sarDeparting) {   // now: recover to the pad and land
+        irr::f32 speed = incident.heloSpeedKts * KTS_TO_MPS;
         for (size_t k = 0; k < sarNodes.size(); k++) {
-            if (!sarNodes[k]) { continue; }
+            if (!sarNodes[k] || !sarNodes[k]->isVisible()) { continue; }   // never came into sight / already gone
             irr::core::vector3df p = sarNodes[k]->getPosition();
 
-            // Pad per helo, straight out of kHeloPad at the top of this file.
-            // [0]=lat  [1]=long  [2]=height above sea level (the number you tweak).
-            size_t idx = (k < 2) ? k : 0;
-            irr::f32 padX = longToSceneX(kHeloPad[idx][1]);
-            irr::f32 padZ = latToSceneZ(kHeloPad[idx][0]);
-            irr::f32 padY = sarBaseY + kHeloPad[idx][2];
+            // Pad per helo from the scenario (built-in preset: incidentBuiltInPreset()).
+            irr::core::vector3df pad;
+            bool landing = heloPadPosition(k, pad);
+            if (!landing) {
+                // Nowhere to land: fly 4 km out from the datum and drop out of sight.
+                irr::core::vector3df away(p.X - sarDatum.X, 0.0f, p.Z - sarDatum.Z);
+                if (away.getLength() < 1.0f) { away = irr::core::vector3df(0, 0, 1.0f); }
+                away.normalize();
+                pad = irr::core::vector3df(sarDatum.X + away.X * 4000.0f, p.Y, sarDatum.Z + away.Z * 4000.0f);
+            }
 
-            irr::f32 dx = padX - p.X, dz = padZ - p.Z;
+            irr::f32 dx = pad.X - p.X, dz = pad.Z - p.Z;
             irr::f32 horiz = std::sqrt(dx * dx + dz * dz);
 
             if (horiz > 6.0f) {
                 // still inbound: hold height, fly toward the pad
-                irr::f32 step = kHeloLandSpeed * deltaTime;
+                irr::f32 step = speed * deltaTime;
                 if (step > horiz) { step = horiz; }
                 p.X += (dx / horiz) * step;
                 p.Z += (dz / horiz) * step;
                 irr::f32 crs = std::atan2(dx, dz) * irr::core::RADTODEG;
                 sarNodes[k]->setRotation(irr::core::vector3df(0.0f, crs + kHeloModelYawOffset, 0.0f));
             }
+            else if (!landing) {
+                sarNodes[k]->setVisible(false);
+                if (k < sarLights.size() && sarLights[k]) { sarLights[k]->setVisible(false); }
+            }
             else {
                 // over the pad: settle straight down onto the deck, then park
-                p.X = padX; p.Z = padZ;
-                if (p.Y > padY) {
+                p.X = pad.X; p.Z = pad.Z;
+                if (p.Y > pad.Y) {
                     p.Y -= kHeloDescendRate * deltaTime;
-                    if (p.Y < padY) { p.Y = padY; }
+                    if (p.Y < pad.Y) { p.Y = pad.Y; }
                 }
             }
             sarNodes[k]->setPosition(p);
@@ -2776,6 +2904,7 @@ void SimulationModel::updateSarHelicopters()
         }
         return;   // helos stay parked on the quay - do not deactivate or clear
     }
+    if (!sarOnScene) { return; }   // still flying in: updateHeloCall moves them
     if (burningShipIndex >= 0) { sarDatum = otherShips.getPosition(burningShipIndex); sarDatumSet = true; }
     if (!sarDatumSet) { return; }
     irr::core::vector3df cpos = sarDatum;
@@ -2805,15 +2934,14 @@ void SimulationModel::updateSarHelicopters()
         return;
     }
 
-    // --- pre-winch search sweep (unchanged) ---------------------------------------------
+    // --- pre-winch search sweep ---------------------------------------------------------
     sarSweepPhase += deltaTime * 0.55f;
     const irr::f32 sweepAmp = 60.0f;
     for (size_t k = 0; k < sarNodes.size(); k++) {
-        irr::f32 ang = (k == 0) ? 0.7f : -0.7f;
-        irr::f32 off = 55.0f;
-        irr::core::vector3df hp(cpos.X + off * std::sin(ang), sarBaseY + 40.0f, cpos.Z + off * std::cos(ang));
+        irr::f32 ang = heloStationAngle(k, sarNodes.size());
+        irr::core::vector3df hp = heloStation(k);
         if (sarNodes[k]) { sarNodes[k]->setPosition(hp); }
-        irr::f32 sweep = std::sin(sarSweepPhase + (k == 0 ? 0.0f : 2.3f));
+        irr::f32 sweep = std::sin(sarSweepPhase + (irr::f32)k * 2.3f);
         irr::f32 gx = cpos.X + sweepAmp * sweep * std::cos(ang);
         irr::f32 gz = cpos.Z - sweepAmp * sweep * std::sin(ang);
         if (k < sarLights.size() && sarLights[k]) {
@@ -2842,6 +2970,17 @@ void SimulationModel::deactivateSarHelicopters()
     sarNodes.clear();
     sarBeams.clear();
     sarActive = false;
+    // SCENARIO INCENDIE: a hard reset also cancels a pending call and the winch run, so the
+    // next exercise starts clean (previously sarDeparting stayed set after a first run).
+    heloCalled = false;
+    heloCallElapsed = 0.0f;
+    sarOnScene = false;
+    sarDeparting = false;
+    heloInbound.clear();
+    heloRunActive = false;
+    for (size_t k = 0; k < heloUnits.size(); k++) { if (heloUnits[k].cable) { heloUnits[k].cable->remove(); } }
+    heloUnits.clear();
+    heloRescuedCount = 0;
     if (sound) { sound->setVolumeHelo(0.0f); }
 }
 
@@ -2849,6 +2988,11 @@ void SimulationModel::deactivateSarHelicopters()
 // Helicopters() stays the hard cut, used by instructor resets.
 void SimulationModel::departSarHelicopters()
 {
+    if (heloCalled && !sarActive) {   // stood down before they lifted off
+        heloCalled = false;
+        pushComms(L"H\u00E9licopt\u00E8res SAR annul\u00E9s");
+        return;
+    }
     if (!sarActive || sarDeparting) { return; }
     sarDeparting = true;
     sarDepartTimer = 0.0f;
@@ -2864,16 +3008,57 @@ void SimulationModel::spawnAbandonScene()
 {
     if (burningShipIndex < 0) { return; }
     abandonCentre = otherShips.getPosition(burningShipIndex);
+    // The editor places the survivors around the casualty where she starts; if she has drifted
+    // since, they go into the water the same distance downstream, still around her.
+    abandonDriftX = abandonDriftZ = 0.0f;
+    if (casualtyStartKnown && burningShipIndex == incident.casualtyShip - 1) {
+        abandonDriftX = abandonCentre.X - longToSceneX((irr::f32)casualtyStart.lon);
+        abandonDriftZ = abandonCentre.Z - latToSceneZ((irr::f32)casualtyStart.lat);
+    }
     abandonSpawning = true;
     abandonComplete = false;
     abandonSpawnStep = 0;
     abandonSpawnTimer = 0.0f;   // first node drops on the next frame
+    abandonMobTotal = 0;
     pushComms(L"Abandon du navire - mise \u00E0 l'eau en cours");
 }
 
-// Drop node number abandonSpawnStep: steps 0..4 = MOB, 5 = Radeau, 6 = Liferaft.
+// Drop node number abandonSpawnStep. With an incident.ini: the editor's survivors, in order, at
+// their own positions. Built-in preset: steps 0..4 = MOB in a ring, 5 = Radeau, 6 = Liferaft.
 void SimulationModel::spawnAbandonStep()
 {
+    if (incidentFromFile) {
+        int total = (int)incident.survivors.size();
+        if (abandonSpawnStep < total) {
+            const IncidentSurvivor& sv = incident.survivors[abandonSpawnStep];
+            irr::f32 px = longToSceneX((irr::f32)sv.pos.lon) + abandonDriftX;
+            irr::f32 pz = latToSceneZ((irr::f32)sv.pos.lat) + abandonDriftZ;
+            irr::f32 py = tideHeight + getWaveHeight(px, pz);
+            irr::scene::ISceneNode* n = spawnModelNode(IncidentConfig::survivorModel(sv.kind), irr::core::vector3df(px, py, pz), 1.0f);
+            if (n) {
+                bool isMob = (sv.kind == Survivor_MOB);
+                // A raft assigned to a boat that is not in the scenario goes to whichever boat is nearest.
+                int boat = 0;
+                for (size_t b = 0; b < rescueBoats.size() && !isMob; b++) {
+                    if (rescueBoats[b].number == sv.boat) { boat = sv.boat; }
+                }
+                abandonNodes.push_back(n);
+                abandonKind.push_back(isMob ? Ab_MOB : Ab_Raft);
+                abandonBoat.push_back(boat);
+                if (isMob) { abandonMobTotal++; }
+            }
+        }
+        abandonSpawnStep++;
+        if (abandonSpawnStep >= total) {
+            abandonSpawning = false;
+            abandonComplete = true;
+            pushComms(L"Tous les naufrag\u00E9s et radeaux \u00E0 l'eau - moyens SAR engag\u00E9s");
+            beginHeloRun();      // air recovers the swimmers (once the helos are on scene)
+            beginRescueRun();    // boats recover the rafts
+        }
+        return;
+    }
+
     const int numMOB = 5;
     irr::core::vector3df cc = abandonCentre;
     irr::f32 ringR = 0.75f * ((burningShipIndex >= 0) ? otherShips.getLength(burningShipIndex) : 40.0f) + 14.0f;
@@ -2885,19 +3070,19 @@ void SimulationModel::spawnAbandonStep()
         irr::f32 px = cc.X + r * std::sin(a), pz = cc.Z + r * std::cos(a);
         irr::f32 py = tideHeight + getWaveHeight(px, pz);
         irr::scene::ISceneNode* n = spawnModelNode("ManOverboard", irr::core::vector3df(px, py, pz), 1.0f);
-        if (n) { abandonNodes.push_back(n); abandonKind.push_back(Ab_MOB); }
+        if (n) { abandonNodes.push_back(n); abandonKind.push_back(Ab_MOB); abandonBoat.push_back(0); abandonMobTotal++; }
     }
     else if (abandonSpawnStep == numMOB) {
         irr::f32 rx = cc.X - ringR * 1.25f, rz = cc.Z - 8.0f;
         irr::scene::ISceneNode* r2 = spawnModelNode("Radeau_Sauvetage",
             irr::core::vector3df(rx, tideHeight + getWaveHeight(rx, rz), rz), 1.0f);
-        if (r2) { abandonNodes.push_back(r2); abandonKind.push_back(Ab_Raft); }
+        if (r2) { abandonNodes.push_back(r2); abandonKind.push_back(Ab_Raft); abandonBoat.push_back(0); }
     }
     else if (abandonSpawnStep == numMOB + 1) {
         irr::f32 rx = cc.X + ringR * 1.25f, rz = cc.Z + 8.0f;
         irr::scene::ISceneNode* r1 = spawnModelNode("Liferaft",
             irr::core::vector3df(rx, tideHeight + getWaveHeight(rx, rz), rz), 1.0f);
-        if (r1) { abandonNodes.push_back(r1); abandonKind.push_back(Ab_Raft); }
+        if (r1) { abandonNodes.push_back(r1); abandonKind.push_back(Ab_Raft); abandonBoat.push_back(0); }
     }
     abandonSpawnStep++;
 
@@ -2917,7 +3102,7 @@ void SimulationModel::updateAbandonSpawn(irr::f32 deltaTime)
     abandonSpawnTimer -= deltaTime;
     if (abandonSpawnTimer <= 0.0f) {
         spawnAbandonStep();
-        abandonSpawnTimer = kAbandonSpawnInterval;
+        abandonSpawnTimer = incident.survivorInterval;
     }
 }
 
@@ -2926,16 +3111,20 @@ void SimulationModel::clearAbandonScene()
     for (size_t k = 0; k < abandonNodes.size(); k++) { if (abandonNodes[k]) { abandonNodes[k]->remove(); } }
     abandonNodes.clear();
     abandonKind.clear();
+    abandonBoat.clear();
     abandonSpawned = false;
     abandonSpawning = false;
     abandonComplete = false;
     abandonSpawnStep = 0;
-    for (size_t i = 0; i < rescueCarried.size(); i++) { if (rescueCarried[i]) { rescueCarried[i]->remove(); } }
-    rescueCarried.clear();
+    abandonMobTotal = 0;
+    for (size_t b = 0; b < rescueBoats.size(); b++) {
+        for (size_t i = 0; i < rescueBoats[b].carried.size(); i++) { if (rescueBoats[b].carried[i]) { rescueBoats[b].carried[i]->remove(); } }
+        rescueBoats[b].carried.clear();
+    }
 }
 void SimulationModel::beginHeloRun()
 {
-    if (!sarActive) { return; }                 // helos must be on scene (Ctrl+A step 2)
+    if (!sarActive || !sarOnScene) { return; }  // helos must be on scene (Ctrl+A step 2, plus any delay)
     if (heloUnits.empty()) {
         // Build one HeloUnit per spawned helicopter node.
         for (size_t k = 0; k < sarNodes.size(); k++) {
@@ -3109,7 +3298,7 @@ void SimulationModel::updateHeloRun(irr::f32 deltaTime)
                 }
                 heloRescuedCount++;
                 wchar_t line[96];
-                swprintf(line, 96, L"Naufrag\u00E9 h\u00E9litreuill\u00E9 (%d/5)", heloRescuedCount);
+                swprintf(line, 96, L"Naufrag\u00E9 h\u00E9litreuill\u00E9 (%d/%d)", heloRescuedCount, abandonMobTotal);
                 pushComms(line);
                 u.targetNode = -1;
                 setHeloCable(k, u.pos, 0.0f);
@@ -3146,70 +3335,215 @@ void SimulationModel::updateHeloRun(irr::f32 deltaTime)
 
 
 
+// SCENARIO INCENDIE: read the scenario's incident.ini (written by the fire scenario editor) and
+// set up the rescue craft. Without the file, the built-in DAKHLA preset: one boat found by name,
+// fixed homeward route, fixed helicopter pads (incidentBuiltInPreset()).
+void SimulationModel::loadIncident(const std::vector<OtherShipData>& shipsData)
+{
+    std::string userFolder = Utilities::getUserDir();
+    std::string scenarioPath = "Scenarios/";   // same lookup as main.cpp
+    if (Utilities::pathExists(userFolder + scenarioPath)) { scenarioPath = userFolder + scenarioPath; }
+    std::string incidentFile = scenarioPath + scenarioName + "/incident.ini";
+
+    incident = IncidentConfig();
+    incidentFromFile = incident.load(incidentFile);
+    rescueBoats.clear();
+    abandonDriftX = abandonDriftZ = 0.0f;
+    casualtyStartKnown = false;
+    if (incidentFromFile && incident.casualtyShip >= 1 && incident.casualtyShip <= (int)shipsData.size()) {
+        casualtyStartKnown = true;
+        casualtyStart = IncidentPoint(shipsData[incident.casualtyShip - 1].initialLat, shipsData[incident.casualtyShip - 1].initialLong);
+    }
+
+    if (incidentFromFile) {
+        if (device) { device->getLogger()->log("Fire scenario settings loaded from incident.ini"); }
+        for (size_t i = 0; i < incident.sarBoats.size(); i++) {
+            const IncidentSarBoat& cfg = incident.sarBoats[i];
+            int idx = cfg.ship - 1;
+            if (idx < 0 || idx >= (int)otherShips.getNumber() || cfg.ship == incident.casualtyShip || isRescueBoat(idx)) {
+                if (device) { device->getLogger()->log("SAR boat in incident.ini does not match a usable ship - skipped."); }
+                continue;
+            }
+            addRescueBoat(idx, (int)i + 1, cfg.speedKts, cfg.launchDelay, cfg.moorHeading, cfg.outbound, cfg.inbound);
+        }
+        return;
+    }
+
+    const IncidentBuiltInPreset& preset = incidentBuiltInPreset();
+    int idx = otherShips.findByName(preset.rescueBoatName);
+    if (idx >= 0) {
+        addRescueBoat(idx, 1, preset.boatSpeedKts, 0.0f, preset.boatMoorHeading, std::vector<IncidentPoint>(), preset.boatReturn);
+        if (device) { device->getLogger()->log("SAR rescue craft found in scenario."); }
+    }
+    else if (device) {
+        device->getLogger()->log("SAR rescue craft not in scenario - rescue run disabled.");
+    }
+    for (size_t k = 0; k < incident.helos.size() && k < 2; k++) {
+        incident.helos[k].hasPad = true;
+        incident.helos[k].pad = preset.heloPad[k];
+        incident.helos[k].padHeight = preset.heloPadHeight[k];
+    }
+}
+
+void SimulationModel::addRescueBoat(int shipIndex, int number, irr::f32 speedKts, irr::f32 launchDelay, irr::f32 moorHeading,
+    const std::vector<IncidentPoint>& outbound, const std::vector<IncidentPoint>& homeward)
+{
+    RescueBoat b;
+    b.shipIndex = shipIndex;
+    b.number = number;
+    b.state = RescueOff;
+    irr::core::vector3df bp = otherShips.getPosition(shipIndex);   // where the instructor berthed her
+    b.homeX = bp.X; b.homeZ = bp.Z; b.homeHdg = otherShips.getHeading(shipIndex);
+    b.x = b.homeX; b.z = b.homeZ; b.hdg = b.homeHdg; b.spd = 0.0f;
+    b.speedMps = speedKts * KTS_TO_MPS;
+    b.moorHdg = moorHeading;
+    b.launchDelay = launchDelay;
+    b.launchTimer = 0.0f;
+    b.pickupHold = 0.0f;
+    b.rescued = 0;
+    b.outLatLong = outbound;
+    b.homeLatLong = homeward;
+    b.outWp = 0;
+    b.wp = 0;
+    b.prevDist = 1.0e9f;
+    b.departRun = 0.0f;
+    b.returnStarted = false;
+    b.target = -1;
+    rescueBoats.push_back(b);
+}
+
+bool SimulationModel::isRescueBoat(int shipIndex) const
+{
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        if (rescueBoats[i].shipIndex == shipIndex) { return true; }
+    }
+    return false;
+}
+
+// "Vedette de sauvetage" when she is the only one (the original wording), her name otherwise.
+std::wstring SimulationModel::rescueLabel(const RescueBoat& b) const
+{
+    if (rescueBoats.size() <= 1) { return L"Vedette de sauvetage"; }
+    return L"Vedette " + widen(otherShips.getName(b.shipIndex));
+}
+
 void SimulationModel::beginRescueRun()
 {
-    if (rescueIndex < 0) { return; }
     if (!abandonSpawned) { return; }
-    if (rescueState != RescueOff && rescueState != RescueMoored) { return; }
 
-    irr::core::vector3df bp = otherShips.getPosition(rescueIndex);
-    rescueX = bp.X; rescueZ = bp.Z;
-    rescueHdg = otherShips.getHeading(rescueIndex);
-    rescueSpd = 0.0f;
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        RescueBoat& b = rescueBoats[i];
+        if (b.state != RescueOff && b.state != RescueMoored) { continue; }
 
-    rescueTarget = -1;
-    rescuedCount = 0;
-    pickupHold = 0.0f;
-    rescuePrevDist = 1.0e9f;
-    rescueReturnStarted = false;
-    rescueRoute.clear();
-    rescueWp = 0;
+        irr::core::vector3df bp = otherShips.getPosition(b.shipIndex);
+        b.x = bp.X; b.z = bp.Z;
+        b.hdg = otherShips.getHeading(b.shipIndex);
+        b.spd = 0.0f;
 
-    rescueState = RescueRunning;
-    pushComms(L"Vedette de sauvetage appareille - r\u00E9cup\u00E9ration des radeaux");
+        b.target = -1;
+        b.rescued = 0;
+        b.pickupHold = 0.0f;
+        b.prevDist = 1.0e9f;
+        b.returnStarted = false;
+        b.route.clear();
+        b.wp = 0;
+        b.outRoute.clear();
+        b.outWp = 0;
+        for (size_t w = 0; w < b.outLatLong.size(); w++) {
+            RescueWaypoint p;
+            p.x = longToSceneX((irr::f32)b.outLatLong[w].lon);
+            p.z = latToSceneZ((irr::f32)b.outLatLong[w].lat);
+            p.nodeIndex = -1;
+            b.outRoute.push_back(p);
+        }
+
+        b.launchTimer = b.launchDelay;
+        if (b.launchTimer > 0.0f) {
+            b.state = RescueWaiting;
+            int secs = (int)(b.launchTimer + 0.5f);
+            wchar_t line[64];
+            swprintf(line, 64, L" appareille dans %02d:%02d", secs / 60, secs % 60);
+            pushComms(rescueLabel(b) + line);
+        }
+        else {
+            b.state = RescueRunning;
+            pushComms(rescueLabel(b) + L" appareille - r\u00E9cup\u00E9ration des radeaux");
+        }
+    }
 }
 // Clear the scene on the same course as the helicopters, as a single SAR team.
 void SimulationModel::beginRescueDeparture()
 {
-    if (rescueState == RescueOff || rescueState == RescueDeparting) { return; }
-    rescueState = RescueDeparting;
-    rescueDepartRun = 0.0f;
-    pushComms(L"Vedette de sauvetage quitte la zone");
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        RescueBoat& b = rescueBoats[i];
+        if (b.state == RescueOff || b.state == RescueDeparting) { continue; }
+        b.state = RescueDeparting;
+        b.departRun = 0.0f;
+        pushComms(rescueLabel(b) + L" quitte la zone");
+    }
 }
 void SimulationModel::abortRescueRun()
 {
-    rescueState = RescueOff;
-    rescueRoute.clear();
-    rescueWp = 0;
-    rescuedCount = 0;
-    pickupHold = 0.0f;
-    rescuePending = false;
-    rescueDelay = 0.0f;
-    for (size_t i = 0; i < rescueCarried.size(); i++) { if (rescueCarried[i]) { rescueCarried[i]->remove(); } }
-    rescueCarried.clear();
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        RescueBoat& b = rescueBoats[i];
+        b.state = RescueOff;
+        b.outRoute.clear();
+        b.outWp = 0;
+        b.route.clear();
+        b.wp = 0;
+        b.rescued = 0;
+        b.pickupHold = 0.0f;
+        b.launchTimer = 0.0f;
+        b.target = -1;
+        for (size_t c = 0; c < b.carried.size(); c++) { if (b.carried[c]) { b.carried[c]->remove(); } }
+        b.carried.clear();
+    }
 }
 
-bool SimulationModel::isRescueRunActive() const { return rescueState == RescueRunning || rescueState == RescueHolding; }
-int  SimulationModel::getRescuedCount() const { return rescuedCount; }
+bool SimulationModel::isRescueRunActive() const
+{
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        if (rescueBoats[i].state == RescueRunning || rescueBoats[i].state == RescueHolding) { return true; }
+    }
+    return false;
+}
+
+int SimulationModel::getRescuedCount() const
+{
+    int total = 0;
+    for (size_t i = 0; i < rescueBoats.size(); i++) { total += rescueBoats[i].rescued; }
+    return total;
+}
 
 void SimulationModel::rescueMoveNode(irr::f32 deltaX, irr::f32 deltaZ)
 {
-    homeX += deltaX; homeZ += deltaZ;
-    rescueX += deltaX; rescueZ += deltaZ;
-    for (size_t i = 0; i < rescueRoute.size(); i++) {
-        rescueRoute[i].x += deltaX;
-        rescueRoute[i].z += deltaZ;
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        RescueBoat& b = rescueBoats[i];
+        b.homeX += deltaX; b.homeZ += deltaZ;
+        b.x += deltaX; b.z += deltaZ;
+        for (size_t w = 0; w < b.outRoute.size(); w++) { b.outRoute[w].x += deltaX; b.outRoute[w].z += deltaZ; }
+        for (size_t w = 0; w < b.route.size(); w++) { b.route[w].x += deltaX; b.route[w].z += deltaZ; }
     }
 }
 
 
-// Nearest raft still in the water, or -1 if the water is clear of rafts.
-int SimulationModel::nearestRemainingRaft(irr::f32 fromX, irr::f32 fromZ)
+// Nearest raft still in the water that this boat may take: one assigned to her, or a free one
+// no other boat is already working. -1 if there is none.
+int SimulationModel::nearestRemainingRaft(const RescueBoat& b, irr::f32 fromX, irr::f32 fromZ)
 {
     int best = -1; irr::f32 bestD = 1.0e18f;
     for (size_t k = 0; k < abandonNodes.size(); k++) {
         if (!abandonNodes[k]) { continue; }
         if (k >= abandonKind.size() || abandonKind[k] != Ab_Raft) { continue; }
+        int assigned = (k < abandonBoat.size()) ? abandonBoat[k] : 0;
+        if (assigned != 0 && assigned != b.number) { continue; }
+        if (assigned == 0) {
+            bool claimed = false;
+            for (size_t o = 0; o < rescueBoats.size(); o++) {
+                if (&rescueBoats[o] != &b && rescueBoats[o].target == (int)k) { claimed = true; break; }
+            }
+            if (claimed) { continue; }
+        }
         irr::core::vector3df p = abandonNodes[k]->getAbsolutePosition();
         irr::f32 d = (p.X - fromX) * (p.X - fromX) + (p.Z - fromZ) * (p.Z - fromZ);
         if (d < bestD) { bestD = d; best = (int)k; }
@@ -3219,163 +3553,193 @@ int SimulationModel::nearestRemainingRaft(irr::f32 fromX, irr::f32 fromZ)
 
 void SimulationModel::updateRescueRun(irr::f32 deltaTime)
 {
-    if (rescueIndex < 0 || rescueState == RescueOff) { return; }
+    for (size_t i = 0; i < rescueBoats.size(); i++) {
+        updateRescueBoat(rescueBoats[i], deltaTime);
+    }
+}
 
-    if (rescueState == RescueMoored) {
-        otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, 0.0f);
-        placeCarriedRafts();
+void SimulationModel::updateRescueBoat(RescueBoat& b, irr::f32 deltaTime)
+{
+    if (b.state == RescueOff) { return; }
+
+    // --- alongside her berth until her launch delay runs out: her own legs keep her there --
+    if (b.state == RescueWaiting) {
+        if (deltaTime > 0.0f) { b.launchTimer -= deltaTime; }
+        if (b.launchTimer > 0.0f) { return; }
+        b.state = RescueRunning;
+        pushComms(rescueLabel(b) + L" appareille - r\u00E9cup\u00E9ration des radeaux");
+    }
+
+    if (b.state == RescueMoored) {
+        otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, 0.0f);
+        placeCarriedRafts(b);
         return;
     }
     if (deltaTime <= 0.0f) {
-        otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, rescueSpd);
-        placeCarriedRafts();
+        otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, b.spd);
+        placeCarriedRafts(b);
         return;
     }
 
     // --- alongside a raft: hold, then take it aboard, then rescan --------------------------
-    if (rescueState == RescueHolding) {
-        rescueSpd = 0.0f;
-        pickupHold -= deltaTime;
-        if (pickupHold <= 0.0f) {
-            if (rescueTarget >= 0 && rescueTarget < (int)abandonNodes.size() && abandonNodes[rescueTarget]) {
-                rescueCarried.push_back(abandonNodes[rescueTarget]);
-                abandonNodes[rescueTarget] = 0;
-                rescuedCount++;
+    if (b.state == RescueHolding) {
+        b.spd = 0.0f;
+        b.pickupHold -= deltaTime;
+        if (b.pickupHold <= 0.0f) {
+            if (b.target >= 0 && b.target < (int)abandonNodes.size() && abandonNodes[b.target]) {
+                b.carried.push_back(abandonNodes[b.target]);
+                abandonNodes[b.target] = 0;
+                b.rescued++;
                 wchar_t line[96];
-                swprintf(line, 96, L"Radeau r\u00E9cup\u00E9r\u00E9 \u00E0 bord (%d)", rescuedCount);
-                pushComms(line);
+                swprintf(line, 96, L"Radeau r\u00E9cup\u00E9r\u00E9 \u00E0 bord (%d)", b.rescued);
+                pushComms(rescueBoats.size() > 1 ? rescueLabel(b) + L" : " + line : std::wstring(line));
             }
-            rescueTarget = -1;
-            rescuePrevDist = 1.0e9f;
-            rescueState = RescueRunning;
+            b.target = -1;
+            b.prevDist = 1.0e9f;
+            b.state = RescueRunning;
         }
-        otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, 0.0f);
-        placeCarriedRafts();
+        otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, 0.0f);
+        placeCarriedRafts(b);
         return;
     }
 
-    // --- running: choose a goal - next raft, or the homeward route -------------------------
-    irr::f32 goalX = rescueX, goalZ = rescueZ;
+    // --- running: choose a goal - outbound route, next raft, or the homeward route ---------
+    irr::f32 goalX = b.x, goalZ = b.z;
     bool goalIsPickup = false, goalIsBerth = false;
+    bool goalIsOutbound = false;
 
-    if (!rescueReturnStarted) {
+    if (b.outWp < b.outRoute.size()) {
+        goalX = b.outRoute[b.outWp].x; goalZ = b.outRoute[b.outWp].z;
+        goalIsOutbound = true;
+    }
+    else if (!b.returnStarted) {
         // Drop a stale target if its node vanished for any reason.
-        if (rescueTarget >= 0 &&
-            (rescueTarget >= (int)abandonNodes.size() || !abandonNodes[rescueTarget])) {
-            rescueTarget = -1;
+        if (b.target >= 0 && (b.target >= (int)abandonNodes.size() || !abandonNodes[b.target])) {
+            b.target = -1;
         }
-        if (rescueTarget < 0) {
-            rescueTarget = nearestRemainingRaft(rescueX, rescueZ);   // rescan every time
+        if (b.target < 0) {
+            b.target = nearestRemainingRaft(b, b.x, b.z);   // rescan every time
         }
-        if (rescueTarget >= 0) {
-            irr::core::vector3df p = abandonNodes[rescueTarget]->getAbsolutePosition();
+        if (b.target >= 0) {
+            irr::core::vector3df p = abandonNodes[b.target]->getAbsolutePosition();
             goalX = p.X; goalZ = p.Z; goalIsPickup = true;
         }
         else {
-            buildReturnRoute();          // water clear of rafts -> head home, once
-            rescueReturnStarted = true;
+            buildReturnRoute(b);          // her rafts are aboard -> head home, once
+            b.returnStarted = true;
         }
     }
 
-    if (rescueReturnStarted) {
-        if (rescueWp >= rescueRoute.size()) {      // route exhausted: loiter
-            rescueSpd = 0.0f;
-            otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, 0.0f);
-            placeCarriedRafts();
+    if (b.returnStarted) {
+        if (b.wp >= b.route.size()) {      // route exhausted: loiter
+            b.spd = 0.0f;
+            otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, 0.0f);
+            placeCarriedRafts(b);
             return;
         }
-        const RescueWaypoint& wp = rescueRoute[rescueWp];
+        const RescueWaypoint& wp = b.route[b.wp];
         goalX = wp.x; goalZ = wp.z;
         goalIsBerth = (wp.nodeIndex == -2);
     }
 
     // --- arrival --------------------------------------------------------------------------
-    irr::f32 dx = goalX - rescueX, dz = goalZ - rescueZ;
+    irr::f32 dx = goalX - b.x, dz = goalZ - b.z;
     irr::f32 dist = std::sqrt(dx * dx + dz * dz);
     if (dist < kRescueArriveR) {
-        rescuePrevDist = 1.0e9f;
-        if (goalIsPickup) {
-            rescueState = RescueHolding;
-            pickupHold = kRescuePickupSecs;
-            rescueSpd = 0.0f;
+        b.prevDist = 1.0e9f;
+        if (goalIsOutbound) {
+            b.outWp++;                   // outbound waypoint reached
+        }
+        else if (goalIsPickup) {
+            b.state = RescueHolding;
+            b.pickupHold = kRescuePickupSecs;
+            b.spd = 0.0f;
         }
         else if (goalIsBerth) {
-            rescueX = goalX; rescueZ = goalZ; rescueHdg = kBoatMoorHdg; rescueSpd = 0.0f;
-            rescueState = RescueMoored;
-            for (size_t i = 0; i < rescueCarried.size(); i++) { if (rescueCarried[i]) { rescueCarried[i]->remove(); } }
-            rescueCarried.clear();
-            pushComms(L"Vedette de sauvetage \u00E0 quai - radeaux d\u00E9barqu\u00E9s");
+            b.x = goalX; b.z = goalZ; b.hdg = (b.moorHdg >= 0.0f) ? b.moorHdg : b.homeHdg; b.spd = 0.0f;
+            b.state = RescueMoored;
+            for (size_t i = 0; i < b.carried.size(); i++) { if (b.carried[i]) { b.carried[i]->remove(); } }
+            b.carried.clear();
+            pushComms(rescueLabel(b) + L" \u00E0 quai - radeaux d\u00E9barqu\u00E9s");
         }
         else {
-            rescueWp++;                  // transit waypoint reached
+            b.wp++;                      // homeward waypoint reached
         }
-        otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, rescueSpd);
-        placeCarriedRafts();
+        otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, b.spd);
+        placeCarriedRafts(b);
         return;
     }
-    rescuePrevDist = dist;
+    b.prevDist = dist;
 
     // --- move straight along the leg: no turning arc, no braking curve -------------------
     // Heading snaps to the bearing of the leg and the boat advances exactly along the
-    // straight line to the next waypoint, so she follows kBoatPath precisely.
-    rescueHdg = std::atan2(dx, dz) * irr::core::RADTODEG;
-    while (rescueHdg >= 360.0f) { rescueHdg -= 360.0f; }
-    while (rescueHdg < 0.0f) { rescueHdg += 360.0f; }
+    // straight line to the next waypoint, so she follows her drawn route precisely.
+    b.hdg = std::atan2(dx, dz) * irr::core::RADTODEG;
+    while (b.hdg >= 360.0f) { b.hdg -= 360.0f; }
+    while (b.hdg < 0.0f) { b.hdg += 360.0f; }
 
-    rescueSpd = kBoatSpeedKts * KTS_TO_MPS;
-    irr::f32 step = rescueSpd * deltaTime;
+    b.spd = b.speedMps;
+    irr::f32 step = b.spd * deltaTime;
     if (step > dist) { step = dist; }        // never overshoot the mark
 
-    rescueX += (dx / dist) * step;
-    rescueZ += (dz / dist) * step;
+    b.x += (dx / dist) * step;
+    b.z += (dz / dist) * step;
 
-    otherShips.setScriptedPose(rescueIndex, rescueX, rescueZ, rescueHdg, rescueSpd);
-    placeCarriedRafts();
+    otherShips.setScriptedPose(b.shipIndex, b.x, b.z, b.hdg, b.spd);
+    placeCarriedRafts(b);
 }
 
-// Fixed homeward route back to the quay. Edit the lat/long list to shape the path so she
-// stays clear of the land / 3D quay model. The final leg (-2) snaps her to her exact start
-// pose and lands the rafts. Fixed preset, so the boat always starts at the quay -> the berth
-// is guaranteed clear of the model.
-void SimulationModel::buildReturnRoute()
+// Homeward route. With a drawn return route: walk it, moor on its last point. Without one:
+// back along the outbound route, and alongside where she started.
+void SimulationModel::buildReturnRoute(RescueBoat& b)
 {
-    // Strict scripted path: walk kBoatPath in order, moor on the last entry.
-    // To change the route, edit kBoatPath at the top of this file - nothing else.
-    rescueRoute.clear();
-    rescueWp = 0;
+    b.route.clear();
+    b.wp = 0;
 
-    const size_t n = sizeof(kBoatPath) / sizeof(kBoatPath[0]);
-    for (size_t i = 0; i < n; i++) {
-        RescueWaypoint w;
-        w.x = longToSceneX(kBoatPath[i][1]);   // [1] = long
-        w.z = latToSceneZ(kBoatPath[i][0]);    // [0] = lat
-        w.nodeIndex = (i == n - 1) ? -2 : -1;  // last = moor, others = pass through
-        rescueRoute.push_back(w);
+    if (!b.homeLatLong.empty()) {
+        const size_t n = b.homeLatLong.size();
+        for (size_t i = 0; i < n; i++) {
+            RescueWaypoint w;
+            w.x = longToSceneX((irr::f32)b.homeLatLong[i].lon);
+            w.z = latToSceneZ((irr::f32)b.homeLatLong[i].lat);
+            w.nodeIndex = (i == n - 1) ? -2 : -1;  // last = moor, others = pass through
+            b.route.push_back(w);
+        }
+    }
+    else {
+        for (size_t i = b.outRoute.size(); i > 0; i--) {
+            RescueWaypoint w = b.outRoute[i - 1];
+            w.nodeIndex = -1;
+            b.route.push_back(w);
+        }
+        RescueWaypoint berth;
+        berth.x = b.homeX; berth.z = b.homeZ; berth.nodeIndex = -2;
+        b.route.push_back(berth);
     }
 
-    pushComms(L"Vedette de sauvetage - retour au quai");
+    pushComms(rescueLabel(b) + L" - retour au quai");
 }
 // Rafts riding on the aft deck: re-seated every frame from the boat's live pose, so they
 // follow her heading and wave motion without needing to be scene-graph children (which would
 // inherit her model scale and complicate re-centring).
-void SimulationModel::placeCarriedRafts()
+void SimulationModel::placeCarriedRafts(RescueBoat& b)
 {
-    if (rescueCarried.empty() || rescueIndex < 0) { return; }
-    irr::core::vector3df bp = otherShips.getPosition(rescueIndex);
-    irr::f32 h = otherShips.getHeading(rescueIndex) * irr::core::DEGTORAD;
+    if (b.carried.empty() || b.shipIndex < 0) { return; }
+    irr::core::vector3df bp = otherShips.getPosition(b.shipIndex);
+    irr::f32 h = otherShips.getHeading(b.shipIndex) * irr::core::DEGTORAD;
     irr::f32 sh = std::sin(h), ch = std::cos(h);
-    irr::f32 boatLen = otherShips.getLength(rescueIndex);
-    for (size_t i = 0; i < rescueCarried.size(); i++) {
-        if (!rescueCarried[i]) { continue; }
-        // Deck slots: local (athwart, up, fore-aft). First raft amidships-aft, second further aft.
+    irr::f32 boatLen = otherShips.getLength(b.shipIndex);
+    for (size_t i = 0; i < b.carried.size(); i++) {
+        if (!b.carried[i]) { continue; }
+        // Deck slots: local (athwart, up, fore-aft). First raft amidships-aft, the next further aft.
         irr::f32 lx = 0.0f;
         irr::f32 ly = 1.4f;
         irr::f32 lz = -0.18f * boatLen - (irr::f32)i * 0.14f * boatLen;
         irr::f32 wx = bp.X + lx * ch + lz * sh;
         irr::f32 wz = bp.Z - lx * sh + lz * ch;
-        rescueCarried[i]->setPosition(irr::core::vector3df(wx, bp.Y + ly, wz));
-        rescueCarried[i]->setRotation(irr::core::vector3df(0.0f, otherShips.getHeading(rescueIndex), 0.0f));
-        rescueCarried[i]->setScale(irr::core::vector3df(0.5f, 0.5f, 0.5f));
+        b.carried[i]->setPosition(irr::core::vector3df(wx, bp.Y + ly, wz));
+        b.carried[i]->setRotation(irr::core::vector3df(0.0f, otherShips.getHeading(b.shipIndex), 0.0f));
+        b.carried[i]->setScale(irr::core::vector3df(0.5f, 0.5f, 0.5f));
     }
 }
 void SimulationModel::pushComms(const std::wstring& line)
@@ -3453,7 +3817,7 @@ void SimulationModel::advanceComms()
     case 1: pushComms(L"MAYDAY RELAY transmis au CROSS / MRCC (VHF 16)"); break;
     case 2:
         pushComms(L"Coordination sur zone assur\u00E9e (OSC) - h\u00E9licopt\u00E8re SAR engag\u00E9");
-        activateSarHelicopters();
+        callSarHelicopters();   // on scene now, or after the scenario's helicopter delay
         break;
     case 3: pushComms(L"Compte-rendu au MRCC : nature, POB, moyens engag\u00E9s"); break;
     default: pushComms(L"Point de situation transmis au MRCC BOUZNIKA via le MRSC DAKHLA"); break;
@@ -3756,7 +4120,8 @@ void SimulationModel::update()
                     + irr::core::vector3df(40.0f * std::sin(h), -2.0f, 40.0f * std::cos(h)));
             }
         }
-        // SAR HELICOPTER FEATURE: helos spawned on OSC ack; keep them tracking the casualty.
+        // SAR HELICOPTER FEATURE: helos called on OSC ack; fly them in, then keep them tracking the casualty.
+        updateHeloCall(deltaTime);
         updateSarHelicopters();
 
         // SAR SEQUENCERS: drive abandon-ship and helicopter rescue animations every frame.
@@ -3766,10 +4131,10 @@ void SimulationModel::update()
         bool active = fire.isActive();
         if (active) {
             fireElapsed += deltaTime;
-            fire.setEscalation(fireElapsed / kFireSpreadSeconds);
+            fire.setEscalation(fireElapsed / incident.fireSpreadTime);
             sound->setVolumeFireBurning(0.5f + 0.5f * fire.getEscalation());  // crackle grows
             sound->setVolumeGroan(0.25f + 0.5f * fire.getEscalation());       // metal groan grows
-            bool abandon = (fireElapsed >= kAbandonAlarmSeconds);
+            bool abandon = (fireElapsed >= incident.abandonTime);
             if (abandon && !abandonSpawned) {
                 abandonSpawned = true;
                 spawnAbandonScene();        // begins the staggered mise-à-l'eau
@@ -3779,9 +4144,9 @@ void SimulationModel::update()
             sound->setVolumeFireAlarm(abandon ? 0.0f : 1.0f);   // hand off at 3 min: fire alarm -> abandon
 
             if (!casualtySinking && burningShipIndex >= 0 && fire.isActive()
-                && fireElapsed >= kFireSinkSeconds) {
+                && fireElapsed >= incident.sinkStartTime()) {
                 casualtySinking = true;
-                otherShips.startSinking(burningShipIndex);
+                otherShips.startSinking(burningShipIndex, incident.sinkLeadTime);   // fully under at fireDuration
 
                 // Kyara FIRE: she's going down - the tow parts. Drop every line made fast to her,
                 // so the tow solver stops asserting a pose and the trainee's lines are freed.
@@ -3850,7 +4215,7 @@ void SimulationModel::update()
 
             // Under 3 minutes she is saved and rights herself; past that the flooding has gone
             // too far and the list stays as permanent damage.
-            if (fireElapsed < kFirePermanentListSecs) {
+            if (fireElapsed < incident.permanentListTime) {
                 if (burningShipIndex >= 0) { otherShips.setCasualty(burningShipIndex, false); }
                 pushComms(L"Navire stabilis\u00E9 - assiette r\u00E9tablie");
             }
@@ -3866,7 +4231,7 @@ void SimulationModel::update()
 
         // countdown for the comms overlay
         if (distressActive) {
-            irr::s32 rem = (irr::s32)(kFireSinkSeconds - fireElapsed); if (rem < 0) rem = 0;
+            irr::s32 rem = (irr::s32)(incident.sinkStartTime() - fireElapsed); if (rem < 0) rem = 0;
             wchar_t tb[64];
             swprintf(tb, 64, L"INCENDIE  T+%02d:%02d   (\u00E9ch\u00E9ance %02d:%02d)",
                 (int)fireElapsed / 60, (int)fireElapsed % 60, rem / 60, rem % 60);

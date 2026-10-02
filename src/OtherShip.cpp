@@ -39,6 +39,7 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     rateOfTurn = 0; // Not normally used, but used to smooth behaviour in multiplayer
     underTow = false; towX = 0; towZ = 0; towHdg = 0;
     onFire = false; fireListDeg = 0.0f; fireListTarget = 12.0f; // Kyara FIRE
+    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
 
     this->model = model;
 
@@ -275,7 +276,7 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
         // Kyara FIRE: founder - settle the hull under and stop all way.
     if (sinking) {
         axialSpd = 0.0f;
-        sinkDepth += (sinkTargetDepth / 18.0f) * deltaTime;   // ~18 s to go fully under
+        sinkDepth += (sinkTargetDepth / sinkSeconds) * deltaTime;   // fully under after sinkSeconds
         if (sinkDepth > sinkTargetDepth) { sinkDepth = sinkTargetDepth; }
         yPos -= sinkDepth;
     }
@@ -314,10 +315,11 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
     shipLights.update(scenarioTime, lightLevel, fabs(axialSpd) > 0.2f); // KYARA FEUX
 
 }
-void OtherShip::startSinking()
+void OtherShip::startSinking(irr::f32 secondsToGoUnder)
 {
     if (sinking) { return; }
     sinking = true;
+    sinkSeconds = (secondsToGoUnder > 1.0f) ? secondsToGoUnder : 1.0f;
     onFire = true;               // stays a casualty
     fireListTarget = 35.0f;      // heel hard over as she founders
     sinkTargetDepth = airDraught + 4.0f;   // bury the whole hull, with margin
@@ -584,7 +586,7 @@ bool OtherShip::getUnderTow() const
 void OtherShip::setCasualty(bool active)
 {
     onFire = active;
-    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; // Kyara FIRE
+    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
     if (!active) { fireListDeg = 0.0f; } // upright on extinguish/reset (persistent-list is a later option)
 }
 

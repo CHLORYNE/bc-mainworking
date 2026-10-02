@@ -117,6 +117,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\GUIInstrumentPanel.cpp" />
     <ClCompile Include="..\HeadingIndicator.cpp" />
     <ClCompile Include="..\HullMotion.cpp" />
+    <ClCompile Include="..\IncidentConfig.cpp" />
     <ClCompile Include="..\IniFile.cpp" />
     <ClCompile Include="..\LandLights.cpp" />
     <ClCompile Include="..\LandObject.cpp" />
@@ -196,6 +197,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\GUIRectangle.hpp" />
     <ClInclude Include="..\HeadingIndicator.h" />
     <ClInclude Include="..\HullMotion.hpp" />
+    <ClInclude Include="..\IncidentConfig.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\LandLights.hpp" />
     <ClInclude Include="..\LandObject.hpp" />

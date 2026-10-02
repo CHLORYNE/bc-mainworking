@@ -60,6 +60,7 @@ const irr::s32 EXIT_BUTTON = 12;
 const irr::s32 KEYS_BUTTON = 13;
 const irr::s32 KEYS_CLOSE_BUTTON = 14;
 const irr::s32 KEYS_LANG_BUTTON = 15;
+const irr::s32 FE_BUTTON = 16;   // SCENARIO INCENDIE: fire / SAR scenario editor
 
 std::string userFolder;
 
@@ -267,6 +268,19 @@ public:
 #else
                     //Other (assumed posix)
                     execl("./Simulator-ed", "Simulator-ed", NULL);
+#endif
+#endif
+                }
+                if (id == FE_BUTTON) {
+#ifdef _WIN32
+                    ShellExecute(NULL, NULL, "Simulator-fe.exe", NULL, NULL, SW_SHOW);
+#else
+#ifdef __APPLE__
+                    //APPLE
+                    execl("../MacOS/fe.app/Contents/MacOS/fe", "fe", NULL);
+#else
+                    //Other (assumed posix)
+                    execl("./Simulator-fe", "Simulator-fe", NULL);
 #endif
 #endif
                 }
@@ -565,9 +579,10 @@ int main(int argc, char** argv)
     int c1Y = startY;
     int c2rY = startY;
 
-    // Left Column — 3 launcher buttons
+    // Left Column — 4 launcher buttons
     device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, BC_BUTTON, T("startBC").c_str()); c1Y += btnH;
     device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, ED_BUTTON, T("startED").c_str()); c1Y += btnH;
+    device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, FE_BUTTON, T("startFE").c_str()); c1Y += btnH;
     device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(c1, c1Y, c1 + btnW, c1Y + btnH), 0, MH_BUTTON, T("startMH").c_str());
 
     // Right Column — 3 settings buttons

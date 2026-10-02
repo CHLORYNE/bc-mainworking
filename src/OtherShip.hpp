@@ -62,7 +62,7 @@ public:
     void setCasualty(bool active); // Kyara FIRE
     bool getCasualty() const;
     //FIREFIGHTING 
-    void startSinking();     // Kyara FIRE: begin foundering (after the 4-min deadline)
+    void startSinking(irr::f32 secondsToGoUnder = 18.0f); // Kyara FIRE: begin foundering; fully under after secondsToGoUnder
     bool isSunk() const;     // Kyara FIRE: fully under
 
 protected:
@@ -109,6 +109,7 @@ private:
     bool sinking;
     irr::f32 sinkDepth;        // metres settled below the floating waterline
     irr::f32 sinkTargetDepth;  // metres to fully submerge
+    irr::f32 sinkSeconds;      // SCENARIO INCENDIE: time taken to go fully under
 };
 
 #endif

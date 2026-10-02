@@ -371,8 +371,8 @@ bool OtherShips::isFireFightingVessel(int number) const {
     if (number < (int)otherShips.size() && number >= 0) return otherShips.at(number)->isFireFightingVessel();
     return false;
 }
-void OtherShips::startSinking(int number) {
-    if (number < (int)otherShips.size() && number >= 0) otherShips.at(number)->startSinking();
+void OtherShips::startSinking(int number, irr::f32 secondsToGoUnder) {
+    if (number < (int)otherShips.size() && number >= 0) otherShips.at(number)->startSinking(secondsToGoUnder);
 }
 bool OtherShips::isSunk(int number) const {
     if (number < (int)otherShips.size() && number >= 0) return otherShips.at(number)->isSunk();

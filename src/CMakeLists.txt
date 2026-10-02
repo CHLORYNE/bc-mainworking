@@ -28,6 +28,7 @@ endif (NOT APPLE)
 # optional tools
 add_subdirectory(controller)
 add_subdirectory(editor)
+add_subdirectory(fireEditor)
 add_subdirectory(iniEditor)
 add_subdirectory(launcher)
 add_subdirectory(multiplayerHub)
@@ -100,7 +101,8 @@ set(BC_SOURCES
     Splash.cpp
     ScreenSpray.cpp
     ShipLights.cpp
-Loading
+    LoadingScreen.cpp
+    IncidentConfig.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     BCTerrainSceneNode.cpp

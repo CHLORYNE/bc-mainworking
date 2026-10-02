@@ -67,7 +67,7 @@ public:
     irr::scene::ISceneNode* getSceneNode(int number);
     //FIREFIGHTING
     bool isFireFightingVessel(int number) const;   // Kyara FIRE
-    void startSinking(int number);                 // Kyara FIRE (escalation)
+    void startSinking(int number, irr::f32 secondsToGoUnder = 18.0f); // Kyara FIRE (escalation)
     bool isSunk(int number) const;                 // Kyara FIRE (escalation)
     // AUTO RESCUE
     void setScriptedPose(int number, irr::f32 x, irr::f32 z, irr::f32 hdg, irr::f32 spd); // Kyara SAR

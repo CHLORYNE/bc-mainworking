@@ -83,6 +83,7 @@ SetShellVarContext all
   Delete "$INSTDIR\Simulator-rp.exe"
   Delete "$INSTDIR\Simulator-mh.exe"
   Delete "$INSTDIR\Simulator-ed.exe"
+  Delete "$INSTDIR\Simulator-fe.exe"
   Delete "$INSTDIR\Simulator-ini.exe"
   Delete "$INSTDIR\Simulator-mh.exe"
   Delete "$INSTDIR\Irrlicht.dll"
