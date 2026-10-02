@@ -29,6 +29,14 @@ class ScenarioData;
 class GUIMain;
 class GUIData;
 class Sound;
+class LoadingScreen; //KYARA CHARGEMENT
+
+//KYARA METEO: highest sea state ("etat de mer", the weather value) the simulator accepts.
+//Applied in setWeather() and when the scenario is loaded, so it caps the weather slider, the
+//scenario files AND values arriving over the network. The weather slider's range follows it.
+//Scale is the original Bridge Command one (0-12); storm effects start at 3.5, the
+//"Mauvais temps" preset uses 4.0 - keep this at 4.0 or above so the preset is not clipped.
+const irr::f32 SIM_MAX_WEATHER = 6.0f;
 
 #include "Terrain.hpp"
 #include "Light.hpp"
@@ -97,7 +105,8 @@ public:
         GUIMain* gui,
         Sound* sound,
         ScenarioData scenarioData,
-        ModelParameters modelParameters);
+        ModelParameters modelParameters,
+        LoadingScreen* loadingScreen = 0); //KYARA CHARGEMENT: optional, progress stages
     ~SimulationModel();
     irr::f32 longToX(irr::f32 longitude) const;
     irr::f32 latToZ(irr::f32 latitude) const;
@@ -282,6 +291,9 @@ public:
     void setOwnShipDeckLights(bool on);
     void setOwnShipInstrumentLights(int level); // 0 off, 1 dim, 2 bright
     int getOwnShipInstrumentLights() const;
+    int getOwnShipInstrumentMaterialCount() const; //KYARA FEUX TAB
+    //KYARA FEUX TAB: the lights of one vessel. -1 = own ship, 0.. = other ship. 0 if none.
+    ShipLights* getShipLights(int vessel);
     bool getOwnShipDeckLights() const;
     void setOtherShipLightSituation(int shipNumber, int situation);
     int getOtherShipLightSituation(int shipNumber) const;

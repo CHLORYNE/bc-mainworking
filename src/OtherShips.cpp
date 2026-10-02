@@ -401,3 +401,13 @@ void OtherShips::setDeckLights(int number, bool on)
         otherShips.at(number)->getLights().setDeckLights(on);
     }
 }
+
+//KYARA FEUX TAB: the panel works on the vessel's ShipLights directly (situation, overrides,
+//deck lights), so it needs the object itself rather than one pass-through per setting.
+ShipLights* OtherShips::getLights(int number)
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        return &otherShips.at(number)->getLights();
+    }
+    return 0;
+}

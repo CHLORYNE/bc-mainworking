@@ -28,6 +28,7 @@
 #include "GUIInstrumentPanel.hpp" //kyara: instrument console
 #include "GUIEngineLever.hpp"     //kyara: styled engine levers
 #include "RadarCalculation.hpp"
+#include "ShipLights.hpp" //KYARA FEUX TAB: SIT_COUNT / OVERRIDE_SLOTS size the id ranges below
 #include <vector>
 #include <string>
 
@@ -273,6 +274,17 @@ public:
         GUI_ID_RADAR_RANGE_RINGS_BUTTON,
         GUI_ID_RADAR_OFFCENTRE_BUTTON,
         GUI_ID_COMMS_MINIMISE_BUTTON,                  // Inc 3 (comms): minimise/restore toggle
+        //KYARA FEUX TAB
+        GUI_ID_LIGHTS_VESSEL_COMBO,
+        GUI_ID_LIGHTS_SIT_0,                                                  // + Situation
+        GUI_ID_LIGHTS_SIT_END = GUI_ID_LIGHTS_SIT_0 + ShipLights::SIT_COUNT,
+        GUI_ID_LIGHTS_OVR_0 = GUI_ID_LIGHTS_SIT_END,                          // + override slot
+        GUI_ID_LIGHTS_OVR_END = GUI_ID_LIGHTS_OVR_0 + ShipLights::OVERRIDE_SLOTS,
+        GUI_ID_LIGHTS_OVR_RESET = GUI_ID_LIGHTS_OVR_END,
+        GUI_ID_LIGHTS_DECK_CHECKBOX,
+        GUI_ID_INSTR_LIGHTS_0,                                                // 0 off, 1 dim, 2 bright
+        GUI_ID_INSTR_LIGHTS_END = GUI_ID_INSTR_LIGHTS_0 + 3,
+        GUI_ID_OWN_DECK_LIGHTS_CHECKBOX = GUI_ID_INSTR_LIGHTS_END,
 
     };
 
@@ -281,6 +293,9 @@ public:
     //kyara
     void togglePrimaryControls();
     void setAisDataMode(bool on); //kyara
+    //KYARA FEUX TAB
+    void refreshLightsTab();       // pull the selected vessel's light state into both tabs
+    int getLightsVessel() const;   // -1 = own ship, 0.. = other ship
     irr::s32 adjustMagnification(irr::s32 delta); //Returns the new raw scrollbar position
     void toggleShow2dInterface();
     void show2dInterface();
@@ -588,6 +603,15 @@ private:
     Lang* language;
     std::vector<std::string>* logMessages;
     SimulationModel* model;
+    //KYARA FEUX TAB - in-class initialisers, so refreshLightsTab() is safe even before load()
+    irr::gui::IGUIComboBox* lightsVesselBox = 0;
+    irr::gui::IGUIButton* lightsSitButton[ShipLights::SIT_COUNT] = {};
+    irr::gui::IGUICheckBox* lightsOverrideBox[ShipLights::OVERRIDE_SLOTS] = {};
+    irr::gui::IGUICheckBox* lightsDeckBox = 0;
+    irr::gui::IGUIStaticText* lightsStatusText = 0;
+    irr::gui::IGUIButton* instrLightsButton[3] = {};
+    irr::gui::IGUICheckBox* ownDeckLightsBox = 0;
+    irr::gui::IGUIStaticText* interiorStatusText = 0;
 
     //Different locations for heading indicator depending on GUI visibility
     irr::core::rect<irr::s32> stdHdgIndicatorPos;

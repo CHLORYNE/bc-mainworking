@@ -64,6 +64,7 @@ public:
     //darkened bridge actually looks at night. 0 = off, 1 = dim, 2 = bright.
     void setInstrumentLights(int level);
     int getInstrumentLights() const;
+    int getInstrumentMaterialCount() const; //KYARA FEUX TAB: 0 = the dim/bright buttons do nothing
 
     //KYARA SLAM: the wheelhouse glass the spray lands on (model units, like RadarScreenX/Y/Z)
     irr::core::vector3df getWindscreenPosition() const;

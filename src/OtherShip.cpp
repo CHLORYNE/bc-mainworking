@@ -185,9 +185,13 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     //ShipLights, so the instructor can set this vessel's situation (under way, at anchor, NUC,
     //RAM, fishing, aground) and the correct lights follow. The lamp list still comes from this
     //ship's own NumberOfLights block, so existing ini files are unchanged.
+    //KYARA FEUX FIX: the waterline in MODEL units is -YCorrection (the node is dropped by
+    //YCorrection*scale to sit the mesh on the sea), so lights measured up from it never land in
+    //the water. Other ships still get the generated set - almost none declare lamps in boat.ini.
     shipLights.load(smgr, ship, iniFilename, length,
         (scaleFactor > 0.0001f) ? (1.0f / scaleFactor) : 1.0f,
-        ship->getBoundingBox(), false); //lamps only: the driver has few lights to give
+        ship->getBoundingBox(), false, //lamps only: the driver has few lights to give
+        -yCorrection, false); //KYARA FEUX: lamps from boat.ini only (GenerateLights=1 opts in)
 
     //store leg information
     legs = legsLoaded;

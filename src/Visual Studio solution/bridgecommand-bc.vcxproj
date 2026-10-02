@@ -131,6 +131,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\libs\serial\src\impl\win.cc" />
     <ClCompile Include="..\libs\serial\src\serial.cc" />
     <ClCompile Include="..\Light.cpp" />
+    <ClCompile Include="..\LoadingScreen.cpp" />
     <ClCompile Include="..\main.cpp" />
     <ClCompile Include="..\ManOverboard.cpp" />
     <ClCompile Include="..\MovingWater.cpp" />
@@ -204,6 +205,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\Light.hpp" />
     <ClInclude Include="..\Line.hpp" />
     <ClInclude Include="..\Lines.hpp" />
+    <ClInclude Include="..\LoadingScreen.hpp" />
     <ClInclude Include="..\ManOverboard.hpp" />
     <ClInclude Include="..\MovingWater.hpp" />
     <ClInclude Include="..\MyEventReceiver.hpp" />

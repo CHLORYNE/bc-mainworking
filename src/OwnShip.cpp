@@ -446,7 +446,8 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     //because it needs the length, which comes from the loaded mesh.
     shipLights.load(smgr, ship, shipIniFilename, length,
         (scaleFactor > 0.0001f) ? (1.0f / scaleFactor) : 1.0f,
-        ship->getBoundingBox(), true); //own ship gets real light sources
+        ship->getBoundingBox(), true, //own ship gets real light sources
+        -yCorrection, true); //KYARA FEUX FIX: waterline in model units = -YCorrection
     {
         std::string llog = "Own ship navigation ";
         llog.append(shipLights.describe());
@@ -3021,6 +3022,11 @@ void OwnShip::setInstrumentLights(int level)
 int OwnShip::getInstrumentLights() const
 {
     return instrumentLightLevel;
+}
+
+int OwnShip::getInstrumentMaterialCount() const //KYARA FEUX TAB
+{
+    return (int)instrumentMaterials.size();
 }
 
 ShipLights& OwnShip::getLights()

@@ -47,7 +47,8 @@ namespace
 
 ShipLights::ShipLights()
     : anchorFwd(-1), anchorAft(-1), situation(SIT_UNDERWAY), deckLights(false),
-    lengthMetres(20.0f), allowDynamicLights(false), dynamicLightsUsed(0), loaded(false)
+    lengthMetres(20.0f), allowDynamicLights(false), dynamicLightsUsed(0), loaded(false),
+    lastMakingWay(false)
 {
     for (int i = 0; i < 16; i++) { overrideOff[i] = false; }
 }
@@ -157,7 +158,8 @@ void ShipLights::addDeckLamp(irr::scene::ISceneManager* smgr, irr::scene::IScene
 
 void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* shipNode,
     const std::string& iniFilename, irr::f32 shipLengthMetres, irr::f32 modelUnitsPerMetre,
-    irr::core::aabbox3df modelBox, bool dynamicLights)
+    irr::core::aabbox3df modelBox, bool dynamicLights,
+    irr::f32 waterlineModelY, bool generateMissing)
 {
     allowDynamicLights = dynamicLights;
     dynamicLightsUsed = 0;
@@ -168,6 +170,9 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     lamps.clear();
     signalLamps.clear();
     anchorFwd = anchorAft = -1;
+
+    //KYARA FEUX: per-vessel opt-in to the guessed set (GenerateLights=1 in her boat.ini).
+    if (IniFile::iniFileTou32(iniFilename, "GenerateLights") != 0) { generateMissing = true; }
 
     //---- 1. the lamps the model actually has -------------------------------------------------
     const irr::u32 numberOfLights = IniFile::iniFileTou32(iniFilename, "NumberOfLights");
@@ -225,6 +230,13 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
             case ROLE_STERN:    a0 = ARC_STERN_START; a1 = ARC_STERN_END; break;
             default: break; //all-round lamps and working lights keep what they were given
             }
+            //KYARA FEUX MANUAL: the arcs above are measured from a bow at +Z. A model built bow
+            //towards -Z is turned round with AngleCorrection=180, which rotates its lamps with it
+            //- so the arcs must turn back the other way, or a sidelight shines over the stern.
+            if (a1 - a0 < 700.0f) {
+                const irr::f32 ac = IniFile::iniFileTof32(iniFilename, "AngleCorrection");
+                a0 -= ac; a1 -= ac;
+            }
         }
 
         lamp.light = new NavLight(shipNode, smgr, positions[i], colours[i], a0, a1,
@@ -241,56 +253,76 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
         attachLightSource(smgr, shipNode, lamps[i], positions[i], FLOOD_RADIUS_M);
     }
 
+    //KYARA FEUX: nothing in the ini and no opt-in, so there is no trustworthy anchor for a mast
+    //or a deck on this model. Stop here rather than inventing one: the signal lights below would
+    //otherwise hang in the air beside the hull, which is worse than showing nothing at all.
+    if (!generateMissing && lamps.empty()) {
+        loaded = true;
+        return;
+    }
+
     //---- 2. whatever navigation lamps this vessel does not have ------------------------------
     //Plenty of boat.ini files carry no NumberOfLights block at all (the own ship's usually
     //doesn't), and a few carry only some of the set. A vessel with no lamps can show no lights,
     //so the missing ones are built from the hull's own dimensions. Anything the ini DOES provide
     //is left exactly as it is.
-    {
-        const irr::f32 fwd = modelBox.MaxEdge.Z, aft = modelBox.MinEdge.Z;
-        const irr::f32 top = modelBox.MaxEdge.Y, bottom = modelBox.MinEdge.Y;
-        const irr::f32 lenU = fwd - aft;
-        const irr::f32 halfBeam = 0.5f * (modelBox.MaxEdge.X - modelBox.MinEdge.X);
-        const irr::f32 heightU = top - bottom;
-        const irr::f32 deck = bottom + 0.45f * heightU;   // roughly bridge-deck level
+    //KYARA FEUX FIX: waterline- and length-based placement (see the header). Heights are measured
+    //UP FROM THE WATERLINE in metres, then converted to model units, so a lamp can never sit in
+    //the sea and never rides up an antenna. Fore/aft and beam still come from the box, which those
+    //two axes describe correctly.
+    const irr::f32 mupm = modelUnitsPerMetre;
+    const irr::f32 fwd = modelBox.MaxEdge.Z, aft = modelBox.MinEdge.Z;
+    const irr::f32 lenU = fwd - aft;
+    const irr::f32 halfBeam = 0.5f * (modelBox.MaxEdge.X - modelBox.MinEdge.X);
+    //KYARA FEUX FIX: the centreline is the middle of the box, NOT X=0 - plenty of models are
+    //built off the origin, and assuming 0 is what put a guessed signal line out beside the hull.
+    const irr::f32 ctrX = 0.5f * (modelBox.MaxEdge.X + modelBox.MinEdge.X);
+    const irr::f32 waterline = waterlineModelY;
 
+    //Visual light heights above the water, sized from length and clamped so a 6 m launch and a
+    //300 m tanker both come out sensible. Not a claim of exact IMO mounting heights.
+    auto clampf = [](irr::f32 v, irr::f32 lo, irr::f32 hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    const irr::f32 mastHM = clampf(0.14f * lengthMetres, 4.0f, 32.0f);
+    const irr::f32 sideHM = clampf(0.05f * lengthMetres, 1.5f, 12.0f);
+    const irr::f32 deckHM = clampf(0.06f * lengthMetres, 1.5f, 14.0f);
+
+    const irr::f32 mastY = waterline + mastHM * mupm;
+    const irr::f32 deckY = waterline + sideHM * mupm;
+    const irr::f32 floodY = waterline + deckHM * mupm;
+
+    if (generateMissing) {
         if (!hasRole(ROLE_MASTHEAD)) {
             addLamp(smgr, shipNode, ROLE_MASTHEAD,
-                irr::core::vector3df(0.0f, bottom + 0.80f * heightU, aft + 0.62f * lenU),
+                irr::core::vector3df(ctrX, mastY, aft + 0.62f * lenU),
                 COL_WHITE, ARC_MASTHEAD_START, ARC_MASTHEAD_END, MASTHEAD_RANGE_NM);
         }
         if (!hasRole(ROLE_MASTHEAD_AFT) && lengthMetres >= 50.0f) {
             addLamp(smgr, shipNode, ROLE_MASTHEAD_AFT,
-                irr::core::vector3df(0.0f, bottom + 0.95f * heightU, aft + 0.35f * lenU),
+                irr::core::vector3df(ctrX, waterline + (mastHM + 2.0f) * mupm, aft + 0.35f * lenU),
                 COL_WHITE, ARC_MASTHEAD_START, ARC_MASTHEAD_END, MASTHEAD_RANGE_NM);
         }
         if (!hasRole(ROLE_PORT)) {
             addLamp(smgr, shipNode, ROLE_PORT,
-                irr::core::vector3df(-0.92f * halfBeam, deck, aft + 0.60f * lenU),
+                irr::core::vector3df(ctrX - 0.92f * halfBeam, deckY, aft + 0.60f * lenU),
                 COL_RED, ARC_SIDE_PORT_START, ARC_SIDE_PORT_END, SIDE_RANGE_NM);
         }
         if (!hasRole(ROLE_STARBOARD)) {
             addLamp(smgr, shipNode, ROLE_STARBOARD,
-                irr::core::vector3df(0.92f * halfBeam, deck, aft + 0.60f * lenU),
+                irr::core::vector3df(ctrX + 0.92f * halfBeam, deckY, aft + 0.60f * lenU),
                 COL_GREEN, ARC_SIDE_STBD_START, ARC_SIDE_STBD_END, SIDE_RANGE_NM);
         }
         if (!hasRole(ROLE_DECK) && !hasRole(ROLE_ACCOMMODATION)) {
-            //No working lights in the ini either (the own ship's has none at all), so give her a
-            //foredeck flood, an afterdeck flood and a light over the side door.
-            //Just above the working deck, not up in the rigging: a flood mounted too high reads
-            //as a glow hanging in the air.
-            const irr::f32 fittingY = bottom + 0.56f * heightU;
             addDeckLamp(smgr, shipNode,
-                irr::core::vector3df(0.0f, fittingY, aft + 0.78f * lenU), FLOOD_RADIUS_M);
+                irr::core::vector3df(ctrX, floodY, aft + 0.78f * lenU), FLOOD_RADIUS_M);
             addDeckLamp(smgr, shipNode,
-                irr::core::vector3df(0.0f, fittingY, aft + 0.20f * lenU), FLOOD_RADIUS_M);
+                irr::core::vector3df(ctrX, floodY, aft + 0.20f * lenU), FLOOD_RADIUS_M);
             addDeckLamp(smgr, shipNode,
-                irr::core::vector3df(0.70f * halfBeam, fittingY, aft + 0.45f * lenU),
+                irr::core::vector3df(ctrX + 0.70f * halfBeam, floodY, aft + 0.45f * lenU),
                 FLOOD_RADIUS_M * 0.7f);
         }
         if (!hasRole(ROLE_STERN)) {
             addLamp(smgr, shipNode, ROLE_STERN,
-                irr::core::vector3df(0.0f, deck, aft + 0.03f * lenU),
+                irr::core::vector3df(ctrX, deckY, aft + 0.03f * lenU),
                 COL_WHITE, ARC_STERN_START, ARC_STERN_END, STERN_RANGE_NM);
         }
     }
@@ -300,19 +332,38 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     //the list (red-red, red-white-red, green-white). They are created dark and only lit when the
     //situation calls for them.
     //Over the highest white light if there is one, otherwise over the top of the hull itself.
-    irr::core::vector3df mastTop(0.0f, modelBox.MaxEdge.Y,
+    //KYARA FEUX FIX: hang the signal line off a white lamp the ini provides if there is one,
+    //otherwise off the waterline-based masthead level computed above - never off the raw box top,
+    //which sits on top of the masts.
+    irr::core::vector3df mastTop(ctrX, mastY,
         modelBox.MinEdge.Z + 0.60f * (modelBox.MaxEdge.Z - modelBox.MinEdge.Z));
     {
         irr::f32 bestY = -1e9f;
         for (size_t i = 0; i < positions.size(); i++) {
-            if (positions[i].Y > bestY && !isRedish(colours[i]) && !isGreenish(colours[i])) {
+            if (positions[i].Y > bestY && !isRedish(colours[i]) && !isGreenish(colours[i])
+                && !isYellowish(colours[i])) {
                 bestY = positions[i].Y;
                 mastTop = positions[i];
             }
         }
     }
 
-    const irr::f32 spacing = SIGNAL_SPACING_M * modelUnitsPerMetre;
+    //KYARA FEUX MANUAL: SignalX/Y/Z in boat.ini = the LOWEST of the three signal lamps, placed by
+    //hand on the mast. The other two stack straight up from it, SignalSpacing metres apart (2 m by
+    //default, the COLREG minimum for most vessels). Without it, the line still sits above the
+    //highest white lamp the ini declares.
+    irr::f32 spacing = SIGNAL_SPACING_M * modelUnitsPerMetre;
+    {
+        const std::string sx = IniFile::iniFileToString(iniFilename, "SignalX");
+        if (!sx.empty()) {
+            mastTop = irr::core::vector3df(IniFile::iniFileTof32(iniFilename, "SignalX"),
+                IniFile::iniFileTof32(iniFilename, "SignalY"),
+                IniFile::iniFileTof32(iniFilename, "SignalZ"));
+            const irr::f32 sp = IniFile::iniFileTof32(iniFilename, "SignalSpacing");
+            if (sp > 0.0f) { spacing = sp * modelUnitsPerMetre; }
+            mastTop.Y -= spacing; //the loop below starts one spacing above mastTop
+        }
+    }
     for (int i = 0; i < 3; i++) {
         Lamp lamp;
         lamp.role = ROLE_SIGNAL;
@@ -332,7 +383,12 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
         lamp.colour = COL_WHITE;
         irr::core::vector3df p = mastTop;
         p.Y += 0.5f * spacing;
-        p.Z += 0.0f;
+        //KYARA FEUX MANUAL: AnchorX/Y/Z places it by hand (forward, on the bow or foremast).
+        if (!IniFile::iniFileToString(iniFilename, "AnchorX").empty()) {
+            p = irr::core::vector3df(IniFile::iniFileTof32(iniFilename, "AnchorX"),
+                IniFile::iniFileTof32(iniFilename, "AnchorY"),
+                IniFile::iniFileTof32(iniFilename, "AnchorZ"));
+        }
         lamp.light = makeSignalLight(smgr, shipNode, p, COL_WHITE, ANCHOR_RANGE_NM);
         lamps.push_back(lamp);
         anchorFwd = (int)lamps.size() - 1;
@@ -412,6 +468,7 @@ bool ShipLights::lampShouldBeLit(const Lamp& lamp, bool makingWay) const
 void ShipLights::update(irr::f32 scenarioTime, irr::u32 lightLevel, bool makingWay)
 {
     if (!loaded) { return; }
+    lastMakingWay = makingWay; //KYARA FEUX TAB
 
     //Colour the signal line for the situation before deciding what is lit: the same three lamps
     //serve every pattern.
@@ -508,5 +565,79 @@ void ShipLights::moveNode(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ)
 {
     for (size_t i = 0; i < lamps.size(); i++) {
         if (lamps[i].light) { lamps[i].light->moveNode(deltaX, deltaY, deltaZ); }
+    }
+}
+
+//KYARA FEUX TAB --------------------------------------------------------------------------------
+bool ShipLights::isMakingWay() const { return lastMakingWay; }
+irr::f32 ShipLights::getLengthMetres() const { return lengthMetres; }
+
+const wchar_t* ShipLights::getSituationShortFr(Situation s)
+{
+    switch (s) {
+    case SIT_UNDERWAY:   return L"Feux de route";
+    case SIT_ANCHORED:   return L"Au mouillage";
+    case SIT_AGROUND:    return L"\u00C9chou\u00E9";
+    case SIT_NUC:        return L"Non ma\u00EEtre (NUC)";
+    case SIT_RAM:        return L"Manoeuvre restreinte";
+    case SIT_FISHING:    return L"P\u00EAche / chalut";
+    case SIT_LIGHTS_OUT: return L"Feux \u00E9teints";
+    default:             return L"?";
+    }
+}
+
+ShipLights::Role ShipLights::overrideRole(int slot)
+{
+    static const Role roles[OVERRIDE_SLOTS] = {
+        ROLE_MASTHEAD, ROLE_MASTHEAD_AFT, ROLE_PORT, ROLE_STARBOARD,
+        ROLE_STERN, ROLE_ANCHOR, ROLE_SIGNAL };
+    return (slot >= 0 && slot < OVERRIDE_SLOTS) ? roles[slot] : ROLE_UNUSED;
+}
+
+const wchar_t* ShipLights::overrideLabelFr(int slot)
+{
+    static const wchar_t* labels[OVERRIDE_SLOTS] = {
+        L"M\u00E2t AV", L"M\u00E2t AR", L"B\u00E2bord", L"Tribord",
+        L"Poupe", L"Mouillage", L"Signaux" };
+    return (slot >= 0 && slot < OVERRIDE_SLOTS) ? labels[slot] : L"?";
+}
+
+const wchar_t* ShipLights::overrideTipFr(int slot)
+{
+    static const wchar_t* tips[OVERRIDE_SLOTS] = {
+        L"Masquer le feu de t\u00EAte de m\u00E2t avant",
+        L"Masquer le second feu de t\u00EAte de m\u00E2t (navires de 50 m et plus)",
+        L"Masquer le feu de c\u00F4t\u00E9 b\u00E2bord (rouge)",
+        L"Masquer le feu de c\u00F4t\u00E9 tribord (vert)",
+        L"Masquer le feu de poupe",
+        L"Masquer le feu de mouillage",
+        L"Masquer les feux de signal superpos\u00E9s (rouge / blanc / vert)" };
+    return (slot >= 0 && slot < OVERRIDE_SLOTS) ? tips[slot] : L"";
+}
+
+std::wstring ShipLights::describeExpectedFr() const
+{
+    const bool big = (lengthMetres >= 50.0f);
+    switch (situation) {
+    case SIT_UNDERWAY:
+        return big ? L"2 feux de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)"
+            : L"Feu de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)";
+    case SIT_ANCHORED:
+        return L"Feu de mouillage blanc visible sur tout l'horizon (r\u00E8gle 30)";
+    case SIT_AGROUND:
+        return L"Feu de mouillage + deux feux rouges superpos\u00E9s (r\u00E8gle 30 d)";
+    case SIT_NUC:
+        return lastMakingWay ? L"Rouge sur rouge + c\u00F4t\u00E9s et poupe : fait route surface (r\u00E8gle 27 a)"
+            : L"Rouge sur rouge seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 27 a)";
+    case SIT_RAM:
+        return lastMakingWay ? L"Rouge-blanc-rouge + m\u00E2t, c\u00F4t\u00E9s, poupe : fait route surface (r\u00E8gle 27 b)"
+            : L"Rouge-blanc-rouge seuls : stopp\u00E9 (r\u00E8gle 27 b)";
+    case SIT_FISHING:
+        return lastMakingWay ? L"Vert sur blanc + c\u00F4t\u00E9s et poupe : fait route surface (r\u00E8gle 26 b)"
+            : L"Vert sur blanc seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 26 b)";
+    case SIT_LIGHTS_OUT:
+        return L"Aucun feu : navire non \u00E9clair\u00E9";
+    default:
+        return L"";
     }
 }

@@ -92,7 +92,14 @@
        // World-space normal (for lighting), with the swell slope folded in
        vec3 nObj = gl_Normal;
        float ny  = max(nObj.y, 0.05);
-       nObj = vec3(nObj.x / ny - sw.y, 1.0, nObj.z / ny - sw.z);
+       // KYARA EAU - TRIANGLES: the shortest FFT waves are as small as the ~3 m mesh grid, so
+       // their per-vertex normal flips from one vertex to the next and the sun sheen outlines
+       // each triangle. Only the chop SLOPE is scaled; swell slope and all heights unchanged.
+       //   1.00 = full wave shading - shows triangle-shaped shading in rough seas
+       //   0.40 = default (the photo ripples do NOT hide the triangles once the sea is rough)
+       //   0.25 = smoother still, if any triangle shapes remain
+       const float CHOP_NORMAL_WEIGHT = 0.40;
+       nObj = vec3(CHOP_NORMAL_WEIGHT * nObj.x / ny - sw.y, 1.0, CHOP_NORMAL_WEIGHT * nObj.z / ny - sw.z);
        Normal      = gl_NormalMatrix * nObj;
        Normal      = normalize((matViewInverse*vec4(Normal,0)).xyz);
 

@@ -25,6 +25,13 @@
 #ifndef __SHIPLIGHTS_HPP_INCLUDED__
 #define __SHIPLIGHTS_HPP_INCLUDED__
 
+//KYARA FEUX: MASTER SWITCH for the COLREG situation feature. 0 = off (current state): other ships
+//keep only the lamps their own boat.ini declares, exactly like stock Bridge Command, the "Feux"
+//instructor tab is not built, and Ctrl+Shift+L does nothing. Set to 1 to bring it all back - no
+//other edit is needed anywhere. Everything still compiles either way, so nothing is lost.
+//Off because generated lamp positions were landing wrong on some other-ship models.
+#define KYARA_COLREG_ENABLED 1
+
 #include "irrlicht.h"
 #include <string>
 #include <vector>
@@ -74,7 +81,14 @@ public:
     // is built from the hull's own dimensions instead.
     void load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* shipNode,
         const std::string& iniFilename, irr::f32 lengthMetres, irr::f32 modelUnitsPerMetre,
-        irr::core::aabbox3df modelBox, bool allowDynamicLights);
+        irr::core::aabbox3df modelBox, bool allowDynamicLights,
+        irr::f32 waterlineModelY = 0.0f, bool generateMissing = false);
+    //KYARA FEUX: generateMissing is now OFF by default, and that is deliberate. Guessed lamp
+    //positions cannot be right: a mast is where the modeller put it, and no rule drawn from a
+    //bounding box finds it - the guesses came out beside the hull or halfway up the air. A lamp
+    //only ever comes from LightX/Y/Z(n) in the vessel's own boat.ini now, which is data you can
+    //see and correct. A vessel with no light block simply shows nothing, which is honest.
+    //To opt one vessel back into the old guesswork, put GenerateLights=1 in her boat.ini.
 
     // makingWay: she is moving through the water. It matters: a vessel not under command shows
     // her sidelights and sternlight only when making way, and never a masthead light.
@@ -101,6 +115,16 @@ public:
     //What was actually built, for the log: "lamps: 9 (masthead 1, sidelights 2, ...)"
     std::string describe() const;
     int countRole(Role role) const;
+
+    //KYARA FEUX TAB ---------------------------------------------------------------------------
+    std::wstring describeExpectedFr() const;
+    bool isMakingWay() const;
+    irr::f32 getLengthMetres() const;
+    static const wchar_t* getSituationShortFr(Situation s);
+    static const int OVERRIDE_SLOTS = 7;
+    static Role overrideRole(int slot);
+    static const wchar_t* overrideLabelFr(int slot);
+    static const wchar_t* overrideTipFr(int slot);
 
 private:
     struct Lamp
@@ -147,6 +171,7 @@ private:
     bool allowDynamicLights;
     int dynamicLightsUsed;
     bool loaded;
+    bool lastMakingWay; //KYARA FEUX TAB
 };
 
 #endif

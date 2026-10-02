@@ -41,6 +41,21 @@
    uniform, and the 'lightColour' uniform set from MovingWater.cpp's OnAnimate.
    Based on the elvman realisticWaterSceneNode shader.                            */
 
+/* KYARA EAU (far water / grey water) - see the "KYARA EAU" tags below:
+   1. Reflection hazed to the analytic SKY (sky hue, light level) instead of gl_Fog.color.
+      The fog colour is a near-grey (188,201,212) and it took over the reflection from
+      260 m out - that was the pale grey band. Real atmospheric haze is still applied at
+      the very end by fogFactor, which follows the visibility, so fog/storm still grey out.
+   2. REFL_WATER_TINT keeps reflections in the water's own hue, so the sea stays blue when
+      there is no sun on it (the grey sky/cloud it reflects no longer turns it grey).
+   3. Far water keeps ripples: world-space ripple UVs (the far flat sea mesh gets the same
+      ripples as the animated sea, and the seam every 100 m is gone), two large-scale
+      "far" ripple layers, and a floor on the ripple fade instead of fading to a mirror.
+   4. The animated sea ends ~1 km out; beyond it is a flat mesh. The wave normal and
+      crest shading now fade out before that edge, so there is no hard line.
+   5. FAR_DARKEN, FRESNEL_MAX, REFLECTION_STRENGTH back to your approved values
+      (0.60/0.50/0.55), FAR_DARKEN set to 1.0 so far water is the same colour as near. */
+
 uniform sampler2D baseMap;         // tangent-space normal map (unit 0, waterbump.png)
 uniform sampler2D reflectionMap;   // reflection RTT (unit 1)
 uniform float     lightLevel;
@@ -73,7 +88,7 @@ const float WATER_BRIGHTNESS = 1.00; // hue is above; this is the level knob
 
 // ---- Distance darkening - the "far water darker" control ----
 //   1.00 = off, 0.60 = default, 0.45 = strong deep-water look offshore
-const float FAR_DARKEN       = 0.60;
+const float FAR_DARKEN       = 1.00; // KYARA EAU: 1.0 = far water same colour as near water
 const float FAR_DARKEN_RANGE = 900.0;
 
 const float SUN_SCATTER  = 0.30;                    // how strongly the sea takes the sun's colour
@@ -109,7 +124,11 @@ const float FRESNEL_MAX         = 0.50; // HARD CAP. Stops the RTT taking over t
 const float REFL_DISTORT        = 0.09; // how far ripples bend the mirrored image
 const float REFL_CREST_BIAS     = 0.80; // extra distortion on crests vs troughs
 const float REFL_ROUGHNESS      = 0.55; // 2-tap blur width, scaled by sea state
-const float REFL_HAZE_RANGE     = 260.0;// metres over which the RTT fades to haze colour
+const float REFL_HAZE_RANGE     = 260.0;// metres over which the RTT fades to the analytic sky
+// KYARA EAU: how much of the reflection takes the WATER's hue (brightness kept).
+//   0.0 = reflection is the true grey/white of the sky (sea goes grey under cloud)
+//   0.35 = default, 0.6 = sea stays strongly blue whatever the sky
+const float REFL_WATER_TINT     = 0.35;
 const float SKY_RTT_MIX         = 0.45; // how much of the reflection is the analytic sky
                                         //   rather than the render target. Higher = less
                                         //   dependent on the RTT, more even across the sea.
@@ -118,12 +137,35 @@ const float SKY_RTT_MIX         = 0.45; // how much of the reflection is the ana
 //  SURFACE TEXTURE
 // ============================================================================
 const float TILING          = 12.0;  // base ripple size. Lower = bigger ripples.
+                                     // KYARA EAU: keep RIPPLE_UV_PER_METRE*TILING*1000 a whole number (now 375)
 const float SCROLL_SPEED    = 0.04;
 const float BUMP_STRENGTH   = 1.10;  // master ripple depth
 const float DETAIL_STRENGTH = 0.85;  // weight of the 3rd (fine crest-detail) layer
 const float MICRO_STRENGTH  = 0.45;  // weight of the 4th (very fine, near-field only) layer
 const float MICRO_RANGE     = 120.0; // metres; beyond this the 4th layer would only alias
 const float RIPPLE_RANGE    = 1200.0;// metres over which ripple depth tapers off
+// KYARA EAU: ripple depth tapers to this instead of to 0 - distant water keeps texture.
+const float RIPPLE_FAR_FLOOR = 0.45;
+
+// KYARA EAU: ripple UVs now come from WORLD position. 0.03125 per metre = exactly the old
+// ripple size with water_segments = 32. The layer scales below are fractions of 375 so the
+// pattern repeats exactly every 1000 m: the scene is re-centred in 1000 m steps, and this
+// keeps the ripples from jumping when that happens. Keep the /375.0 form if you retune.
+const float RIPPLE_UV_PER_METRE = 0.03125;
+const float SCALE_B   = 649.0  / 375.0;  // was 1.73
+const float SCALE_C   = 1613.0 / 375.0;  // was 4.30
+const float SCALE_D   = 3413.0 / 375.0;  // was 9.10
+const float SCALE_F1  = 45.0   / 375.0;  // far layer, ~22 m ripples
+const float SCALE_F2  = 26.0   / 375.0;  // far layer, ~38 m ripples
+const float FAR_LAYER_STRENGTH = 0.00;   // 0 = no extra detail on distant water. KYARA EAU: 0 with the
+                                         // photo-ripple look (sampling the photo large tilts far water); 1.0 with the normal map
+const float FAR_LAYER_START    = 150.0;  // metres: far layers fade in from here...
+const float FAR_LAYER_END      = 900.0;  // ...to full strength here
+
+// KYARA EAU: the animated (FFT) sea stops ~1000 m from the camera and a FLAT mesh takes
+// over. Its wave normal and crest shading fade out over this range so the join is invisible.
+const float GEOM_FADE_START = 700.0;
+const float GEOM_FADE_END   = 950.0;
 
 // How far out the surface normal is allowed to keep its shape. Used to be hard-tied to
 // 500m, which flattened everything beyond that into a perfect plane.
@@ -131,7 +173,7 @@ const float RIPPLE_RANGE    = 1200.0;// metres over which ripple depth tapers of
 //   0.0 = fully flat (old behaviour), 0.25 = default, higher = more distant detail.
 // If the horizon starts to crawl or sparkle between frames, LOWER the floor.
 const float NORMAL_FLATTEN_RANGE = 1400.0;
-const float NORMAL_FLATTEN_FLOOR = 0.25;
+const float NORMAL_FLATTEN_FLOOR = 0.40; // KYARA EAU: was 0.25
 
 // Wind streaks: large stretched areas of calm and ruffle drifting downwind.
 const float PATCH_SCALE    = 0.020;  // world units; lower = bigger patches
@@ -145,6 +187,22 @@ const float GLINT_STRENGTH = 0.90;   // tight sparkle on individual ripples
 const float SHEEN_STRENGTH = 0.18;   // broad sun path across the swell
 const float SHEEN_POWER    = 10.0;   // LOWER = wider sun path. Was 22, which was tight.
 const float SPEC_RANGE     = 1200.0; // metres; specular used to die at 500
+
+// KYARA EAU - SUN GLITTER PATH. Far away, each pixel covers many ripples whose slopes the
+// texture can no longer show (the mipmaps average them flat), so the sun only hit one spot
+// under the sun and the path stopped short. This lobe stands in for those unseen slopes: it
+// widens with distance, so the path stretches out toward the horizon, and the visible
+// ripples break it into flecks where they are still resolved.
+// With the sun ~45 deg up (SUN_DIR), the far path needs a slope spread of ~0.25-0.30 to show.
+//   GLITTER_STRENGTH   0 = off, 0.60 = default, 0.9 = very bright path
+//   GLITTER_SIGMA_FAR  how far/wide the path reaches. 0.22 short, 0.30 default, 0.36 long
+//   GLITTER_RANGE      metres over which the spread grows from NEAR to FAR
+const float GLITTER_STRENGTH   = 0.00;   // KYARA EAU: 0 with the photo-ripple look (the photo already
+                                         // carries the sparkle far out); 0.60 with the normal map
+const float GLITTER_SIGMA_NEAR = 0.20;
+const float GLITTER_SIGMA_FAR  = 0.30;
+const float GLITTER_RANGE      = 300.0;
+const float GLITTER_SPARKLE    = 8.0;   // how strongly ripples break the path into flecks
 const float FOAM_STRENGTH  = 0.45;
 const float FOAM_NOISE_SCALE = 0.35;
 const float FOAM_DRIFT       = 0.06;
@@ -170,12 +228,52 @@ float valueNoise(vec2 p){
     return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
 }
 
+// KYARA EAU - FOAM EDGES. The foam inputs (Jacobian foam, wave height, wave normal) only
+// exist at the mesh vertices, ~3 m apart, and are blended in straight lines across each
+// triangle - so the foam/crest bands had saw-tooth triangle edges. The edge is now decided
+// per pixel against a small noise pattern, so it follows a ragged, organic line instead.
+//   FOAM_EDGE_BREAKUP  0 = old triangle edges, 1 = fully noise-shaped edges
+//   FOAM_EDGE_SOFT     width of the edge blend (higher = softer, less defined foam)
+//   FOAM_EDGE_SCALE    noise frequency per metre (higher = finer, lacier edge)
+const float FOAM_EDGE_BREAKUP = 1.0;
+const float FOAM_EDGE_SOFT    = 0.22;
+const float FOAM_EDGE_SCALE   = 0.8;
+
+// Per-pixel edge noise (0..1). Faded out with distance, where it would only shimmer.
+float foamEdgeNoise(vec2 xz, float t, float dist)
+{
+    float en = valueNoise(xz * FOAM_EDGE_SCALE + vec2(t * 0.15, t * 0.10)) * 0.6
+             + valueNoise(xz * (FOAM_EDGE_SCALE * 2.6) - vec2(t * 0.12) + 7.0) * 0.4;
+    float amt = (1.0 - smoothstep(150.0, 500.0, dist)) * FOAM_EDGE_BREAKUP;
+    return mix(0.05, 0.05 + 0.55 * en, amt);    // the threshold the foam field must reach
+}
+
 // Analytic sky colour looking along direction d. Used both as a reflection source and
 // as the shimmer reference, so the two always agree.
 vec3 skyAlong(vec3 d, vec3 tint, float level)
 {
     float upness = clamp(d.y, 0.0, 1.0);
     return mix(SKY_HORIZON, SKY_ZENITH, pow(upness, 0.7)) * tint * max(level, 0.15);
+}
+
+// KYARA EAU: sun glitter path. nMean = the surface without ripples, n = with ripples.
+float glitterPath(vec3 nMean, vec3 n, vec3 h, float dist, float sea)
+{
+    float c     = clamp(dot(nMean, h), 0.05, 1.0);
+    float tan2  = (1.0 - c * c) / (c * c);
+    float sigma = mix(GLITTER_SIGMA_NEAR, GLITTER_SIGMA_FAR, smoothstep(0.0, GLITTER_RANGE, dist))
+                * clamp(0.8 + sea / 8.0, 0.8, 1.3);          // rougher sea = wider path
+    float lobe  = exp(-tan2 / (2.0 * sigma * sigma));
+    float fleck = clamp(0.5 + (dot(n, h) - dot(nMean, h)) * GLITTER_SPARKLE, 0.0, 1.0);
+    return lobe * (0.35 + 0.65 * fleck);
+}
+
+// KYARA EAU: give a reflected colour the water's hue, keeping its brightness.
+vec3 waterTinted(vec3 c)
+{
+    const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+    vec3 hue = WATER_BODY / dot(WATER_BODY, LUMA);
+    return mix(c, dot(c, LUMA) * hue, REFL_WATER_TINT);
 }
 
 void main()
@@ -187,27 +285,36 @@ void main()
     float fd = gl_Fog.density * z;
     float fogFactor    = clamp(exp(-(fd * fd)), 0.0, 1.0);
     float distanceFade = clamp(1.0 - z / 500.0,           0.0, 1.0);
-    float rippleFade   = clamp(1.0 - z / RIPPLE_RANGE,    0.0, 1.0);
+    float rippleFade   = mix(1.0, RIPPLE_FAR_FLOOR, clamp(z / RIPPLE_RANGE, 0.0, 1.0)); // KYARA EAU: floor
+    float farMix       = smoothstep(FAR_LAYER_START, FAR_LAYER_END, z);                  // KYARA EAU
+    float geomFade     = smoothstep(GEOM_FADE_START, GEOM_FADE_END, gl_FogFragCoord);    // KYARA EAU (radial distance)
+    float waveH        = vWaveHeight * (1.0 - geomFade);                                // KYARA EAU
     float microFade    = clamp(1.0 - z / MICRO_RANGE,     0.0, 1.0);
     float reflFade     = clamp(1.0 - z / 600.0,           0.0, 1.0);
     float specFade     = clamp(1.0 - z / SPEC_RANGE,      0.0, 1.0);
 
     // ---------- Surface normal: four de-correlated ripple layers ----------
-    // UVs stay axis-aligned so the texture keeps tiling seamlessly across the mesh.
-    vec2 uv = bumpTexCoord * TILING;
+    // KYARA EAU: world-space UVs (was bumpTexCoord, which restarted at every 100 m tile
+    // and has unknown/huge UVs on the far flat mesh - so distant water got no ripples).
+    vec2 uv = vWorldXZ * (RIPPLE_UV_PER_METRE * TILING);
 
-    vec3 nA = texture2D(baseMap, uv        + vec2( 0.80, 1.00) * time * SCROLL_SPEED      ).rgb * 2.0 - 1.0;
-    vec3 nB = texture2D(baseMap, uv * 1.73 + vec2(-1.10, 0.60) * time * SCROLL_SPEED      ).rgb * 2.0 - 1.0;
-    vec3 nC = texture2D(baseMap, uv * 4.30 + vec2( 0.50,-0.90) * time * SCROLL_SPEED * 2.0).rgb * 2.0 - 1.0;
-    vec3 nD = texture2D(baseMap, uv * 9.10 + vec2(-0.30, 0.70) * time * SCROLL_SPEED * 3.5).rgb * 2.0 - 1.0;
+    vec3 nA = texture2D(baseMap, uv           + vec2( 0.80, 1.00) * time * SCROLL_SPEED      ).rgb * 2.0 - 1.0;
+    vec3 nB = texture2D(baseMap, uv * SCALE_B + vec2(-1.10, 0.60) * time * SCROLL_SPEED      ).rgb * 2.0 - 1.0;
+    vec3 nC = texture2D(baseMap, uv * SCALE_C + vec2( 0.50,-0.90) * time * SCROLL_SPEED * 2.0).rgb * 2.0 - 1.0;
+    vec3 nD = texture2D(baseMap, uv * SCALE_D + vec2(-0.30, 0.70) * time * SCROLL_SPEED * 3.5).rgb * 2.0 - 1.0;
+    // KYARA EAU: large, slow layers that stay visible where the fine ones have blurred out
+    vec3 nF1 = texture2D(baseMap, uv * SCALE_F1 + vec2( 0.30, 0.50) * time * SCROLL_SPEED * 0.25).rgb * 2.0 - 1.0;
+    vec3 nF2 = texture2D(baseMap, uv * SCALE_F2 + vec2(-0.45, 0.20) * time * SCROLL_SPEED * 0.20).rgb * 2.0 - 1.0;
 
     // De-correlate by turning the slope vectors, NOT the sample coordinates.
-    nB.xy = ROT * nB.xy;
-    nD.xy = ROT * nD.xy;
+    nB.xy  = ROT * nB.xy;
+    nD.xy  = ROT * nD.xy;
+    nF2.xy = ROT * nF2.xy;
 
     vec3 nT = normalize(nA + nB * 0.90
                            + nC * DETAIL_STRENGTH
-                           + nD * MICRO_STRENGTH * microFade);
+                           + nD * MICRO_STRENGTH * microFade
+                           + (nF1 + nF2 * 0.80) * FAR_LAYER_STRENGTH * farMix);
     vec3 rippleWorld = vec3(nT.x, nT.z, nT.y);
 
     // Wind streaks, driven from WORLD position so they never break at a tile edge.
@@ -217,7 +324,8 @@ void main()
     float patch = mix(1.0 - PATCH_CONTRAST, 1.0 + PATCH_CONTRAST * 0.6,
                       smoothstep(0.25, 0.75, pn));
 
-    vec3 Nflat = normalize(Normal);   // the wave normal without the ripple detail
+    // the wave normal without the ripple detail - KYARA EAU: faded to flat before the flat mesh starts
+    vec3 Nflat = normalize(mix(normalize(Normal), vec3(0.0, 1.0, 0.0), geomFade));
     float bump = BUMP_STRENGTH * clamp(0.4 + seaState / 8.0, 0.0, 1.4) * rippleFade * patch;
     vec3 N = normalize(Nflat + vec3(rippleWorld.x, 0.0, rippleWorld.z) * bump);
 
@@ -248,10 +356,10 @@ void main()
     // Where the ripple actually points, and where flat water would have pointed.
     vec3 R      = reflect(-V, N);
     vec3 Rflat  = reflect(-V, Nflat);
-    vec3 skyRefl = skyAlong(R, lightColour, lightLevel);
+    vec3 skyRefl = waterTinted(skyAlong(R, lightColour, lightLevel)); // KYARA EAU: tinted
 
     // Crests bend the mirrored sky further than troughs, so the reflection rides the swell.
-    float crest   = smoothstep(-0.5, 2.0, vWaveHeight);
+    float crest   = smoothstep(-0.5, 2.0, waveH);
     vec2  distort = N.xz * REFL_DISTORT * reflFade * (1.0 - REFL_CREST_BIAS * 0.5 + REFL_CREST_BIAS * crest);
 
     vec2 baseUV = reflectionMapTexCoord.xy / reflectionMapTexCoord.z;
@@ -270,7 +378,9 @@ void main()
     // which only covers part of the scene and degenerates towards its clamped edges.
     reflectionColour = mix(reflectionColour, skyRefl, SKY_RTT_MIX);
     float skyBlend = clamp(z / REFL_HAZE_RANGE, 0.0, 1.0);
-    reflectionColour = mix(reflectionColour, gl_Fog.color.rgb, skyBlend);
+    // KYARA EAU: was gl_Fog.color - a near-grey that turned all far water pale grey
+    reflectionColour = mix(reflectionColour, skyRefl, skyBlend);
+    reflectionColour = waterTinted(reflectionColour);
     // Only a light tint towards water colour in very heavy seas.
     reflectionColour = mix(reflectionColour, deepColor, clamp(seaState / 30.0, 0.0, 1.0));
 
@@ -288,11 +398,11 @@ void main()
     color = mix(color, skyRefl, max(shimmer, 0.0) * SKY_GLASS);
 
     // ---------- Wave volume ----------
-    color *= mix(TROUGH_SHADE, CREST_LIFT, smoothstep(-1.5, 1.5, vWaveHeight));
+    color *= mix(TROUGH_SHADE, CREST_LIFT, smoothstep(-1.5, 1.5, waveH));
 
     // Subsurface scattering: light through the thin part of a crest, strongest when
     // looking edge-on at a raised wave.
-    float sss = smoothstep(0.2, 2.5, vWaveHeight) * pow(1.0 - NdotV, 2.0);
+    float sss = smoothstep(0.2, 2.5, waveH) * pow(1.0 - NdotV, 2.0);
     color += SSS_COLOUR * sss * lightColour * lightLevel * SSS_STRENGTH * distanceFade;
 
     // ---------- Distance darkening ----------
@@ -308,8 +418,12 @@ void main()
     float glint  = pow(NdotH, 220.0);         // tight sparkle on individual ripples
     float sheen  = pow(NdotH, SHEEN_POWER);   // broad sun path across the swell
 
-    vec3 specular = vec3(1.0, 0.96, 0.86) * lightColour * lightLevel * specFade
-                  * (glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH);
+    // KYARA EAU: + glitter path. No specFade on it - it is meant to reach the horizon;
+    // the fog at the end still fades it in poor visibility.
+    float glitter = glitterPath(Nflat, N, H, z, seaState) * GLITTER_STRENGTH;
+
+    vec3 specular = vec3(1.0, 0.96, 0.86) * lightColour * lightLevel
+                  * ((glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH) * specFade + glitter);
 
     // ---------- Foam ----------
     float seaStateGate = clamp(seaState / 5.0, 0.0, 1.0); // no foam in calm seas
@@ -321,10 +435,13 @@ void main()
     float patchiness = smoothstep(0.30, 0.85, fn);
 
     float jacobianFoam = foamAmount;                        // physics foam from the CPU
-    float heightMask   = smoothstep(0.5, 2.0, vWaveHeight); // erase foam in the troughs
+    float heightMask   = smoothstep(0.5, 2.0, waveH);       // erase foam in the troughs
     float slopeFoam    = smoothstep(0.35, 0.60, 1.0 - N.y) * heightMask;
 
-    float foam = max(jacobianFoam, slopeFoam) * heightMask * seaStateGate
+    float foamField = max(jacobianFoam, slopeFoam) * heightMask * seaStateGate;
+    // KYARA EAU: per-pixel ragged edge instead of the triangle-shaped one
+    float edgeT     = foamEdgeNoise(vWorldXZ, time, z);
+    float foam = smoothstep(edgeT, edgeT + FOAM_EDGE_SOFT, foamField)
                * mix(0.55, 1.0, patchiness);
     foam = clamp(foam, 0.0, 1.0) * FOAM_STRENGTH;
 

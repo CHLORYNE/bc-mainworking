@@ -21,6 +21,13 @@
    main Water_ps.glsl so switching paths does not change the look of the sea. If you
    retune one file, retune the other.                                              */
 
+/* KYARA EAU: same far-water / grey-water fixes as Water_ps.glsl (see its header):
+   ripple fade floor, wave normal faded out before the flat far mesh, reflection kept in
+   the water's hue (REFL_WATER_TINT), approved reflection values restored, FAR_DARKEN 1.0.
+   Plus: the fog here was LINEAR from 0 m to the visibility range, while the engine and
+   the main shader use exp2 - at half the visibility that was 50 % fog instead of ~18 %,
+   which is why this path looked greyer. It now uses the same exp2 as everything else. */
+
 uniform float lightLevel;
 uniform float seaState;
 uniform float time;
@@ -38,7 +45,7 @@ const vec3  WATER_GRAZE = vec3(0.078, 0.280, 0.405);
 const float WATER_BRIGHTNESS = 1.00;
 
 // ----- Distance darkening: keep matching Water_ps.glsl -----
-const float FAR_DARKEN       = 0.60;
+const float FAR_DARKEN       = 1.00; // KYARA EAU: 1.0 = far water same colour as near water
 const float FAR_DARKEN_RANGE = 900.0;
 
 // ----- Ripple shimmer: keep matching Water_ps.glsl -----
@@ -54,17 +61,36 @@ const float RIPPLE_SCALE  = 0.55;   // higher = smaller ripples
 const float RIPPLE_SPEED  = 0.35;
 const float BUMP_STRENGTH = 0.35;   // master ripple depth for this path
 const float RIPPLE_RANGE  = 1200.0; // metres; ripple depth tapers out to here
+const float RIPPLE_FAR_FLOOR = 0.45; // KYARA EAU: keep matching Water_ps.glsl
+const float GEOM_FADE_START  = 700.0; // KYARA EAU: keep matching Water_ps.glsl
+const float GEOM_FADE_END    = 950.0;
 
 const float NORMAL_FLATTEN_RANGE = 1400.0;
-const float NORMAL_FLATTEN_FLOOR = 0.25; // lower this if the horizon crawls
+const float NORMAL_FLATTEN_FLOOR = 0.40; // lower this if the horizon crawls. KYARA EAU: was 0.25
 
 const float REFLECTION_STRENGTH = 0.55;
 const float FRESNEL_F0          = 0.02;
 const float FRESNEL_MAX         = 0.50;
+const float REFL_WATER_TINT     = 0.35; // KYARA EAU: keep matching Water_ps.glsl
 const float GLINT_STRENGTH      = 0.80;
 const float SHEEN_STRENGTH      = 0.18;
 const float SHEEN_POWER         = 10.0;  // lower = wider sun path
 const float SPEC_RANGE          = 1200.0;
+
+// KYARA EAU - SUN GLITTER PATH (keep matching Water_ps.glsl). Far away, each pixel covers many ripples whose slopes the
+// texture can no longer show (the mipmaps average them flat), so the sun only hit one spot
+// under the sun and the path stopped short. This lobe stands in for those unseen slopes: it
+// widens with distance, so the path stretches out toward the horizon, and the visible
+// ripples break it into flecks where they are still resolved.
+// With the sun ~45 deg up (SUN_DIR), the far path needs a slope spread of ~0.25-0.30 to show.
+//   GLITTER_STRENGTH   0 = off, 0.60 = default, 0.9 = very bright path
+//   GLITTER_SIGMA_FAR  how far/wide the path reaches. 0.22 short, 0.30 default, 0.36 long
+//   GLITTER_RANGE      metres over which the spread grows from NEAR to FAR
+const float GLITTER_STRENGTH   = 0.60;
+const float GLITTER_SIGMA_NEAR = 0.20;
+const float GLITTER_SIGMA_FAR  = 0.30;
+const float GLITTER_RANGE      = 300.0;
+const float GLITTER_SPARKLE    = 8.0;   // how strongly ripples break the path into flecks
 const float TROUGH_SHADE        = 0.92;
 const float CREST_LIFT          = 1.05;
 
@@ -78,6 +104,26 @@ float valueNoise(vec2 p){
     float a=hash(i), b=hash(i+vec2(1,0)), c=hash(i+vec2(0,1)), d=hash(i+vec2(1,1));
     vec2 u=f*f*(3.0-2.0*f);
     return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+
+// KYARA EAU - FOAM EDGES. The foam inputs (Jacobian foam, wave height, wave normal) only
+// exist at the mesh vertices, ~3 m apart, and are blended in straight lines across each
+// triangle - so the foam/crest bands had saw-tooth triangle edges. The edge is now decided
+// per pixel against a small noise pattern, so it follows a ragged, organic line instead.
+//   FOAM_EDGE_BREAKUP  0 = old triangle edges, 1 = fully noise-shaped edges
+//   FOAM_EDGE_SOFT     width of the edge blend (higher = softer, less defined foam)
+//   FOAM_EDGE_SCALE    noise frequency per metre (higher = finer, lacier edge)
+const float FOAM_EDGE_BREAKUP = 1.0;
+const float FOAM_EDGE_SOFT    = 0.22;
+const float FOAM_EDGE_SCALE   = 0.8;
+
+// Per-pixel edge noise (0..1). Faded out with distance, where it would only shimmer.
+float foamEdgeNoise(vec2 xz, float t, float dist)
+{
+    float en = valueNoise(xz * FOAM_EDGE_SCALE + vec2(t * 0.15, t * 0.10)) * 0.6
+             + valueNoise(xz * (FOAM_EDGE_SCALE * 2.6) - vec2(t * 0.12) + 7.0) * 0.4;
+    float amt = (1.0 - smoothstep(150.0, 500.0, dist)) * FOAM_EDGE_BREAKUP;
+    return mix(0.05, 0.05 + 0.55 * en, amt);    // the threshold the foam field must reach
 }
 
 // Two octaves drifting in different directions, so they never lock into a pattern.
@@ -94,12 +140,34 @@ vec3 skyAlong(vec3 d, float level)
     return mix(SKY_HORIZON, SKY_ZENITH, pow(upness, 0.7)) * max(level, 0.15);
 }
 
+// KYARA EAU: sun glitter path. nMean = the surface without ripples, n = with ripples.
+float glitterPath(vec3 nMean, vec3 n, vec3 h, float dist, float sea)
+{
+    float c     = clamp(dot(nMean, h), 0.05, 1.0);
+    float tan2  = (1.0 - c * c) / (c * c);
+    float sigma = mix(GLITTER_SIGMA_NEAR, GLITTER_SIGMA_FAR, smoothstep(0.0, GLITTER_RANGE, dist))
+                * clamp(0.8 + sea / 8.0, 0.8, 1.3);          // rougher sea = wider path
+    float lobe  = exp(-tan2 / (2.0 * sigma * sigma));
+    float fleck = clamp(0.5 + (dot(n, h) - dot(nMean, h)) * GLITTER_SPARKLE, 0.0, 1.0);
+    return lobe * (0.35 + 0.65 * fleck);
+}
+
+// KYARA EAU: give a reflected colour the water's hue, keeping its brightness.
+vec3 waterTinted(vec3 c)
+{
+    const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+    vec3 hue = WATER_BODY / dot(WATER_BODY, LUMA);
+    return mix(c, dot(c, LUMA) * hue, REFL_WATER_TINT);
+}
+
 void main()
 {
     float z = gl_FragCoord.z / gl_FragCoord.w;
 
     float distanceSmoothing = clamp(1.0 - z / 300.0,        0.0, 1.0);
-    float rippleFade        = clamp(1.0 - z / RIPPLE_RANGE, 0.0, 1.0);
+    float rippleFade        = mix(1.0, RIPPLE_FAR_FLOOR, clamp(z / RIPPLE_RANGE, 0.0, 1.0)); // KYARA EAU: floor
+    float geomFade          = smoothstep(GEOM_FADE_START, GEOM_FADE_END, gl_FogFragCoord);    // KYARA EAU
+    float waveH             = vWaveHeight * (1.0 - geomFade);                                // KYARA EAU
     float specFade          = clamp(1.0 - z / SPEC_RANGE,   0.0, 1.0);
     float lv = clamp(lightLevel, 0.55, 1.0);
 
@@ -114,6 +182,7 @@ void main()
 
     vec3 Nflat = normalize(Normal);
     if (Nflat.y < 0.0) Nflat = -Nflat;
+    Nflat = normalize(mix(Nflat, vec3(0.0, 1.0, 0.0), geomFade)); // KYARA EAU: no edge at the flat far mesh
 
     float bump = BUMP_STRENGTH * clamp(0.4 + seaState / 8.0, 0.0, 1.4) * rippleFade;
     vec3  N = normalize(Nflat + vec3(slope.x, 0.0, slope.y) * bump);
@@ -139,7 +208,7 @@ void main()
     // ---------- Fake reflection ----------
     vec3 R     = reflect(-V, N);
     vec3 Rflat = reflect(-V, Nflat);
-    vec3 skyRefl = skyAlong(R, lv) * lv;
+    vec3 skyRefl = waterTinted(skyAlong(R, lv) * lv); // KYARA EAU: tinted
 
     // Rough seas scatter the reflection towards the water's own colour.
     vec3 skyColor = mix(skyRefl, deepColor * lv, clamp(seaState / 24.0, 0.0, 1.0));
@@ -159,7 +228,7 @@ void main()
     color = mix(color, skyRefl, max(shimmer, 0.0) * SKY_GLASS);
 
     // ---------- Wave volume ----------
-    color *= mix(TROUGH_SHADE, CREST_LIFT, smoothstep(-1.5, 1.5, vWaveHeight));
+    color *= mix(TROUGH_SHADE, CREST_LIFT, smoothstep(-1.5, 1.5, waveH));
 
     // ---------- Distance darkening (matches the main shader) ----------
     color *= mix(1.0, FAR_DARKEN, clamp(z / FAR_DARKEN_RANGE, 0.0, 1.0));
@@ -168,14 +237,18 @@ void main()
     float NdotH = max(dot(N, H), 0.0);
     float glint = pow(NdotH, 180.0);
     float sheen = pow(NdotH, SHEEN_POWER);
-    color += vec3(1.0, 0.97, 0.90) * lv * specFade
-           * (glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH);
+    float glitter = glitterPath(Nflat, N, H, z, seaState) * GLITTER_STRENGTH; // KYARA EAU
+    color += vec3(1.0, 0.97, 0.90) * lv
+           * ((glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH) * specFade + glitter);
 
     // ---------- Foam ----------
-    float heightMask = smoothstep(0.5, 2.0, vWaveHeight);
+    float heightMask = smoothstep(0.5, 2.0, waveH);
     float steepness  = 1.0 - clamp(N.y, 0.0, 1.0);
-    float foamAmount = smoothstep(0.18, 0.45, steepness)
+    float foamField  = smoothstep(0.18, 0.45, steepness)
                      * heightMask * clamp(seaState / 8.0, 0.0, 1.0);
+    // KYARA EAU: per-pixel ragged edge instead of the triangle-shaped one
+    float edgeT      = foamEdgeNoise(vWorldXZ, time, z);
+    float foamAmount = smoothstep(edgeT, edgeT + FOAM_EDGE_SOFT, foamField);
     color = mix(color, vec3(0.92, 0.95, 0.98) * lv, foamAmount * 0.55);
 
     vec4 outputColour = vec4(color, 1.0);
@@ -184,6 +257,8 @@ void main()
     // Same fog start/end/colour that driver->setFog() pushes into the GL fog state, so
     // the sea hazes at exactly the same distance and tint as the ships, terrain and
     // sky. gl_FogFragCoord (eye-space distance) is written by the vertex shader.
-    float fogFactor = clamp((gl_Fog.end - gl_FogFragCoord) / (gl_Fog.end - gl_Fog.start), 0.0, 1.0);
+    // KYARA EAU: exp2, identical to Water_ps.glsl and to the engine's EFT_FOG_EXP2 (was linear 0..visibility)
+    float fd = gl_Fog.density * z;
+    float fogFactor = clamp(exp(-(fd * fd)), 0.0, 1.0);
     gl_FragColor = mix(vec4(gl_Fog.color.rgb, 1.0), outputColour, fogFactor);
 }

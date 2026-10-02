@@ -14,8 +14,8 @@
      with this program; if not, write to the Free Software Foundation, Inc.,
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
-//NOTE: This uses a modified version of Irrlicht for the water surface scene node, which bases the waves
-//on the absolute position, so you can tile multiple water nodes seamlessly.
+     //NOTE: This uses a modified version of Irrlicht for the water surface scene node, which bases the waves
+     //on the absolute position, so you can tile multiple water nodes seamlessly.
 
 #include <vector>
 #include <cmath>
@@ -50,20 +50,30 @@ void Water::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* ownShi
 
     //waterNode->setPosition(irr::core::vector3df(0,-0.25f,0));
 
-    waterNode->setMaterialTexture(0, driver->getTexture("media/water.bmp"));
+    //KYARA EAU - LOOK SWITCH. With shaders on, water.bmp REPLACES the ripple normal map
+    //(media/waterbump.png, set in MovingWater's constructor) and Water_ps.glsl reads the photo as
+    //ripple directions. Physically "wrong", but it gives the broken, far-reaching sun sparkle
+    //and wavy texture chosen for the simulator - so it is kept ON deliberately.
+    //   true  = photo ripples (chosen look)
+    //   false = true normal map (smoother water, needs GLITTER_STRENGTH > 0 in Water_ps.glsl
+    //           and CHOP_NORMAL_WEIGHT ~0.35 in the vertex shaders to look good)
+    const bool USE_PHOTO_RIPPLES = true;
+    if (disableShaders || USE_PHOTO_RIPPLES) {
+        waterNode->setMaterialTexture(0, driver->getTexture("media/water.bmp"));
+    }
 
 }
 
 void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection)
 {
     //Round these to nearest tileWidth
-    irr::f32 xPos = tileWidth * Utilities::round(viewPosition.X/tileWidth);
+    irr::f32 xPos = tileWidth * Utilities::round(viewPosition.X / tileWidth);
     irr::f32 yPos = tideHeight;
-    irr::f32 zPos = tileWidth * Utilities::round(viewPosition.Z/tileWidth);
+    irr::f32 zPos = tileWidth * Utilities::round(viewPosition.Z / tileWidth);
 
     //std::cout << "xPos: " << xPos << " yPos: " << yPos << " zPos: " << zPos << std::endl;
 
-    waterNode->setPosition(irr::core::vector3df(xPos,yPos,zPos));
+    waterNode->setPosition(irr::core::vector3df(xPos, yPos, zPos));
 
     //scale with weather
     //waterNode->setVerticalScale(sqrt(weather));
@@ -76,7 +86,7 @@ void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::
     const irr::f32 k = (weather + 0.25f) / 12.0f * 32.0f * 1.41421356f;
     const irr::f32 dirQ = 10.0f * Utilities::round(windDirection / 10.0f);
     const irr::f32 prop = (dirQ + 180.0f) * irr::core::DEGTORAD; // waves travel downwind
-    waterNode->resetParameters((weather+0.25)*0.000025f, vector2(-k * sinf(prop), k * cosf(prop)), weather+0.25);
+    waterNode->resetParameters((weather + 0.25) * 0.000025f, vector2(-k * sinf(prop), k * cosf(prop)), weather + 0.25);
 
 }
 
@@ -87,12 +97,12 @@ void Water::setSwellShaderData(const irr::f32* comp20, const irr::f32* fade4)
 
 irr::f32 Water::getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ) const
 {
-    return waterNode->getWaveHeight(relPosX,relPosZ);
+    return waterNode->getWaveHeight(relPosX, relPosZ);
 }
 
 irr::core::vector2df Water::getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const
 {
-    return waterNode->getLocalNormals(relPosX,relPosZ);
+    return waterNode->getLocalNormals(relPosX, relPosZ);
 }
 
 

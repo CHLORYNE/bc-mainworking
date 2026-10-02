@@ -786,11 +786,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             return r;
         };
 
-    //--- Weather tab (ranges unchanged: weather and visibility are /10 downstream) ---
+    //--- Weather tab (weather and visibility are /10 downstream) ---
+    //KYARA METEO: the sea-state slider stops at SIM_MAX_WEATHER (SimulationModel.hpp) instead of 12
     {
         SliderRow r = addSliderRow(extraControlsTabWeather, 0,
             language->translate("weather").c_str(), GUI_ID_WEATHER_SCROLL_BAR,
-            0, 120, 5, 10, COL_SEASTATE, language->translate("weatherHelp").c_str());
+            0, (irr::s32)(SIM_MAX_WEATHER * 10.0f + 0.5f), 5, 10, COL_SEASTATE, language->translate("weatherHelp").c_str());
         weatherScrollbar = r.bar; weatherValue = r.value;
     }
     {
@@ -964,6 +965,124 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             irr::core::rect<irr::s32>((irr::s32)(tabW * 0.400f), rY0, (irr::s32)(tabW * 0.400f) + rowH, rY0 + rowH),
             extraControlsTabView);
     }
+
+#if KYARA_COLREG_ENABLED
+    //=== KYARA FEUX TAB: the COLREG situation of any vessel ======================================
+    // Row 0      : vessel                              | "Feu masque (erreur volontaire)"
+    // Rows 1..4  : 7 situations + deck lights (2 cols)  | 7 lamps to hide + "Retablir" (2 cols)
+    // Row 5      : what the rules want her to show right now
+    {
+        irr::gui::IGUITab* tabFeux = extraControlsTabControl->addTab(L"Feux");
+
+        const irr::s32 cA0 = (irr::s32)(tabW * 0.020f), cA1 = (irr::s32)(tabW * 0.285f);
+        const irr::s32 cB0 = (irr::s32)(tabW * 0.295f), cB1 = (irr::s32)(tabW * 0.560f);
+        const irr::s32 cC0 = (irr::s32)(tabW * 0.590f), cC1 = (irr::s32)(tabW * 0.785f);
+        const irr::s32 cD0 = (irr::s32)(tabW * 0.795f), cD1 = (irr::s32)(tabW * 0.985f);
+        auto rowY = [&](int r) -> irr::s32 { return row0Y + r * rowPitch; };
+        auto cell = [&](int r, irr::s32 x0, irr::s32 x1) {
+            return irr::core::rect<irr::s32>(x0, rowY(r), x1, rowY(r) + rowH);
+            };
+
+        //Row 0: which vessel. Own ship first, then the scenario's other ships in file order - the
+        //same numbering the instructor sees everywhere else.
+        const irr::s32 comboX0 = cA0 + (irr::s32)(tabW * 0.090f);
+        irr::gui::IGUIStaticText* vesselLab = guienv->addStaticText(L"Navire :",
+            cell(0, cA0, comboX0), false, false, tabFeux);
+        vesselLab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+
+        lightsVesselBox = guienv->addComboBox(cell(0, comboX0, cB1), tabFeux, GUI_ID_LIGHTS_VESSEL_COMBO);
+        lightsVesselBox->addItem(L"Navire propre");
+        if (model) {
+            for (irr::u32 i = 0; i < model->getNumberOfOtherShips(); i++) {
+                irr::core::stringw item(i + 1);
+                item += L" - ";
+                item += irr::core::stringw(model->getOtherShipName((int)i).c_str());
+                lightsVesselBox->addItem(item.c_str());
+            }
+        }
+        lightsVesselBox->setSelected(0);
+
+        irr::gui::IGUIStaticText* ovrHeader = guienv->addStaticText(
+            L"Feu masqu\u00E9 (erreur volontaire)", cell(0, cC0, cD1), false, false, tabFeux);
+        ovrHeader->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        ovrHeader->setToolTipText(L"Cocher pour \u00E9teindre un feu que les r\u00E8gles exigent : "
+            L"le stagiaire doit trouver ce qui ne va pas.");
+
+        //Rows 1..4, left: one button per situation. Slot k -> row 1 + k/2, column k%2.
+        for (int k = 0; k < ShipLights::SIT_COUNT; k++) {
+            const int r = 1 + k / 2;
+            const bool right = (k % 2) == 1;
+            lightsSitButton[k] = guienv->addButton(
+                cell(r, right ? cB0 : cA0, right ? cB1 : cA1), tabFeux, GUI_ID_LIGHTS_SIT_0 + k,
+                ShipLights::getSituationShortFr((ShipLights::Situation)k),
+                ShipLights::getSituationNameFr((ShipLights::Situation)k));
+        }
+        //The 8th slot of the left block: working lights of the same vessel.
+        lightsDeckBox = guienv->addCheckBox(false, cell(4, cB0, cB1), tabFeux,
+            GUI_ID_LIGHTS_DECK_CHECKBOX, L"Feux de pont");
+        lightsDeckBox->setToolTipText(L"Feux de travail / de pont de ce navire (pas des feux de navigation)");
+
+        //Rows 1..4, right: the lamps that can be hidden on purpose, then "Retablir".
+        for (int s = 0; s < ShipLights::OVERRIDE_SLOTS; s++) {
+            const int r = 1 + s / 2;
+            const bool right = (s % 2) == 1;
+            lightsOverrideBox[s] = guienv->addCheckBox(false,
+                cell(r, right ? cD0 : cC0, right ? cD1 : cC1), tabFeux, GUI_ID_LIGHTS_OVR_0 + s,
+                ShipLights::overrideLabelFr(s));
+            lightsOverrideBox[s]->setToolTipText(ShipLights::overrideTipFr(s));
+        }
+        guienv->addButton(cell(4, cD0, cD1), tabFeux, GUI_ID_LIGHTS_OVR_RESET,
+            L"R\u00E9tablir", L"Rallumer tous les feux masqu\u00E9s de ce navire");
+
+        //Row 5: the answer key, for the instructor.
+        lightsStatusText = guienv->addStaticText(L"", cell(5, cA0, cD1), false, false, tabFeux);
+        lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+    }
+#endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays
+
+    //=== KYARA FEUX TAB: lighting inside the own ship ============================================
+    // Same column grid as the Weather tab (labelX0..valueX1), so the two read alike.
+    {
+        irr::gui::IGUITab* tabBord = extraControlsTabControl->addTab(L"\u00C9clairage");
+        auto rowY = [&](int r) -> irr::s32 { return row0Y + r * rowPitch; };
+
+        //Row 0: bridge instruments - off / dim / bright
+        irr::gui::IGUIStaticText* instrLab = guienv->addStaticText(L"\u00C9crans et cadrans",
+            irr::core::rect<irr::s32>(labelX0, rowY(0), labelX1, rowY(0) + rowH), false, false, tabBord);
+        instrLab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        instrLab->setToolTipText(L"Auto-\u00E9clairage des \u00E9crans et instruments de passerelle");
+
+        const wchar_t* instrNames[3] = { L"\u00C9teints", L"Tamis\u00E9s", L"Pleins feux" };
+        const wchar_t* instrTips[3] = {
+            L"Instruments \u00E9teints",
+            L"R\u00E9glage de nuit : lisible sans \u00E9blouir la veille",
+            L"R\u00E9glage de jour" };
+        const irr::s32 bw = (valueX1 - trackX0) / 3;
+        for (int i = 0; i < 3; i++) {
+            const irr::s32 x0 = trackX0 + i * bw;
+            const irr::s32 x1 = (i == 2) ? valueX1 : x0 + bw - (irr::s32)(tabW * 0.008f);
+            instrLightsButton[i] = guienv->addButton(
+                irr::core::rect<irr::s32>(x0, rowY(0), x1, rowY(0) + rowH),
+                tabBord, GUI_ID_INSTR_LIGHTS_0 + i, instrNames[i], instrTips[i]);
+        }
+
+        //Row 1: working lights of the own ship (same flag as "Feux de pont" in the Feux tab
+        //when the own ship is selected - both boxes follow the model).
+        irr::gui::IGUIStaticText* deckLab = guienv->addStaticText(L"Feux de pont / travail",
+            irr::core::rect<irr::s32>(labelX0, rowY(1), labelX1, rowY(1) + rowH), false, false, tabBord);
+        deckLab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        ownDeckLightsBox = guienv->addCheckBox(false,
+            irr::core::rect<irr::s32>(trackX0, rowY(1), trackX0 + rowH, rowY(1) + rowH),
+            tabBord, GUI_ID_OWN_DECK_LIGHTS_CHECKBOX);
+        ownDeckLightsBox->setToolTipText(L"Projecteurs de pont avant, arri\u00E8re et de coup\u00E9e");
+
+        //Rows 2..4: what is actually happening, and why nothing may seem to change.
+        interiorStatusText = guienv->addStaticText(L"",
+            irr::core::rect<irr::s32>(labelX0, rowY(2), valueX1, rowY(4) + rowH), false, true, tabBord);
+        interiorStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
+    }
+
+    refreshLightsTab();
 
 
 
@@ -1536,15 +1655,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // NOTE: the ship/buoy colour combo boxes live ONLY in the bottom-left global panel
     // (created below). Do NOT create duplicates here with the same GUI IDs, or
     // getElementFromId() finds the wrong one and selections stop applying.
-    //Add paused button
-    irr::core::stringw pausedButtonMessage = language->translate("pausedbutton");
-    if (vr3dMode) {
-        pausedButtonMessage = pausedButtonMessage + language->translate("vrpausedbutton");
-    }
-    else {
-        pausedButtonMessage = pausedButtonMessage + language->translate("normalpausedbutton");
-    }
-    pausedButton = guienv->addButton(irr::core::rect<irr::s32>(0.2 * su, 0.1 * sh, 0.8 * su, 0.9 * sh), 0, GUI_ID_START_BUTTON, pausedButtonMessage.c_str());
+    //KYARA: the big "paused - click to start" page listing the keys is gone. The key mapping now
+    //lives in the launcher tab, and main.cpp starts the clock as soon as loading has finished.
+    pausedButton = 0;
 
     //show/hide interface
     showInterface = true; //If we start with the 2d interface shown
@@ -2256,7 +2369,7 @@ void GUIMain::updateGuiData(GUIData* guiData)
     radarClutterScrollbar2->setPos(Utilities::round(guiData->radarClutter));
     radarRainScrollbar2->setPos(Utilities::round(guiData->radarRain));
 
-    weatherScrollbar->setPos(Utilities::round(guiData->weather * 10.0)); //(Weather scroll bar is 0-120, weather is 0-12)
+    weatherScrollbar->setPos(Utilities::round(guiData->weather * 10.0)); //(Weather scroll bar is 0-SIM_MAX_WEATHER*10)
     rainScrollbar->setPos(Utilities::round(guiData->rain * 10.0)); //(Rain scroll bar is 0-100, rain is 0-10)
     visibilityScrollbar->setPos(Utilities::round(guiData->visibility * 10.0)); //Visibility scroll bar is 0-100, visibility is near 0 to 10 Nm
     if (motionScaleScrollbar) { motionScaleScrollbar->setPos(Utilities::round(guiData->motionScale * 100.0f)); } // KYARA HOULE
@@ -3029,6 +3142,12 @@ void GUIMain::drawGUI()
         }
     }
 
+    //KYARA FEUX TAB: only while the window is open. Her making-way state changes the expected
+    //lights, so the answer line has to follow her as she stops or gets under way.
+    if (extraControlsWindow && extraControlsWindow->isVisible()) {
+        refreshLightsTab();
+    }
+
     // Update lines display
     if (model && model->getLines()) {
         std::vector<std::string> linesNames = model->getLines()->getLineNames();
@@ -3644,6 +3763,86 @@ void GUIMain::setLinesControlsWindowVisible(bool windowVisible)
     }
 }
 void GUIMain::setAisDataMode(bool on) { aisDataMode = on; }
+
+
+//KYARA FEUX TAB ----------------------------------------------------------------------------------
+int GUIMain::getLightsVessel() const
+{
+    if (!lightsVesselBox) { return -1; }
+    return lightsVesselBox->getSelected() - 1; //item 0 is the own ship
+}
+
+//The model is the only truth: every control is re-read from it, so the tabs, the Ctrl+Shift keys
+//and the two "Feux de pont" boxes can never drift apart.
+void GUIMain::refreshLightsTab()
+{
+    if (!model) { return; }
+
+    const irr::video::SColor SELECTED(255, 245, 190, 66); //amber, like the other toggles
+    const irr::video::SColor NONE(0, 0, 0, 0);
+    const irr::video::SColor TEXT_OK(255, 236, 239, 244);
+    const irr::video::SColor TEXT_ERR(255, 255, 110, 90);
+
+    //--- Feux tab: selected vessel (absent when the feature is switched off) ---
+    ShipLights* lights = lightsStatusText ? model->getShipLights(getLightsVessel()) : 0;
+    if (lights) {
+        const int sit = (int)lights->getSituation();
+        for (int k = 0; k < ShipLights::SIT_COUNT; k++) {
+            setButtonHighlight(lightsSitButton[k], (k == sit) ? SELECTED : NONE);
+        }
+
+        //A lamp this vessel does not have (a second masthead light under 50 m, say) cannot be
+        //hidden, so its box is greyed out rather than silently doing nothing.
+        for (int s = 0; s < ShipLights::OVERRIDE_SLOTS; s++) {
+            if (!lightsOverrideBox[s]) { continue; }
+            const ShipLights::Role role = ShipLights::overrideRole(s);
+            const bool present = lights->countRole(role) > 0;
+            lightsOverrideBox[s]->setEnabled(present);
+            lightsOverrideBox[s]->setChecked(present && lights->isRoleOverridden(role));
+        }
+
+        if (lightsDeckBox) {
+            const bool hasDeck = lights->countRole(ShipLights::ROLE_DECK) +
+                lights->countRole(ShipLights::ROLE_ACCOMMODATION) > 0;
+            lightsDeckBox->setEnabled(hasDeck);
+            lightsDeckBox->setChecked(hasDeck && lights->getDeckLights());
+        }
+
+        std::wstring status = L"Attendu : ";
+        status += lights->describeExpectedFr();
+        if (lights->hasOverrides()) {
+            status += L"  -  FEU MASQU\u00C9";
+        }
+        lightsStatusText->setText(status.c_str());
+        lightsStatusText->setOverrideColor(lights->hasOverrides() ? TEXT_ERR : TEXT_OK);
+    }
+
+    //--- Eclairage tab: always the own ship ---
+    const int instr = model->getOwnShipInstrumentLights();
+    for (int i = 0; i < 3; i++) {
+        setButtonHighlight(instrLightsButton[i], (i == instr) ? SELECTED : NONE);
+    }
+    ShipLights* own = model->getShipLights(-1);
+    if (own && ownDeckLightsBox) {
+        ownDeckLightsBox->setChecked(own->getDeckLights());
+    }
+    if (interiorStatusText) {
+        std::wstring info;
+        if (model->getOwnShipInstrumentMaterialCount() == 0) {
+            //Without this line the buttons look broken on a model whose textures match none of
+            //the keywords - which is a data problem, not a code one.
+            info = L"Aucun \u00E9cran d\u00E9tect\u00E9 sur ce mod\u00E8le : renseigner "
+                L"InstrumentMaterials= dans boat.ini (indices list\u00E9s dans le journal).";
+        }
+        else {
+            info = std::to_wstring(model->getOwnShipInstrumentMaterialCount());
+            info += L" surface(s) d'instrument sur ce mod\u00E8le.";
+        }
+        info += L" Les feux de pont n'\u00E9clairent le pont que la nuit ; de jour ils sont sans effet visible.";
+        interiorStatusText->setText(info.c_str());
+    }
+}
+
 void GUIMain::setLinesControlsText(std::string textToShow)
 {
     linesText->setText(irr::core::stringw(textToShow.c_str()).c_str());

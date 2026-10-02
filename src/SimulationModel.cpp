@@ -3,6 +3,7 @@
 
 #include "ScenarioDataStructure.hpp"
 #include "GUIMain.hpp"
+#include "LoadingScreen.hpp" //KYARA CHARGEMENT
 #include "Terrain.hpp"
 #include "Sky.hpp"
 #include "Buoys.hpp"
@@ -236,7 +237,8 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     GUIMain* gui,
     Sound* sound,
     ScenarioData scenarioData,
-    ModelParameters modelParameters) :
+    ModelParameters modelParameters,
+    LoadingScreen* loadingScreen) :
     manOverboard(irr::core::vector3df(0, 0, 0), scene, dev, this) //Initialise MOB
 {
     //get reference to scene manager
@@ -274,6 +276,9 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     //load the weather:
     //Fixme: add in wind direction etc
     weather = scenarioData.weather;
+    //KYARA METEO: same cap as setWeather() - the scenario file must not exceed it either
+    if (weather < 0.0f) { weather = 0.0f; }
+    if (weather > SIM_MAX_WEATHER) { weather = SIM_MAX_WEATHER; }
     rainIntensity = scenarioData.rainIntensity;
     visibilityRange = scenarioData.visibilityRange;
     if (visibilityRange < 0) { visibilityRange = 5; } //Default value
@@ -324,9 +329,11 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     }
 
 
+    if (loadingScreen) { loadingScreen->setStage(0.08f, "Terrain et carte"); } //KYARA CHARGEMENT
     //Add terrain: Needs to happen first, so the terrain parameters are available
     terrain.load(worldPath, smgr, device, modelParameters.limitTerrainResolution);
 
+    if (loadingScreen) { loadingScreen->setStage(0.30f, "Ciel et navire"); } //KYARA CHARGEMENT
     //sky box/dome
     sky.load(smgr);
 
@@ -347,6 +354,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
         ownShip.setSpeed(0); //Don't start moving if in secondary mode
     }
 
+    if (loadingScreen) { loadingScreen->setStage(0.42f, "Surface de la mer"); } //KYARA CHARGEMENT
     //add water
      // KYARA: reflectionMode 0=full,1=half,2=off. "off" drops the entire reflection RTT pass
      // (a second full drawAll of the scene) AND selects the no-reflection shaders -> max FPS.
@@ -381,7 +389,8 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
         gui->setInstruments(ownShip.hasDepthSounder(),ownShip.getMaxSounderDepth(),ownShip.hasGPS());
         */
 
-        //Load the radar with config parameters
+    if (loadingScreen) { loadingScreen->setStage(0.52f, "Radar et caméras"); } //KYARA CHARGEMENT
+    //Load the radar with config parameters
     radarCalculation.load(ownShip.getRadarConfigFile(), device);
 
     //set camera zoom to 1
@@ -400,6 +409,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     light.load(smgr, sunRise, sunSet, camera.getSceneNode());
 
 
+    if (loadingScreen) { loadingScreen->setStage(0.58f, "Navires de l'exercice"); } //KYARA CHARGEMENT
     //Load other ships
     otherShips.load(scenarioData.otherShipsData, scenarioTime, modelParameters.mode, smgr, this, device);
     // SAR RESCUE RUN: locate the rescue craft and remember where the instructor berthed her.
@@ -413,21 +423,26 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     else if (device) {
         device->getLogger()->log("SAR rescue craft not in scenario - rescue run disabled.");
     }
+    if (loadingScreen) { loadingScreen->setStage(0.68f, "Bouées et balisage"); } //KYARA CHARGEMENT
     //Load buoys
     buoys.load(worldPath, smgr, this, device);
 
+    if (loadingScreen) { loadingScreen->setStage(0.72f, "Objets à terre"); } //KYARA CHARGEMENT
     //Load land objects
     landObjects.load(worldPath, smgr, this, &terrain, device);
 
+    if (loadingScreen) { loadingScreen->setStage(0.78f, "Feux à terre"); } //KYARA CHARGEMENT
     //Load land lights
     landLights.load(worldPath, smgr, this, terrain);
 
+    if (loadingScreen) { loadingScreen->setStage(0.80f, "Marée et pluie"); } //KYARA CHARGEMENT
     //Load tidal information
     tide.load(worldPath, scenarioData);
 
     //Load rain
     rain.load(smgr, camera.getSceneNode(), device);
 
+    if (loadingScreen) { loadingScreen->setStage(0.82f, "Commandes de la passerelle"); } //KYARA CHARGEMENT
     //Set up 3d engine/wheel controls/visualisation
     if (isAzimuthDrive()) {
         portEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getPortEngineControlPosition(), 1.0 / ownShip.getScaleFactor(), 1, 2); // 2=schottel base
@@ -1102,6 +1117,16 @@ int SimulationModel::getOwnShipInstrumentLights() const {
     return const_cast<OwnShip&>(ownShip).getInstrumentLights();
 }
 
+int SimulationModel::getOwnShipInstrumentMaterialCount() const {
+    return ownShip.getInstrumentMaterialCount();
+}
+
+//KYARA FEUX TAB
+ShipLights* SimulationModel::getShipLights(int vessel) {
+    if (vessel < 0) { return &ownShip.getLights(); }
+    return otherShips.getLights(vessel);
+}
+
 void SimulationModel::setOwnShipDeckLights(bool on) {
     ownShip.getLights().setDeckLights(on);
 }
@@ -1612,6 +1637,9 @@ irr::f32 SimulationModel::getAccelerator() const
 
 void SimulationModel::setWeather(irr::f32 weather)
 {
+    //KYARA METEO: capped here so the slider, the scenario file and the network all obey it
+    if (weather < 0.0f) { weather = 0.0f; }
+    if (weather > SIM_MAX_WEATHER) { weather = SIM_MAX_WEATHER; }
     this->weather = weather;
 }
 

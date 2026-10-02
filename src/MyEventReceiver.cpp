@@ -94,6 +94,9 @@ MyEventReceiver::MyEventReceiver(irr::IrrlichtDevice* dev, SimulationModel* mode
     rightMouseDown = false;
 
     shutdownDialogActive = false;
+    acceleratorBeforeShutdownDialog = 1.0f;
+    rootVisibleBeforeShutdownDialog = true;
+    escapeReleasedSinceShutdownDialog = false;
 
     linesMode = 0;
     fireAimMode = false; // FIRE FEATURE
@@ -296,6 +299,29 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_AZIMUTH_2_MASTER_CHECKBOX)
             {
                 model->setAzimuth2Master(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked());
+            }
+
+            //KYARA FEUX TAB: "hide this light" boxes and the working lights, on the vessel
+            //picked in the Feux tab.
+            if (id >= GUIMain::GUI_ID_LIGHTS_OVR_0 && id < GUIMain::GUI_ID_LIGHTS_OVR_END)
+            {
+                ShipLights* lights = model->getShipLights(gui->getLightsVessel());
+                if (lights) {
+                    const bool hide = ((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked();
+                    lights->setRoleOverride(ShipLights::overrideRole(id - GUIMain::GUI_ID_LIGHTS_OVR_0), hide);
+                }
+                gui->refreshLightsTab();
+            }
+            if (id == GUIMain::GUI_ID_LIGHTS_DECK_CHECKBOX)
+            {
+                ShipLights* lights = model->getShipLights(gui->getLightsVessel());
+                if (lights) { lights->setDeckLights(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked()); }
+                gui->refreshLightsTab();
+            }
+            if (id == GUIMain::GUI_ID_OWN_DECK_LIGHTS_CHECKBOX)
+            {
+                model->setOwnShipDeckLights(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked());
+                gui->refreshLightsTab();
             }
 
             if (id == GUIMain::GUI_ID_KEEP_SLACK_LINE_CHECKBOX)
@@ -503,7 +529,8 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         {
             if (id == GUIMain::GUI_ID_CLOSE_BOX)
             {
-                shutdownDialogActive = false;
+                //KYARA: "Non" - the message box removes itself; we only restore the clock
+                cancelShutdown();
             }
         }
 
@@ -552,6 +579,35 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_STORM_PRESET_BUTTON)
             {
                 model->setBadWeatherPreset();
+            }
+
+            //KYARA FEUX TAB: COLREG situation of the selected vessel
+            if (id >= GUIMain::GUI_ID_LIGHTS_SIT_0 && id < GUIMain::GUI_ID_LIGHTS_SIT_END)
+            {
+                const int vessel = gui->getLightsVessel();
+                ShipLights* lights = model->getShipLights(vessel);
+                if (lights) {
+                    const ShipLights::Situation sit = (ShipLights::Situation)(id - GUIMain::GUI_ID_LIGHTS_SIT_0);
+                    lights->setSituation(sit);
+                    //Logged, so the debrief can say when the instructor changed what
+                    std::string msg = (vessel < 0) ? std::string("Own ship")
+                        : ("Other ship " + std::to_string(vessel + 1) + " (" + model->getOtherShipName(vessel) + ")");
+                    msg.append(" lights: ").append(ShipLights::getSituationName(sit));
+                    device->getLogger()->log(msg.c_str());
+                }
+                gui->refreshLightsTab();
+            }
+            if (id == GUIMain::GUI_ID_LIGHTS_OVR_RESET)
+            {
+                ShipLights* lights = model->getShipLights(gui->getLightsVessel());
+                if (lights) { lights->clearOverrides(); }
+                gui->refreshLightsTab();
+            }
+            //KYARA FEUX TAB: bridge instrument lighting, 0 off / 1 dim / 2 bright
+            if (id >= GUIMain::GUI_ID_INSTR_LIGHTS_0 && id < GUIMain::GUI_ID_INSTR_LIGHTS_END)
+            {
+                model->setOwnShipInstrumentLights(id - GUIMain::GUI_ID_INSTR_LIGHTS_0);
+                gui->refreshLightsTab();
             }
             // KYARA NEW HIDE CONTROLS BUTTON 
             if (id == GUIMain::GUI_ID_TOGGLE_PRIMARY_CONTROLS_BUTTON)
@@ -828,6 +884,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         if (event.GUIEvent.EventType == irr::gui::EGET_COMBO_BOX_CHANGED)
         {
 
+            //KYARA FEUX TAB: another vessel picked - show her state, change nothing
+            if (id == GUIMain::GUI_ID_LIGHTS_VESSEL_COMBO)
+            {
+                gui->refreshLightsTab();
+            }
+
             if ((id == GUIMain::GUI_ID_ARPA_ON_BOX || id == GUIMain::GUI_ID_BIG_ARPA_ON_BOX))
             {
                 // ARPA on/off options
@@ -1039,6 +1101,29 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
     } // GUI Event
 
     // From keyboard
+    //KYARA: while the quit dialog is open the simulation is frozen and its keys are ignored
+    //(otherwise e.g. '1' would restart the clock behind the dialog).
+    //  Esc again  -> same as "Non": close the dialog, resume
+    //  Entree     -> passed through to the dialog ("Oui")
+    if (shutdownDialogActive && event.EventType == irr::EET_KEY_INPUT_EVENT)
+    {
+        if (event.KeyInput.Key == irr::KEY_RETURN) {
+            return false;
+        }
+        if (!event.KeyInput.PressedDown && event.KeyInput.Key == irr::KEY_ESCAPE) {
+            escapeReleasedSinceShutdownDialog = true;
+        }
+        //Only a NEW press of Esc closes it - holding the key that opened it must not
+        if (event.KeyInput.PressedDown && event.KeyInput.Key == irr::KEY_ESCAPE && escapeReleasedSinceShutdownDialog) {
+            irr::gui::IGUIElement* box = device->getGUIEnvironment()->getRootGUIElement()->getElementFromId(GUIMain::GUI_ID_CLOSE_BOX, true);
+            if (box) {
+                box->remove(); //its modal backdrop removes itself with it
+            }
+            cancelShutdown();
+        }
+        return true;
+    }
+
     if (event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown)
     {
         // Check here that there isn't focus on a GUI edit box. If we are, don't process key inputs here.
@@ -1046,10 +1131,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         if (!(focussedElement && focussedElement->getType() == irr::gui::EGUIET_EDIT_BOX))
         {
 
-            //KYARA FEUX: temporary keys until the Feux tab exists. CTRL+SHIFT, because a plain
-            //L is already the starboard azipod schottel.
+            //KYARA FEUX: shortcuts for the own ship, kept alongside the Feux / Eclairage tabs (which
+            //they keep in sync). CTRL+SHIFT, because a plain L is already the starboard azipod schottel.
             //  Ctrl+Shift+L : cycle the own ship's COLREG situation
             //  Ctrl+Shift+K : deck and accommodation working lights on/off
+            //  Ctrl+Shift+J : bridge instrument lighting off / dim / bright
             if (event.KeyInput.Shift && event.KeyInput.Control && event.KeyInput.Key == irr::KEY_KEY_J)
             {
                 //Bridge instrument lighting: off / dim / bright
@@ -1058,11 +1144,13 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 const char* names[3] = { "Instrument lights OFF", "Instrument lights DIM", "Instrument lights BRIGHT" };
                 device->getLogger()->log(names[next]);
                 std::cout << names[next] << std::endl;
+                gui->refreshLightsTab();
                 return true;
             }
 
             if (event.KeyInput.Shift && event.KeyInput.Control &&
-                (event.KeyInput.Key == irr::KEY_KEY_L || event.KeyInput.Key == irr::KEY_KEY_K))
+                ((KYARA_COLREG_ENABLED && event.KeyInput.Key == irr::KEY_KEY_L) ||
+                    event.KeyInput.Key == irr::KEY_KEY_K))
             {
                 if (event.KeyInput.Key == irr::KEY_KEY_K) {
                     model->setOwnShipDeckLights(!model->getOwnShipDeckLights());
@@ -1077,6 +1165,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                     device->getLogger()->log(msg.c_str());
                     std::cout << msg << std::endl;
                 }
+                gui->refreshLightsTab();
                 return true;
             }
 
@@ -1309,6 +1398,8 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 case irr::KEY_ESCAPE:
                 case irr::KEY_F4:
                     startShutdown();
+                    //KYARA: Esc is still held down - wait for its release before a new Esc may close the dialog
+                    escapeReleasedSinceShutdownDialog = (event.KeyInput.Key != irr::KEY_ESCAPE);
                     return true; // Return true here, so second 'esc' button pushes don't close the message box
                     break;
 
@@ -2291,14 +2382,37 @@ bool MyEventReceiver::IsButtonPressed(irr::u32 button, irr::u32 buttonBitmap) co
 
 void MyEventReceiver::startShutdown()
 {
-    model->setAccelerator(0.0);
-    device->sleep(500);
-    if (!shutdownDialogActive)
-    {
-        device->getGUIEnvironment()->getRootGUIElement()->setVisible(true);
-        device->getGUIEnvironment()->addMessageBox(L"Quit?", L"Quit?", true, irr::gui::EMBF_OK | irr::gui::EMBF_CANCEL, 0, GUIMain::GUI_ID_CLOSE_BOX); // I18n
-        shutdownDialogActive = true;
+    //KYARA: Esc / Quitter now PAUSES and asks. "Oui" quits, "Non" (or Esc again) resumes the
+    //exercise where it was. Previously "Non" only cleared the flag and left the clock at 0,
+    //so the exercise stayed frozen. The 500 ms sleep is gone too (it just froze the window).
+    if (shutdownDialogActive) {
+        return;
     }
+
+    //Remember the clock rate (x1, x2, x5... or already paused) so "Non" restores exactly that
+    acceleratorBeforeShutdownDialog = model->getAccelerator();
+    model->setAccelerator(0.0);
+
+    irr::gui::IGUIEnvironment* env = device->getGUIEnvironment();
+    rootVisibleBeforeShutdownDialog = env->getRootGUIElement()->isVisible();
+    escapeReleasedSinceShutdownDialog = true; //the Esc key handler sets this back to false when Esc opened it
+    env->getRootGUIElement()->setVisible(true);
+
+    //French button labels for Irrlicht's message box (OK/Cancel by default)
+    env->getSkin()->setDefaultText(irr::gui::EGDT_MSG_BOX_OK, L"Oui");
+    env->getSkin()->setDefaultText(irr::gui::EGDT_MSG_BOX_CANCEL, L"Non");
+    env->addMessageBox(L"Quitter", L"Quitter la simulation ?", true, irr::gui::EMBF_OK | irr::gui::EMBF_CANCEL, 0, GUIMain::GUI_ID_CLOSE_BOX);
+    shutdownDialogActive = true;
+}
+
+void MyEventReceiver::cancelShutdown()
+{
+    if (!shutdownDialogActive) {
+        return;
+    }
+    shutdownDialogActive = false;
+    device->getGUIEnvironment()->getRootGUIElement()->setVisible(rootVisibleBeforeShutdownDialog);
+    model->setAccelerator(acceleratorBeforeShutdownDialog);
 }
 // FIRE FEATURE
 void MyEventReceiver::aimMonitor(irr::s32 mx, irr::s32 my)

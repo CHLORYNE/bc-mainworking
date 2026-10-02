@@ -15,6 +15,7 @@
 #include "SimulationModel.hpp"
 #include "ScenarioChoice.hpp"
 #include "MyEventReceiver.hpp"
+#include "LoadingScreen.hpp" //KYARA CHARGEMENT
 #include "Network.hpp"
 #include "IniFile.hpp"
 #include "Constants.hpp"
@@ -25,6 +26,7 @@
 #include "OperatingModeEnum.hpp"
 #include <chrono>
 #include <cstdlib> //For rand(), srand()
+#include <cstdio> //KYARA CHARGEMENT: snprintf
 #include <vector>
 #include <sstream>
 #include <fstream> //To save to log
@@ -426,12 +428,19 @@ static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT message,
         HWND hwndCtl = (HWND)lParam;
         int code = HIWORD(wParam);
     }
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT) {
+            SetCursor(LoadCursor(NULL, IDC_ARROW));
+            return TRUE;
+        }
+        break;
     break;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
 
     }
+
 
     return DefWindowProc(hWnd, message, wParam, lParam);
 }
@@ -824,6 +833,7 @@ int main(int argc, char** argv)
     deviceParameters.AntiAlias = antiAlias;
 
     irr::IrrlichtDevice* device = irr::createDeviceEx(deviceParameters);
+    device->getCursorControl()->setVisible(true);
     //Start paused initially
     device->getTimer()->setSpeed(0.0);
 
@@ -976,66 +986,23 @@ int main(int argc, char** argv)
             file.close();
         }
     }
-    // ------------------------------------------------------------
-     // LOAD BACKGROUND IMAGE (Moved up so it's ready for use)
-     // ------------------------------------------------------------
-    irr::video::ITexture* backgroundImage = driver->getTexture("media/background.png");
-
-    //if (!backgroundImage) {
-        // Safety check: If image fails to load, log error and skip loading screen loop
-       // device->getLogger()->log("Error: Could not load media/background.png. Loading screen will be skipped.", irr::ELL_ERROR);
-    //}
-    //else {
-        // ------------------------------------------------------------
-        // SETUP BACKGROUND DIMENSIONS AND POSITION
-        //     exactly 1097x617 center
-        // ------------------------------------------------------------
-    irr::core::dimension2d<irr::u32> screenSize = driver->getScreenSize();
-    int desiredWidth = 1097;
-    int desiredHeight = 617;
-
-    int offsetX = (screenSize.Width - desiredWidth) / 2;
-    int offsetY = (screenSize.Height - desiredHeight) / 2;
-
-    irr::core::rect<irr::s32> destRect(
-        offsetX,
-        offsetY,
-        offsetX + desiredWidth,
-        offsetY + desiredHeight
-    );
-
-    // This line caused the crash because backgroundImage was null
-    irr::core::dimension2d<u32> texSize = backgroundImage->getOriginalSize();
-
-    irr::core::rect<irr::s32> sourceRect(
-        0, 0,
-        texSize.Width,
-        texSize.Height
-    );
-
-    // ------------------------------------------------------------
-    // 4) CHOOSE HOW LONG TO DISPLAY (IN MS) AND SHOW LOADING SCREEN
-    // ------------------------------------------------------------
-    irr::u32 loadingDuration = 3000; // 3 seconds
-    irr::u32 startTime = device->getTimer()->getRealTime();
-
-    while (device->run() &&
-        (device->getTimer()->getRealTime() - startTime < loadingDuration))
+    //KYARA CHARGEMENT: real loading page. The old code showed media/background.png for a FIXED
+    //3 seconds BEFORE anything was loaded (pure waiting), then left a frozen frame on screen during
+    //the real loading. The page below is redrawn between each loading stage instead, and every
+    //stage's duration is written to the log as "[CHARGEMENT] <stage> : <n> ms".
+    irr::gui::IGUIFont* loadingTitleFont = 0;
     {
-        driver->beginScene(true, true, irr::video::SColor(255, 0, 0, 0));
-
-        driver->draw2DImage(
-            backgroundImage,
-            destRect,
-            sourceRect,
-            nullptr,
-            nullptr,
-            false
-        );
-
-        device->getGUIEnvironment()->drawAll();
-        driver->endScene();
+        //Bigger version of the same font for the scenario title, if one exists in media/fonts
+        const int titleSizes[3] = { fontSize * 2, fontSize + 10, fontSize + 6 };
+        for (int i = 0; i < 3 && !loadingTitleFont; i++) {
+            std::string titlePath = "media/fonts/" + fontName + "/" + fontName + "-" + std::to_string(titleSizes[i]) + ".xml";
+            if (device->getFileSystem()->existFile(titlePath.c_str())) {
+                loadingTitleFont = device->getGUIEnvironment()->getFont(titlePath.c_str());
+            }
+        }
     }
+    LoadingScreen loadingScreen(device, font, loadingTitleFont);
+    loadingScreen.setStage(0.02f, "Connexion au réseau");
 
 
     /*Show loading message
@@ -1083,19 +1050,62 @@ int main(int argc, char** argv)
         portMessage.append(irr::core::stringw(ourHostName.c_str()));
         portMessage.append(L":");
         portMessage.append(irr::core::stringw(network->getPort()));
-        //loadingMessage->setText(portMessage.c_str());
-        device->run();
-        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(0, 200, 200, 200));
-        device->getGUIEnvironment()->drawAll();
-        driver->endScene();
+        //KYARA CHARGEMENT: the grey frame that used to be drawn here is gone - the loading page covers it.
+        std::cout << irr::core::stringc(portMessage.c_str()).c_str() << std::endl;
         //Get the data
         std::string receivedSerialisedScenarioData;
+        loadingScreen.setStage(0.03f, "En attente des données du poste principal");
         while (device->run() && receivedSerialisedScenarioData.empty()) {
             network->getScenarioFromNetwork(receivedSerialisedScenarioData);
+            loadingScreen.refresh(); //KYARA CHARGEMENT: keep the page alive while waiting
         }
         scenarioData.deserialise(receivedSerialisedScenarioData);
     }
     std::string serialisedScenarioData = scenarioData.serialise(false);
+
+    //KYARA CHARGEMENT: scenario card on the loading page
+    {
+        loadingScreen.setTitle(scenarioData.scenarioName);
+        loadingScreen.addInfo("Zone", scenarioData.worldName);
+        loadingScreen.addInfo("Navire", scenarioData.ownShipData.ownShipName);
+        {
+            irr::f32 t = scenarioData.startTime;
+            int hh = (int)t;
+            int mm = (int)((t - hh) * 60.0f + 0.5f);
+            if (mm >= 60) { mm -= 60; hh += 1; }
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%02d:%02d  -  %02u/%02u/%04u", hh % 24, mm,
+                (unsigned)scenarioData.startDay, (unsigned)scenarioData.startMonth, (unsigned)scenarioData.startYear);
+            loadingScreen.addInfo("Départ", buf);
+        }
+        {
+            irr::f32 seaState = scenarioData.weather;
+            if (seaState > SIM_MAX_WEATHER) { seaState = SIM_MAX_WEATHER; } //same cap as the model applies
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%.1f", seaState);
+            loadingScreen.addInfo("État de mer", buf);
+            snprintf(buf, sizeof(buf), "%03d°  %.0f nd", (int)(scenarioData.windDirection + 0.5f) % 360, scenarioData.windSpeed);
+            loadingScreen.addInfo("Vent", buf);
+            if (scenarioData.visibilityRange > 0) {
+                snprintf(buf, sizeof(buf), "%.1f NM", scenarioData.visibilityRange);
+                loadingScreen.addInfo("Visibilité", buf);
+            }
+        }
+        if (!scenarioData.otherShipsData.empty()) {
+            loadingScreen.addInfo("Autres navires", std::to_string(scenarioData.otherShipsData.size()));
+        }
+        //Briefing: the scenario's description.ini, if there is one (primary only - the secondary
+        //does not have the scenario folder)
+        if (mode == OperatingMode::Normal) {
+            std::ifstream descFile((scenarioPath + scenarioName + "/description.ini").c_str());
+            if (descFile.is_open()) {
+                std::stringstream descBuffer;
+                descBuffer << descFile.rdbuf();
+                loadingScreen.setBriefing(descBuffer.str());
+            }
+        }
+        loadingScreen.setStage(0.05f, "Préparation de l'exercice");
+    }
 
     //Note: We could use this serialised format as a scenario import/export format or for online distribution
 
@@ -1185,29 +1195,17 @@ int main(int argc, char** argv)
         &guiMain,
         &sound,
         scenarioData,
-        modelParameters);
+        modelParameters,
+        &loadingScreen); //KYARA CHARGEMENT
     model.setTripleScreen(triScreen, perScreenFOV, bezelYaw);
     //check enough time has elapsed to show the credits screen (5s)
     //while (device->getTimer()->getRealTime() - creditsStartTime < 5000) {
        //device->run();
     //}
 
-    // Show world model credits if available
-    std::string worldReadme = model.getWorldReadme();
-    if (worldReadme.size() > 0) {
-        std::wstring wideWorldReadme = std::wstring(worldReadme.begin(), worldReadme.end());
-        //loadingMessage->setText(wideWorldReadme.c_str());
-        device->run();
-        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(0, 200, 200, 200));
-        device->getGUIEnvironment()->drawAll();
-        driver->endScene();
-
-        //check enough time has elapsed to show the credits screen (10s) in total (5s main, 5s world)
-        //while (device->getTimer()->getRealTime() - creditsStartTime < 10000) {
-          //  device->run();
-       // }
-
-    }
+    //KYARA CHARGEMENT: the world readme used to be "shown" here by drawing a grey frame over the
+    //loading page (the text itself was already disabled). Removed; the readme stays available
+    //through model.getWorldReadme() if you want it on the loading page later.
 
     // Remove loading message, as not needed again
     //loadingMessage->remove(); loadingMessage = 0;
@@ -1240,6 +1238,7 @@ int main(int argc, char** argv)
         }
     }
 
+    loadingScreen.setStage(0.86f, "Interface et instruments");
     guiMain.load(device, &language, &logMessages, &model, model.isSingleEngine(), model.isAzimuthDrive(), hideEngineAndRudder, model.hasDepthSounder(), model.getMaxSounderDepth(), model.hasGPS(), showTideHeight, model.hasBowThruster(), model.hasSternThruster(), model.hasTurnIndicator(), showCollided, vr3dMode);
 
     //Give the network class a pointer to the model
@@ -1264,31 +1263,8 @@ int main(int argc, char** argv)
     //Load sound files
 
 
-    //KYARA COLLISION AND PROXY ----------
-//KYARA COLLISION AND PROXY ----------
-    if (mode != OperatingMode::Secondary) {
-        sound.load(model.getOwnShipEngineSound(), model.getOwnShipWaveSound(), model.getOwnShipHornSound(),
-            model.getOwnShipAlarmSound(), model.getOwnShipProxyAlarmSound(), model.getOwnShipCollisionSound(),
-            model.getOwnShipInsideSound(), model.getOwnShipOutsideSound(), model.getOwnShipSeagullSound(),
-            model.getOwnShipContactSound(), model.getOwnShipRadarAlarmSound(),
-            model.getOwnShipRainSound(), model.getOwnShipStormSound(), model.getOwnShipThunderSound(), model.getOwnShipThunderboltSound(), model.getOwnShipFireBurningSound(), model.getOwnShipWaterSound(), model.getOwnShipFireAlarmSound(),
-            model.getOwnShipAbandonAlarmSound(), model.getOwnShipExplosionSound(), model.getOwnShipGroanSound(), model.getOwnShipSteamSound(), model.getOwnShipVhfSound());
-        sound.setVolumeWave(IniFile::iniFileTof32(iniFilename, "wave_volume"));
-        //KYARA SLAM: hull coming down on the water. Optional file; bc5.ini slam_volume (default 1).
-        sound.loadSlamSound(model.getOwnShipSlamSound());
-        //KYARA SLAM: water on the wheelhouse glass. bc5.ini screen_spray: 0 off, 1 normal (default),
-        //2 test - water after every landing, for checking the effect.
-        {
-            std::string screenSprayMode = IniFile::iniFileToString(iniFilename, "screen_spray");
-            model.setScreenSprayMode(screenSprayMode.empty() ? 1 : atoi(screenSprayMode.c_str()));
-        }
-        {
-            irr::f32 slamVol = IniFile::iniFileTof32(iniFilename, "slam_volume");
-            if (slamVol <= 0.0f) { slamVol = 1.0f; }
-            sound.setVolumeSlam(slamVol);
-        }
-    }
-
+    //KYARA CHARGEMENT: the sound files used to be loaded TWICE (this block existed here and again
+    //after the radar setup below). Only the second copy is kept.
 
     //Set up initial options
     if (IniFile::iniFileTou32(iniFilename, "hide_instruments") == 1) {
@@ -1320,6 +1296,7 @@ int main(int argc, char** argv)
     if (radarStartupMode == 2) {
         model.setRadarHeadUp();
     }
+    loadingScreen.setStage(0.93f, "Sons");
     if (mode != OperatingMode::Secondary) {
         sound.load(model.getOwnShipEngineSound(), model.getOwnShipWaveSound(), model.getOwnShipHornSound(),
             model.getOwnShipAlarmSound(), model.getOwnShipProxyAlarmSound(), model.getOwnShipCollisionSound(),
@@ -1356,6 +1333,14 @@ int main(int argc, char** argv)
 //    Profiler renderFinishProfile("Render finish");
 
     sound.StartSound();
+
+    //KYARA CHARGEMENT: done - no "click to start" page any more (the key mapping is in the
+    //launcher). The primary starts the clock itself; a secondary keeps following the primary's
+    //clock over the network, so it is left alone.
+    loadingScreen.finish();
+    if (mode != OperatingMode::Secondary) {
+        model.setAccelerator(1.0);
+    }
 
     //main loop
     while (device->run())

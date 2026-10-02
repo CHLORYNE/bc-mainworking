@@ -30,6 +30,7 @@ class SimulationModel;
 class OtherShip;
 struct RadarData;
 class OtherShipData;
+class ShipLights; //KYARA FEUX TAB
 
 class OtherShips
 {
@@ -75,6 +76,7 @@ public:
     void setLightSituation(int number, int situation);
     int getLightSituation(int number);
     void setDeckLights(int number, bool on);
+    ShipLights* getLights(int number); //KYARA FEUX TAB: 0 if no such vessel
 
 private:
     std::vector<OtherShip*> otherShips;
