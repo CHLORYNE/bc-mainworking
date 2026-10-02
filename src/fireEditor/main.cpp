@@ -13,7 +13,8 @@
 #include "../IniFile.hpp"
 #include "../Utilities.hpp"
 #include "FireEditor.hpp"
-#include "FireMap.hpp"
+#include "FireMenu.hpp"
+#include "../chartView/ChartView.hpp"
 #include "FireScenario.hpp"
 
 #ifdef _MSC_VER
@@ -46,55 +47,12 @@ namespace IniFile {
 
 namespace {
 
-enum { ID_WORLDS = 1, ID_SCENARIOS, ID_NEW, ID_OPEN, ID_QUIT };
-
 std::wstring wide(const std::string& s)
 {
     std::wstring w;
     for (size_t i = 0; i < s.size(); i++) { w += (wchar_t)(unsigned char)s[i]; }
     return w;
 }
-
-void listDirectories(irr::IrrlichtDevice* device, std::vector<std::string>& out, const std::string& path)
-{
-    irr::io::IFileSystem* fs = device->getFileSystem();
-    irr::io::path cwd = fs->getWorkingDirectory();
-    if (!fs->changeWorkingDirectoryTo(path.c_str())) { return; }
-    irr::io::IFileList* list = fs->createFileList();
-    if (list) {
-        for (irr::u32 i = 0; i < list->getFileCount(); i++) {
-            if (list->isDirectory(i) && list->getFileName(i).findFirst('.') != 0) {
-                std::string name = list->getFileName(i).c_str();
-                if (std::find(out.begin(), out.end(), name) == out.end()) { out.push_back(name); }
-            }
-        }
-        list->drop();
-    }
-    fs->changeWorkingDirectoryTo(cwd);
-}
-
-class MenuReceiver : public irr::IEventReceiver {
-public:
-    MenuReceiver(irr::gui::IGUIListBox* w, irr::gui::IGUIListBox* s) : worlds(w), scenarios(s), choice(0) {}
-    virtual bool OnEvent(const irr::SEvent& event)
-    {
-        if (event.EventType != irr::EET_GUI_EVENT) { return false; }
-        irr::s32 id = event.GUIEvent.Caller ? event.GUIEvent.Caller->getID() : -1;
-        if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED) {
-            if (id == ID_NEW && worlds->getSelected() >= 0) { choice = ID_NEW; }
-            if (id == ID_OPEN && scenarios->getSelected() >= 0) { choice = ID_OPEN; }
-            if (id == ID_QUIT) { choice = ID_QUIT; }
-        }
-        if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_SELECTED_AGAIN) {   // double click
-            if (id == ID_WORLDS) { choice = ID_NEW; }
-            if (id == ID_SCENARIOS) { choice = ID_OPEN; }
-        }
-        return false;
-    }
-    irr::gui::IGUIListBox* worlds;
-    irr::gui::IGUIListBox* scenarios;
-    int choice;
-};
 
 void applySkin(irr::gui::IGUIEnvironment* env)
 {
@@ -126,65 +84,6 @@ void applySkin(irr::gui::IGUIEnvironment* env)
     skin->setDefaultText(irr::gui::EGDT_MSG_BOX_YES, L"Oui");
     skin->setDefaultText(irr::gui::EGDT_MSG_BOX_NO, L"Non");
     skin->setDefaultText(irr::gui::EGDT_MSG_BOX_CANCEL, L"Annuler");
-}
-
-// The start screen. Returns ID_NEW (world chosen), ID_OPEN (scenario chosen) or ID_QUIT.
-int runMenu(irr::IrrlichtDevice* device, const std::vector<std::string>& worlds, const std::vector<std::string>& scenarios,
-    const std::vector<bool>& hasIncident, const std::wstring& message, int& worldIndex, int& scenarioIndex)
-{
-    irr::video::IVideoDriver* driver = device->getVideoDriver();
-    irr::gui::IGUIEnvironment* env = device->getGUIEnvironment();
-    irr::s32 w = (irr::s32)driver->getScreenSize().Width, h = (irr::s32)driver->getScreenSize().Height;
-    irr::s32 rowH = std::max(24, (irr::s32)env->getSkin()->getFont()->getDimension(L"Ag").Height + 10);
-
-    irr::gui::IGUIStaticText* title = env->addStaticText(
-        L"\u00C9diteur de sc\u00E9narios incendie / SAR\nNAUTITECH S.A.R.L",
-        irr::core::recti(w / 10, h / 30, w * 9 / 10, h / 30 + rowH * 2), false, true);
-    title->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    title->setOverrideColor(irr::video::SColor(255, 255, 160, 80));
-
-    irr::s32 top = h / 30 + rowH * 2 + 20;
-    irr::s32 colW = (w * 8 / 10 - 30) / 2;
-    irr::s32 x1 = w / 10, x2 = x1 + colW + 30;
-    irr::s32 listBottom = h - rowH * 5;
-
-    env->addStaticText(L"Nouvel exercice incendie sur la carte :", irr::core::recti(x1, top, x1 + colW, top + rowH));
-    irr::gui::IGUIListBox* worldList = env->addListBox(irr::core::recti(x1, top + rowH, x1 + colW, listBottom), 0, ID_WORLDS, true);
-    env->addButton(irr::core::recti(x1, listBottom + 8, x1 + colW, listBottom + 8 + rowH), 0, ID_NEW, L"Cr\u00E9er un nouvel exercice");
-
-    env->addStaticText(L"Ouvrir un exercice existant :", irr::core::recti(x2, top, x2 + colW, top + rowH));
-    irr::gui::IGUIListBox* scenarioList = env->addListBox(irr::core::recti(x2, top + rowH, x2 + colW, listBottom), 0, ID_SCENARIOS, true);
-    env->addButton(irr::core::recti(x2, listBottom + 8, x2 + colW, listBottom + 8 + rowH), 0, ID_OPEN, L"Ouvrir l'exercice");
-
-    irr::gui::IGUIStaticText* info = env->addStaticText(message.c_str(),
-        irr::core::recti(x1, listBottom + rowH + 16, x2 + colW - 160, h - 10), false, true);
-    info->setOverrideColor(irr::video::SColor(255, 190, 200, 210));
-    env->addButton(irr::core::recti(x2 + colW - 150, h - rowH - 14, x2 + colW, h - 14), 0, ID_QUIT, L"Quitter");
-
-    for (size_t i = 0; i < worlds.size(); i++) { worldList->addItem(wide(worlds[i]).c_str()); }
-    for (size_t i = 0; i < scenarios.size(); i++) {
-        std::wstring item = wide(scenarios[i]);
-        if (hasIncident[i]) { item += L"   [incendie]"; }
-        scenarioList->addItem(item.c_str());
-    }
-    if (worldIndex >= 0 && worldIndex < (int)worlds.size()) { worldList->setSelected(worldIndex); }
-    else if (!worlds.empty()) { worldList->setSelected(0); }
-    if (scenarioIndex >= 0 && scenarioIndex < (int)scenarios.size()) { scenarioList->setSelected(scenarioIndex); }
-
-    MenuReceiver receiver(worldList, scenarioList);
-    device->setEventReceiver(&receiver);
-    int choice = ID_QUIT;
-    while (device->run()) {
-        if (receiver.choice != 0) { choice = receiver.choice; break; }
-        driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
-        env->drawAll();
-        driver->endScene();
-    }
-    worldIndex = worldList->getSelected();
-    scenarioIndex = scenarioList->getSelected();
-    device->setEventReceiver(0);
-    env->clear();
-    return choice;
 }
 
 void showMessage(irr::IrrlichtDevice* device, const wchar_t* text)
@@ -277,10 +176,10 @@ int main(int argc, char** argv)
     if (Utilities::pathExists(userFolder + scenariosPath)) { scenariosPath = userFolder + scenariosPath; }
 
     std::vector<std::string> ownTypes, otherTypes;
-    listDirectories(device, ownTypes, "Models/Ownship/");
-    listDirectories(device, ownTypes, userFolder + "Models/Ownship/");
-    listDirectories(device, otherTypes, "Models/Othership/");
-    listDirectories(device, otherTypes, userFolder + "Models/Othership/");
+    listSubdirectories(device, ownTypes, "Models/Ownship/");
+    listSubdirectories(device, ownTypes, userFolder + "Models/Ownship/");
+    listSubdirectories(device, otherTypes, "Models/Othership/");
+    listSubdirectories(device, otherTypes, userFolder + "Models/Othership/");
     std::sort(ownTypes.begin(), ownTypes.end());
     std::sort(otherTypes.begin(), otherTypes.end());
 
@@ -294,42 +193,38 @@ int main(int argc, char** argv)
         else if (!casualtyTypeFound) { defaultCasualtyType = otherTypes[i]; casualtyTypeFound = true; }
     }
 
-    int worldIndex = -1, scenarioIndex = -1;
     std::wstring message =
         L"Cet \u00E9diteur pr\u00E9pare les exercices d'incendie : navire en feu, chronologie (abandon, naufrage), naufrag\u00E9s, "
         L"vedettes SAR avec leurs routes et h\u00E9licopt\u00E8res. Les exercices marqu\u00E9s [incendie] ont d\u00E9j\u00E0 leurs r\u00E9glages.";
 
     while (device->run()) {
-        std::vector<std::string> worlds, scenarios;
-        listDirectories(device, worlds, "World/");
-        listDirectories(device, worlds, userFolder + "World/");
-        listDirectories(device, scenarios, scenariosPath);
-        std::sort(worlds.begin(), worlds.end());
-        std::sort(scenarios.begin(), scenarios.end());
-        std::vector<bool> hasIncident;
-        for (size_t i = 0; i < scenarios.size(); i++) {
-            hasIncident.push_back(Utilities::pathExists(scenariosPath + scenarios[i] + "/incident.ini"));
+        FireScenario scenario;
+        FireMenu::Choice choice;
+        std::string chosenWorld, chosenScenario;
+        {
+            FireMenu menu(device, scenariosPath, message);
+            choice = menu.run();
+            chosenWorld = menu.chosenWorld();
+            chosenScenario = menu.chosenScenario();
+            if (choice == FireMenu::Choice_Import) { scenario = menu.imported; }
         }
-
-        int choice = runMenu(device, worlds, scenarios, hasIncident, message, worldIndex, scenarioIndex);
-        if (choice == ID_QUIT || !device->run()) { break; }
+        if (choice == FireMenu::Choice_Quit || !device->run()) { break; }
 
         showMessage(device, L"Chargement de la carte...");
-        FireScenario scenario;
-        FireMap map;
+        ChartView map;
         std::string error;
-        bool isNew = (choice == ID_NEW);
-        if (isNew) {
-            if (worldIndex < 0 || !map.load(device, worlds[worldIndex], error)) {
+        bool isNew = (choice != FireMenu::Choice_Open);
+        if (choice == FireMenu::Choice_New) {
+            if (!map.load(device, chosenWorld, error)) {
                 message = L"Impossible d'ouvrir la carte : " + wide(error);
                 continue;
             }
             map.setViewport(irr::core::recti(0, 0, (irr::s32)graphicsWidth, (irr::s32)graphicsHeight));
-            scenario.makeNew(worlds[worldIndex], map.centre(),
+            scenario.makeNew(chosenWorld, map.centre(),
                 ownTypes.empty() ? "" : ownTypes[0], defaultCasualtyType, rescueTypes.empty() ? "" : rescueTypes[0], "");
         }
         else {
-            if (scenarioIndex < 0 || !scenario.load(scenariosPath + scenarios[scenarioIndex], scenarios[scenarioIndex], error)) {
+            if (choice == FireMenu::Choice_Open && !scenario.load(scenariosPath + chosenScenario, chosenScenario, error)) {
                 message = L"Impossible d'ouvrir l'exercice : " + wide(error);
                 continue;
             }

@@ -84,6 +84,10 @@ bool EventReceiver::OnEvent(const irr::SEvent& event)
                 model->decreaseZoom();
             }
 
+            if (id == GUIMain::GUI_ID_CHARTSTYLE_BUTTON) {
+                model->nextChartStyle();
+            }
+
             if (id == GUIMain::GUI_ID_SETMMSI_BUTTON) {
                 irr::u32 mmsi = gui->getEditBoxMMSI();
                 int ship = gui->getSelectedShip();
@@ -220,41 +224,23 @@ bool EventReceiver::OnEvent(const irr::SEvent& event)
 
     }
 
-    //From keyboard
-    if (event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown)
-    {
-
-        if (event.KeyInput.Shift) {
-            //Shift down
-
-        }
-        else if (event.KeyInput.Control) {
-            //Ctrl down
-
-
-        }
-        else {
-            //Shift and Ctrl not down
-
+    //From keyboard: chart shortcuts, unless a control (edit box, list) has the focus
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown) {
+        irr::gui::IGUIElement* focus = device->getGUIEnvironment()->getFocus();
+        bool guiHasKeys = focus != 0 && focus != device->getGUIEnvironment()->getRootGUIElement(); //Typing, or moving in a list
+        if (!guiHasKeys && !event.KeyInput.Control && model->onKey(event.KeyInput)) {
+            return true;
         }
     } //end of key down event
 
-    //From mouse
+    //From mouse: select, drag and drop ships, pan and zoom the chart
     if (event.EventType == irr::EET_MOUSE_INPUT_EVENT) {
-
-        if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN) {
-
-            //Check if we're over a gui element, and if so ignore the click
-            irr::gui::IGUIElement* overElement = device->getGUIEnvironment()->getRootGUIElement()->getElementFromPoint(device->getCursorControl()->getPosition());
-            if ((overElement == 0 || overElement == device->getGUIEnvironment()->getRootGUIElement())) {
-                model->setMouseDown(true);
-            }
+        irr::core::position2di at(event.MouseInput.X, event.MouseInput.Y);
+        irr::gui::IGUIElement* overElement = device->getGUIEnvironment()->getRootGUIElement()->getElementFromPoint(at);
+        bool overGui = !(overElement == 0 || overElement == device->getGUIEnvironment()->getRootGUIElement());
+        if (model->onMouse(event.MouseInput, overGui)) {
+            return true;
         }
-
-        if (event.MouseInput.Event == irr::EMIE_LMOUSE_LEFT_UP) {
-            model->setMouseDown(false);
-        }
-
     } //end of mouse event
 
 

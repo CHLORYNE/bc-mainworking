@@ -8,12 +8,12 @@
 #include <vector>
 
 #include "irrlicht.h"
-#include "FireMap.hpp"
+#include "../chartView/ChartView.hpp"
 #include "FireScenario.hpp"
 
 class FireEditor : public irr::IEventReceiver {
 public:
-    FireEditor(irr::IrrlichtDevice* device, FireScenario* scenario, FireMap* map, const std::string& scenariosPath,
+    FireEditor(irr::IrrlichtDevice* device, FireScenario* scenario, ChartView* map, const std::string& scenariosPath,
         const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes,
         const std::vector<std::string>& rescueShipTypes, bool isNewScenario);
     ~FireEditor();
@@ -76,7 +76,8 @@ private:
     void drawShip(const IncidentPoint& p, float heading, irr::video::SColor fill, irr::video::SColor edge, float size);
     void fillPolygon(const std::vector<irr::core::position2df>& pts, irr::video::SColor color);
     void drawPolyline(const std::vector<irr::core::position2di>& pts, irr::video::SColor color, bool dashed, irr::s32 width);
-    void drawText(const std::wstring& text, irr::core::position2di at, irr::video::SColor color, bool centred = false);
+    // Map labels sit on a dark translucent box so they read on any chart background.
+    void drawText(const std::wstring& text, irr::core::position2di at, irr::video::SColor color, bool centred = false, bool boxed = true);
     void drawMarker(irr::core::position2di at, int shape, irr::video::SColor fill, irr::video::SColor edge, irr::s32 r);
     void drawHighlight(const Pick& p, irr::video::SColor color);
     irr::video::SColor boatColour(int index) const;
@@ -90,7 +91,7 @@ private:
     irr::gui::IGUIEnvironment* guienv;
     irr::gui::IGUIFont* font;
     FireScenario* scn;
-    FireMap* map;
+    ChartView* map;
     std::string scenariosPath;
     std::string loadedName;          // folder the scenario came from ("" for a new one)
     std::vector<std::string> ownTypes, otherTypes;
@@ -111,6 +112,7 @@ private:
     // panel widgets
     irr::gui::IGUIEditBox* nameBox;
     irr::gui::IGUIStaticText* statusText;
+    irr::gui::IGUIButton* styleButton;   // chart background
     irr::gui::IGUITabControl* tabs;
     irr::gui::IGUITab* tabScenario; irr::gui::IGUITab* tabCasualty; irr::gui::IGUITab* tabSurvivors;
     irr::gui::IGUITab* tabBoats; irr::gui::IGUITab* tabHelos;

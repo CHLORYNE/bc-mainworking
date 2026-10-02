@@ -37,10 +37,8 @@ int survivorKindFromKey(const std::string& v)
 
 namespace IncidentIni {
 
-bool read(const std::string& fileName, Map& out)
+static void parseLines(std::istream& file, Map& out)
 {
-    std::ifstream file(fileName.c_str());
-    if (!file.is_open()) { return false; }
     std::string line;
     while (std::getline(file, line)) {
         std::string t = trim(line, " \t\r\n");
@@ -49,7 +47,20 @@ bool read(const std::string& fileName, Map& out)
         if (eq == std::string::npos) { continue; }
         out[lower(trim(t.substr(0, eq)))] = trim(t.substr(eq + 1));
     }
+}
+
+bool read(const std::string& fileName, Map& out)
+{
+    std::ifstream file(fileName.c_str());
+    if (!file.is_open()) { return false; }
+    parseLines(file, out);
     return true;
+}
+
+void readText(const std::string& text, Map& out)
+{
+    std::istringstream in(text);
+    parseLines(in, out);
 }
 
 bool has(const Map& m, const std::string& k) { return m.find(lower(k)) != m.end(); }
@@ -153,10 +164,22 @@ const char* IncidentConfig::survivorModel(int kind)
 
 bool IncidentConfig::load(const std::string& fileName)
 {
-    using namespace IncidentIni;
-    Map m;
-    if (!read(fileName, m)) { return false; }
+    IncidentIni::Map m;
+    if (!IncidentIni::read(fileName, m)) { return false; }
+    loadFromMap(m);
+    return true;
+}
 
+void IncidentConfig::loadFromText(const std::string& text)
+{
+    IncidentIni::Map m;
+    IncidentIni::readText(text, m);
+    loadFromMap(m);
+}
+
+void IncidentConfig::loadFromMap(const IncidentIni::Map& m)
+{
+    using namespace IncidentIni;
     *this = IncidentConfig();
     casualtyShip = (int)num(m, "CasualtyShip", casualtyShip);
     fireDuration = (float)num(m, "FireDuration", fireDuration);
@@ -222,13 +245,20 @@ bool IncidentConfig::load(const std::string& fileName)
             helos.push_back(h);
         }
     }
-    return true;
 }
 
 bool IncidentConfig::save(const std::string& fileName) const
 {
     std::ofstream f(fileName.c_str());
     if (!f.is_open()) { return false; }
+    f << toText();
+    f.close();
+    return !f.fail();
+}
+
+std::string IncidentConfig::toText() const
+{
+    std::ostringstream f;
     f.imbue(std::locale::classic());
 
     // Comment lines must not contain an equals sign: the simulator's ini reader would take them as keys.
@@ -300,6 +330,5 @@ bool IncidentConfig::save(const std::string& fileName) const
         f << std::setprecision(1);
         f << "HeloPadHeight(" << i << ")=" << h.padHeight << std::endl;
     }
-    f.close();
-    return !f.fail();
+    return f.str();
 }

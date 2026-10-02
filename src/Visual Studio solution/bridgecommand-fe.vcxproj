@@ -91,8 +91,10 @@
     <ClCompile Include="..\ScenarioDataStructure.cpp" />
     <ClCompile Include="..\fireEditor\main.cpp" />
     <ClCompile Include="..\fireEditor\FireEditor.cpp" />
-    <ClCompile Include="..\fireEditor\FireMap.cpp" />
+    <ClCompile Include="..\fireEditor\FireMenu.cpp" />
     <ClCompile Include="..\fireEditor\FireScenario.cpp" />
+    <ClCompile Include="..\chartView\ChartView.cpp" />
+    <ClCompile Include="..\chartView\ChartDraw.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Constants.hpp" />
@@ -101,8 +103,10 @@
     <ClInclude Include="..\ScenarioDataStructure.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
     <ClInclude Include="..\fireEditor\FireEditor.hpp" />
-    <ClInclude Include="..\fireEditor\FireMap.hpp" />
+    <ClInclude Include="..\fireEditor\FireMenu.hpp" />
     <ClInclude Include="..\fireEditor\FireScenario.hpp" />
+    <ClInclude Include="..\chartView\ChartView.hpp" />
+    <ClInclude Include="..\chartView\ChartDraw.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\icon.rc" />

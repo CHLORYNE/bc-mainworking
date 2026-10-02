@@ -26,6 +26,8 @@
 #include "PositionDataStruct.hpp"
 #include "../ScenarioDataStructure.hpp"
 
+class ChartView;
+
 class GUIMain //Create, build and update GUI
 {
 public:
@@ -72,11 +74,14 @@ public:
         GUI_ID_DRIFTING_CHECKBOX,
         GUI_ID_GENERAL_WINDOW,    // NEW: ID for the UI Window
         GUI_ID_TOGGLE_UI_BUTTON,   // NEW: ID for the Show/Hide button
+        GUI_ID_CHARTSTYLE_BUTTON,  // Chart background: nautical chart day / night, original map, HD image
     };
     //kyara
     void updateShipImageDisplay(std::string shipName);
 
-    void updateGuiData(ScenarioData scenarioInfo, irr::s32 mapOffsetX, irr::s32 mapOffsetZ, irr::f32 metresPerPx, const std::vector<PositionData>& buoys, irr::video::ITexture* displayMapTexture, irr::s32 selectedShip, irr::s32 selectedLeg, irr::f32 terrainLong, irr::f32 terrainLongExtent, irr::f32 terrainXWidth, irr::f32 terrainLat, irr::f32 terrainLatExtent, irr::f32 terrainZWidth);
+    // Draw the chart, the ships and the GUI. hoverShip: ship under the cursor (0 own ship, 1.. other ships, -1 none).
+    void updateGuiData(ScenarioData scenarioInfo, ChartView& chart, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip, bool draggingShip, irr::core::position2di mouse);
+    void selectShip(irr::s32 shipIndex); // As if chosen in the ship list: 0 own ship, 1.. other ships
     void updateEditBoxes(); //Trigger an update of the edit boxes (carried out in next updateGuiData)
     irr::f32 getEditBoxCourse() const;
     irr::f32 getEditBoxSpeed() const;
@@ -116,6 +121,8 @@ private:
 
     irr::gui::IGUIButton* zoomIn;
     irr::gui::IGUIButton* zoomOut;
+    irr::gui::IGUIButton* chartStyleButton;
+    std::wstring chartStyleShown;
 
     irr::gui::IGUIWindow* guiWindow;
     irr::gui::IGUIWindow* generalDataWindow;
@@ -181,7 +188,9 @@ private:
 
     ScenarioData oldScenarioInfo; //Keep a copy of the data we have already displayed, so the dialog boxes only get updated when needed
 
-    void drawInformationOnMap(const irr::f32& time, const irr::s32& mapOffsetX, const irr::s32& mapOffsetZ, const irr::f32& metresPerPx, const irr::f32& ownShipPosX, const irr::f32& ownShipPosZ, const irr::f32& ownShipHeading, const std::vector<PositionData>& buoys, const std::vector<OtherShipData>& otherShips, const irr::s32& selectedShip, const irr::s32& selectedLeg);
+    void drawInformationOnMap(ChartView& chart, const ScenarioData& scenarioInfo, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip);
+    void drawStatusBar(ChartView& chart, irr::core::position2di mouse, bool draggingShip);
+    void drawLabel(ChartView& chart, const std::wstring& text, irr::core::position2di at, irr::video::SColor colour);
     void updateDropDowns(const std::vector<OtherShipData>& otherShips, irr::s32 selectedShip, irr::f32 time);
     bool manuallyTriggerGUIEvent(irr::gui::IGUIElement* caller, irr::gui::EGUI_EVENT_TYPE eType);
     std::wstring f32To3dp(irr::f32 value) const;

@@ -54,6 +54,9 @@ public:
 
     bool load(const std::string& fileName);  // false if the file is missing; *this is left at defaults
     bool save(const std::string& fileName) const;
+    std::string toText() const;                       // the incident.ini contents
+    void loadFromText(const std::string& text);       // from incident.ini contents (e.g. an imported scenario)
+    void loadFromMap(const std::map<std::string, std::string>& keys);   // keys lower-cased, as IncidentIni reads them
 
     float sinkStartTime() const;             // fireDuration - sinkLeadTime, never negative
 
@@ -94,6 +97,7 @@ const IncidentBuiltInPreset& incidentBuiltInPreset();
 namespace IncidentIni {
     typedef std::map<std::string, std::string> Map;
     bool read(const std::string& fileName, Map& out);
+    void readText(const std::string& text, Map& out);   // same, from text already in memory
     bool has(const Map& m, const std::string& key);
     std::string str(const Map& m, const std::string& key, const std::string& def = "");
     double num(const Map& m, const std::string& key, double def = 0.0);

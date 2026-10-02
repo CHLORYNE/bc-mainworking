@@ -39,6 +39,12 @@ public:
     // the survivors are set up the way the simulator would run that scenario today.
     bool load(const std::string& scenarioDir, const std::string& scenarioName, std::string& error);
 
+    // Import / export as text, compatible with the standard editor's ("SCN4#..."); a fire exercise
+    // adds a second line "@INCIDENT@ ..." with its incident.ini. importText fills *this as a new
+    // (unsaved) exercise.
+    static bool exportText(const std::string& scenarioDir, const std::string& scenarioName, std::string& out, std::string& error);
+    bool importText(const std::string& text, std::string& error);
+
     // Write environment.ini, ownship.ini, othership.ini, description.ini and incident.ini.
     bool save(const std::string& scenarioDir, std::string& error);
 
@@ -69,6 +75,10 @@ public:
     bool hadIncidentFile;           // false: scenario opened without incident.ini (preset values shown)
 
     unsigned int nextMmsi() const;
+
+    // Fill from the scenario files' keys (as IncidentIni reads them) - shared by load and importText.
+    void populate(const std::string& scenarioName, const IncidentIni::Map& env, const IncidentIni::Map& own,
+        const IncidentIni::Map& other, const std::string& descriptionText, bool hasIncident, const IncidentConfig& inc);
 
     // Default survivor layout around the casualty: 5 MOB in a ring, radeau to port, liferaft to starboard
     // (the simulator's built-in layout, for a 40 m casualty).

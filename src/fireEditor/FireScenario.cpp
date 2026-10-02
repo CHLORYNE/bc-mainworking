@@ -3,6 +3,7 @@
 #include "FireScenario.hpp"
 
 #include <cctype>
+#include <cstdio>
 #include <cmath>
 #include <ctime>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <locale>
 #include <sstream>
 
+#include "../ScenarioDataStructure.hpp"
 #include "../Utilities.hpp"
 
 #ifdef _WIN32
@@ -220,16 +222,32 @@ void FireScenario::makeNew(const std::string& world, const IncidentPoint& centre
 
 bool FireScenario::load(const std::string& dir, const std::string& scenarioName, std::string& error)
 {
-    using namespace IncidentIni;
-    *this = FireScenario();
-    Map env, own, other;
-    if (!read(dir + "/environment.ini", env)) {
+    IncidentIni::Map env, own, other;
+    if (!IncidentIni::read(dir + "/environment.ini", env)) {
         error = "environment.ini introuvable dans " + dir;
         return false;
     }
-    read(dir + "/ownship.ini", own);
-    read(dir + "/othership.ini", other);
+    IncidentIni::read(dir + "/ownship.ini", own);
+    IncidentIni::read(dir + "/othership.ini", other);
 
+    std::string desc;
+    std::ifstream descriptionFile((dir + "/description.ini").c_str());
+    if (descriptionFile.is_open()) {
+        std::stringstream buffer;
+        buffer << descriptionFile.rdbuf();
+        desc = buffer.str();
+    }
+    IncidentConfig inc;
+    bool hasIncident = inc.load(dir + "/incident.ini");
+    populate(scenarioName, env, own, other, desc, hasIncident, inc);
+    return true;
+}
+
+void FireScenario::populate(const std::string& scenarioName, const IncidentIni::Map& env, const IncidentIni::Map& own,
+    const IncidentIni::Map& other, const std::string& descriptionText, bool hasIncident, const IncidentConfig& inc)
+{
+    using namespace IncidentIni;
+    *this = FireScenario();
     name = scenarioName;
     worldName = str(env, "Setting");
     startTimeHours = (float)num(env, "StartTime", 12.0);
@@ -277,18 +295,14 @@ bool FireScenario::load(const std::string& dir, const std::string& scenarioName,
         mmsi = ships[i].mmsi + 1;
     }
 
-    std::ifstream descriptionFile((dir + "/description.ini").c_str());
-    if (descriptionFile.is_open()) {
-        std::stringstream buffer;
-        buffer << descriptionFile.rdbuf();
-        description = buffer.str();
-        while (!description.empty() && (description[description.size() - 1] == '\n' || description[description.size() - 1] == '\r')) {
-            description.erase(description.size() - 1);
-        }
+    description = descriptionText;
+    while (!description.empty() && (description[description.size() - 1] == '\n' || description[description.size() - 1] == '\r')) {
+        description.erase(description.size() - 1);
     }
 
     std::vector<bool> used(ships.size(), false);
-    hadIncidentFile = incident.load(dir + "/incident.ini");
+    hadIncidentFile = hasIncident;
+    incident = hasIncident ? inc : IncidentConfig();
     int casualtyIndex = -1;
     std::vector<int> boatIndex;
 
@@ -353,6 +367,185 @@ bool FireScenario::load(const std::string& dir, const std::string& scenarioName,
     if (!hadIncidentFile && hasCasualty) {
         incident.survivors = defaultSurvivors(casualty.pos);
     }
+}
+
+// --- Import / export ---------------------------------------------------------------------------
+// Same text as the standard editor's export (ScenarioData::serialise, "SCN4#..."), followed for a
+// fire exercise by a line "@INCIDENT@ key=value ; key=value ; ..." holding incident.ini.
+
+namespace {
+
+std::string fmtNum(double v)
+{
+    std::ostringstream o;
+    o.imbue(std::locale::classic());
+    o << std::setprecision(10) << v;
+    return o.str();
+}
+
+std::string trimCopy(const std::string& s)
+{
+    size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) { return ""; }
+    size_t e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
+}
+
+const char* kIncidentMarker = "@INCIDENT@";
+
+} // namespace
+
+bool FireScenario::exportText(const std::string& dir, const std::string& scenarioName, std::string& out, std::string& error)
+{
+    // Read fresh from disk (IniFile caches, and the scenario may have just been saved).
+    IncidentIni::Map env, own, other;
+    if (!IncidentIni::read(dir + "/environment.ini", env)) {
+        error = "environment.ini introuvable dans " + dir;
+        return false;
+    }
+    IncidentIni::read(dir + "/ownship.ini", own);
+    IncidentIni::read(dir + "/othership.ini", other);
+    using namespace IncidentIni;
+
+    ScenarioData sd;
+    sd.scenarioName = scenarioName;
+    sd.worldName = str(env, "Setting");
+    sd.startTime = (float)num(env, "StartTime");
+    sd.startDay = (unsigned int)num(env, "StartDay");
+    sd.startMonth = (unsigned int)num(env, "StartMonth");
+    sd.startYear = (unsigned int)num(env, "StartYear");
+    sd.sunRise = (float)num(env, "SunRise");
+    sd.sunSet = (float)num(env, "SunSet");
+    sd.weather = (float)num(env, "Weather");
+    sd.rainIntensity = (float)num(env, "Rain");
+    sd.visibilityRange = (float)num(env, "VisibilityRange");
+    sd.windDirection = (float)num(env, "WindDirection");
+    sd.windSpeed = (float)num(env, "WindSpeed");
+    sd.ownShipData.ownShipName = str(own, "ShipName");
+    sd.ownShipData.initialLat = (float)num(own, "InitialLat");
+    sd.ownShipData.initialLong = (float)num(own, "InitialLong");
+    sd.ownShipData.initialBearing = (float)num(own, "InitialBearing");
+    sd.ownShipData.initialSpeed = (float)num(own, "InitialSpeed");
+    int n = (int)num(other, "Number", 0);
+    for (int i = 1; i <= n; i++) {
+        OtherShipData o;
+        o.shipName = str(other, key("Type", i));
+        o.mmsi = (unsigned int)num(other, key("mmsi", i), 0);
+        o.initialLat = (float)num(other, key("InitLat", i));
+        o.initialLong = (float)num(other, key("InitLong", i));
+        o.drifting = (int)num(other, key("Drifting", i), 0) == 1;
+        int legs = (int)num(other, key("Legs", i), 0);
+        for (int j = 1; j <= legs; j++) {
+            LegData l;
+            l.bearing = (float)num(other, key("Bearing", i, j));
+            l.speed = (float)num(other, key("Speed", i, j));
+            l.distance = (float)num(other, key("Distance", i, j));
+            o.legs.push_back(l);
+        }
+        sd.otherShipsData.push_back(o);
+    }
+    out = sd.serialise(true);
+
+    IncidentConfig inc;
+    if (inc.load(dir + "/incident.ini")) {
+        std::istringstream lines(inc.toText());
+        std::string line, joined;
+        while (std::getline(lines, line)) {
+            line = trimCopy(line);
+            if (line.empty() || line[0] == '#') { continue; }
+            if (!joined.empty()) { joined += " ; "; }
+            joined += line;
+        }
+        // Positions at full precision: the SCN4 line keeps only ~6 significant digits (about 10 m).
+        char buf[96];
+        snprintf(buf, sizeof(buf), " ; ExportOwnLat=%.7f ; ExportOwnLong=%.7f", num(own, "InitialLat"), num(own, "InitialLong"));
+        joined += buf;
+        for (int i = 1; i <= n; i++) {
+            snprintf(buf, sizeof(buf), " ; ExportLat(%d)=%.7f ; ExportLong(%d)=%.7f", i, num(other, key("InitLat", i)), i, num(other, key("InitLong", i)));
+            joined += buf;
+        }
+        out += "\n";
+        out += kIncidentMarker;
+        out += " " + joined;
+    }
+    return true;
+}
+
+bool FireScenario::importText(const std::string& text, std::string& error)
+{
+    size_t marker = text.find(kIncidentMarker);
+    std::string scenarioPart = trimCopy(text.substr(0, marker));
+    std::string incidentPart = (marker == std::string::npos) ? std::string() : text.substr(marker + std::string(kIncidentMarker).size());
+
+    ScenarioData sd;
+    sd.deserialise(scenarioPart);
+    if (!sd.dataPopulated) {
+        error = "Texte non reconnu : collez le texte complet d'un export (il commence par SCN).";
+        return false;
+    }
+
+    // Rebuild the same keys the scenario files would hold, then load as from disk.
+    IncidentIni::Map env, own, other;
+    env["setting"] = trimCopy(sd.worldName);
+    env["starttime"] = fmtNum(sd.startTime);
+    env["startday"] = fmtNum(sd.startDay);
+    env["startmonth"] = fmtNum(sd.startMonth);
+    env["startyear"] = fmtNum(sd.startYear);
+    env["sunrise"] = fmtNum(sd.sunRise);
+    env["sunset"] = fmtNum(sd.sunSet);
+    env["weather"] = fmtNum(sd.weather);
+    env["rain"] = fmtNum(sd.rainIntensity);
+    env["visibilityrange"] = fmtNum(sd.visibilityRange);
+    env["winddirection"] = fmtNum(sd.windDirection);
+    env["windspeed"] = fmtNum(sd.windSpeed);
+    own["shipname"] = trimCopy(sd.ownShipData.ownShipName);
+    own["initiallat"] = fmtNum(sd.ownShipData.initialLat);
+    own["initiallong"] = fmtNum(sd.ownShipData.initialLong);
+    own["initialbearing"] = fmtNum(sd.ownShipData.initialBearing);
+    own["initialspeed"] = fmtNum(sd.ownShipData.initialSpeed);
+    other["number"] = fmtNum((double)sd.otherShipsData.size());
+    for (size_t k = 0; k < sd.otherShipsData.size(); k++) {
+        const OtherShipData& o = sd.otherShipsData[k];
+        int i = (int)k + 1;
+        using IncidentIni::key;
+        other[lowerCopy(key("Type", i))] = trimCopy(o.shipName);
+        other[lowerCopy(key("mmsi", i))] = fmtNum(o.mmsi);
+        other[lowerCopy(key("InitLat", i))] = fmtNum(o.initialLat);
+        other[lowerCopy(key("InitLong", i))] = fmtNum(o.initialLong);
+        other[lowerCopy(key("Drifting", i))] = o.drifting ? "1" : "0";
+        other[lowerCopy(key("Legs", i))] = fmtNum((double)o.legs.size());
+        for (size_t j = 0; j < o.legs.size(); j++) {
+            int m = (int)j + 1;
+            other[lowerCopy(key("Bearing", i, m))] = fmtNum(o.legs[j].bearing);
+            other[lowerCopy(key("Speed", i, m))] = fmtNum(o.legs[j].speed);
+            other[lowerCopy(key("Distance", i, m))] = fmtNum(o.legs[j].distance);
+        }
+    }
+
+    IncidentConfig inc;
+    bool hasIncident = !trimCopy(incidentPart).empty();
+    if (hasIncident) {
+        std::string lines = incidentPart;
+        for (size_t p = lines.find(';'); p != std::string::npos; p = lines.find(';', p)) { lines[p] = '\n'; }
+        inc.loadFromText(lines);
+
+        // Full-precision positions, when the export carries them (exports from this editor).
+        IncidentIni::Map exact;
+        IncidentIni::readText(lines, exact);
+        using namespace IncidentIni;
+        if (has(exact, "ExportOwnLat") && has(exact, "ExportOwnLong")) {
+            own["initiallat"] = str(exact, "ExportOwnLat");
+            own["initiallong"] = str(exact, "ExportOwnLong");
+        }
+        for (size_t k = 0; k < sd.otherShipsData.size(); k++) {
+            int i = (int)k + 1;
+            if (has(exact, key("ExportLat", i)) && has(exact, key("ExportLong", i))) {
+                other[lowerCopy(key("InitLat", i))] = str(exact, key("ExportLat", i));
+                other[lowerCopy(key("InitLong", i))] = str(exact, key("ExportLong", i));
+            }
+        }
+    }
+    populate(trimCopy(sd.scenarioName), env, own, other, "Exercice import\xE9", hasIncident, inc);
     return true;
 }
 

@@ -89,6 +89,9 @@
     <ClCompile Include="..\Lang.cpp" />
     <ClCompile Include="..\Utilities.cpp" />
     <ClCompile Include="..\ScenarioDataStructure.cpp" />
+    <ClCompile Include="..\IncidentConfig.cpp" />
+    <ClCompile Include="..\chartView\ChartView.cpp" />
+    <ClCompile Include="..\chartView\ChartDraw.cpp" />
     <ClCompile Include="..\editor\main.cpp" />
     <ClCompile Include="..\editor\ControllerModel.cpp" />
     <ClCompile Include="..\editor\EventReceiver.cpp" />
@@ -102,6 +105,9 @@
     <ClInclude Include="..\Lang.hpp" />
     <ClInclude Include="..\Leg.hpp" />
     <ClInclude Include="..\ScenarioDataStructure.hpp" />
+    <ClInclude Include="..\IncidentConfig.hpp" />
+    <ClInclude Include="..\chartView\ChartView.hpp" />
+    <ClInclude Include="..\chartView\ChartDraw.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
     <ClInclude Include="..\editor\ControllerModel.hpp" />
     <ClInclude Include="..\editor\EventReceiver.hpp" />

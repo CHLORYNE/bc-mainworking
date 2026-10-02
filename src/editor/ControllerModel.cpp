@@ -27,10 +27,8 @@
 #include <sys/stat.h>
 #endif // _WIN32
 
-#define MAX_PX_IN_MAP 160000000
-
 //Constructor
-ControllerModel::ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMain* gui, std::string worldName, ScenarioData* scenarioData, std::vector<PositionData>* buoysData, irr::u32 _zoomLevels)
+ControllerModel::ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMain* gui, std::string worldName, ScenarioData* scenarioData, std::vector<PositionData>* buoysData)
 {
 
     this->gui = gui;
@@ -41,205 +39,41 @@ ControllerModel::ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMai
     this->buoysData = buoysData;
     this->scenarioData = scenarioData;
     this->worldName = worldName;
-	this->zoomLevels = _zoomLevels;
 
     checkName();//Check if the scenario name (preset in generalData) will cause an overwrite, and if so, set flag in generalData
 
-    unscaledMap = 0;
-    for (unsigned int i = 0; i<zoomLevels; i++) {
-		std::cout << "Adding null scaled map levels" << std::endl;
-		scaledMap.push_back(0);
-		metresPerPx.push_back(0);
-    }
-	currentZoom = 3;
-
-
-    mapOffsetX = 0;
-    mapOffsetZ = 0;
-
-    mouseDown = false;
-    mouseClickedLastUpdate = false;
+    viewInitialised = false;
+    dragShip = -1;
+    panning = false;
+    rightDown = false;
 
     selectedShip = -1; //Used to signify own ship selected
     selectedLeg = -1; //Used to signify no leg selected
 
-    //construct path to world model
-    std::string worldPath = "World/";
-    worldPath.append(worldName);
-
-    //Check if this world model exists in the user dir.
-    std::string userFolder = Utilities::getUserDir();
-    if (Utilities::pathExists(userFolder + worldPath)) {
-        worldPath = userFolder + worldPath;
-    }
-
-    std::string worldTerrainFile = worldPath;
-    worldTerrainFile.append("/terrain.ini");
-
-    //If terrain.ini doesn't exist, look for *.bin and *.hdr
-    bool usingHdrFileOnly = false;
-    if (!Utilities::pathExists(worldTerrainFile)) {
-        irr::io::IFileSystem* fileSystem = device->getFileSystem();
-        
-        //store current dir
-        irr::io::path cwd = fileSystem->getWorkingDirectory();
-
-        //change to scenario dir
-        if (fileSystem->changeWorkingDirectoryTo(worldPath.c_str())) {
-            irr::io::IFileList* fileList = fileSystem->createFileList();
-            if (fileList!=0) {
-                //List here
-                for (irr::u32 i=0;i<fileList->getFileCount();i++) {
-                    if (fileList->isDirectory(i)==false) {
-                        const irr::io::path& fileName = fileList->getFileName(i);
-                        if (irr::core::hasFileExtension(fileName,"hdr")) {
-                            //Found a .hdr file for us to use
-                            
-                            worldTerrainFile = worldPath;
-                            worldTerrainFile.append("/");
-                            worldTerrainFile.append(fileName.c_str());
-                            usingHdrFileOnly = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        //Change dir back
-        fileSystem->changeWorkingDirectoryTo(cwd);
-    }
-
-    std::string displayMapName;
-    if (usingHdrFileOnly) {
-        //load from 3dem header format
-        terrainLong = IniFile::iniFileTof32(worldTerrainFile, "left_map_x");
-        terrainLat = IniFile::iniFileTof32(worldTerrainFile, "lower_map_y");
-        terrainLongExtent = IniFile::iniFileTof32(worldTerrainFile, "right_map_x")-terrainLong;
-        terrainLatExtent = IniFile::iniFileTof32(worldTerrainFile, "upper_map_y")-terrainLat;
-
-        //assume map is the same path, with .hdr replaced with .bmp
-        displayMapName = std::string(device->getFileSystem()->getFileBasename(worldTerrainFile.c_str(),false).append(".bmp").c_str());
-
-
-    } else {
-        //Normal terrain.ini loading
-        //Fixme: Note we're only loading the primary terrain here
-        terrainLong = IniFile::iniFileTof32(worldTerrainFile, IniFile::enumerate1("TerrainLong",1));
-        terrainLat = IniFile::iniFileTof32(worldTerrainFile, IniFile::enumerate1("TerrainLat",1));
-        terrainLongExtent = IniFile::iniFileTof32(worldTerrainFile, IniFile::enumerate1("TerrainLongExtent",1));
-        terrainLatExtent = IniFile::iniFileTof32(worldTerrainFile, IniFile::enumerate1("TerrainLatExtent",1));
-
-        displayMapName = IniFile::iniFileToString(worldTerrainFile, "MapImage");
-        if (displayMapName.empty())
-            {displayMapName = IniFile::iniFileToString(worldTerrainFile, "RadarImage");} //Fall back to 'RadarImage' if 'MapImage' parameter isn't set
-
-        //If still empty, we don't have an image to load, so fail here
-        if (displayMapName.empty()) {
-            std::cout << "Could not load name of map image from ini file: " <<  worldTerrainFile << " (please check this file exists and has not been corrupted)." << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    //If the first height map has a .hdr extension, use this to get terrainLong etc
-    std::string heightMapFile = IniFile::iniFileToString(worldTerrainFile, "HeightMap(1)");
-    std::string extension = "";
-    if (heightMapFile.length() > 3) {
-        extension = heightMapFile.substr(heightMapFile.length() - 4,4);
-        Utilities::to_lower(extension);
-    }
-    if (extension.compare(".hdr") == 0 ) {
-        //Find full path of .hdr file
-        std::string hdrPath = worldPath;
-        hdrPath.append("/");
-        hdrPath.append(heightMapFile);
-
-        terrainLong = IniFile::iniFileTof32(hdrPath, "left_map_x");
-        terrainLat = IniFile::iniFileTof32(hdrPath, "lower_map_y");
-        terrainLongExtent = IniFile::iniFileTof32(hdrPath, "right_map_x")-terrainLong;
-        terrainLatExtent = IniFile::iniFileTof32(hdrPath, "upper_map_y")-terrainLat;
-    }
-
-    //Load map image if possible (if not, end with error)
-    std::string displayMapPath = worldPath;
-    displayMapPath.append("/");
-    displayMapPath.append(displayMapName);
-    unscaledMap = driver->createImageFromFile(displayMapPath.c_str());
-    if (unscaledMap==0) {
-        std::cout << "Could not load map image for " << worldPath << std::endl;
+    //Load the chart (shared with the fire scenario editor): world bounds, and the chart drawn from
+    //the height map, the world's map image, or a high resolution image if the world has one.
+    std::string error;
+    if (!chart.load(device, worldName, error)) {
+        std::cout << "Could not load map for " << worldName << ": " << error << std::endl;
         exit(EXIT_FAILURE);
     }
-
-    //Scale map to the appropriate size
-    //Terrain dimensions in metres
-    terrainXWidth = terrainLongExtent * 2.0 * PI * EARTH_RAD_M * cos( irr::core::degToRad(terrainLat + terrainLatExtent/2.0)) / 360.0;
-    terrainZWidth = terrainLatExtent  * 2.0 * PI * EARTH_RAD_M / 360;
+    terrainLong = chart.west;
+    terrainLat = chart.south;
+    terrainLongExtent = chart.longExtent;
+    terrainLatExtent = chart.latExtent;
+    terrainXWidth = chart.widthM;
+    terrainZWidth = chart.heightM;
 
     std::cout << "Width m " << terrainXWidth << " Height m " << terrainZWidth << std::endl;
 
-    //Calculate ratio required
-    irr::f32 widthToHeight;
-    if (terrainXWidth>0 &&  terrainZWidth>0) {
-        widthToHeight = terrainXWidth/terrainZWidth;
-    } else {
-        std::cout << "Zero map width or height. Please check world model." << std::endl;
-        exit(EXIT_FAILURE);
-    }
-    irr::core::dimension2d<irr::u32> loadedSize = unscaledMap->getDimension();
-
-    std::cout << "Loaded map image (" << loadedSize.Width << "x" << loadedSize.Height << ")" << std::endl;
-
-    //Calculate scaling needed
-    for (unsigned int i = 0; i<zoomLevels; i++) {
-         irr::f32 scaling = 0.00625 * pow(2, i);
-
-         irr::u32 requiredWidth = terrainXWidth*scaling;//std::max(widthFromHeight, loadedSize.Width);
-         irr::u32 requiredHeight = terrainZWidth*scaling;//std::max(heightFromWidth, loadedSize.Height);
-
-        //Avoid zero sized map
-        if (requiredWidth < 1) {
-            requiredWidth = 1;
-        }
-        if (requiredHeight < 1) {
-            requiredHeight = 1;
-        }
-
-		 if (requiredHeight * requiredWidth < MAX_PX_IN_MAP) {
-
-			 //Create scaled map with the same image format of the size required
-			 std::cout << "About to create empty scaled map " << i << " (" << requiredWidth << "x" << requiredHeight << ")" << std::endl;
-			 scaledMap.at(i) = driver->createImage(unscaledMap->getColorFormat(), irr::core::dimension2d<irr::u32>(requiredWidth, requiredHeight));
-			 //Copy and scale image
-			 std::cout << "About to copy in for " << i << std::endl;
-			 //TODO: Check if empty scaled map has been created
-			 unscaledMap->copyToScaling(scaledMap.at(i));
-
-			 //Save scale
-			 metresPerPx.at(i) = terrainXWidth / requiredWidth;
-		 }
-		 else {
-			 //Don't try to create image
-			 zoomLevels = i;
-		 }
-		 if (currentZoom >= zoomLevels) {
-			 currentZoom = zoomLevels - 1;
-		 }
-		 if (currentZoom < 0) {
-			 currentZoom = 0;
-		 }
-    }
-
-    //Drop the unscaled map, as we don't need this again
-    unscaledMap->drop();
-    unscaledMap=0;
-
+    irr::core::dimension2d<irr::u32> screenSize = driver->getScreenSize();
+    chart.setViewport(irr::core::recti(0, 0, screenSize.Width, screenSize.Height));
+    chart.setMetresPerPixel(20.0); //About the old default zoom level
 }
 
 //Destructor
 ControllerModel::~ControllerModel()
 {
-    for (unsigned int i = 0; i<zoomLevels; i++) {
-        scaledMap.at(i)->drop();
-    }
 }
 
 irr::f32 ControllerModel::longToX(irr::f32 longitude) const
@@ -264,82 +98,173 @@ irr::f32 ControllerModel::zToLat(irr::f32 z) const
 
 void ControllerModel::update()
 {
-    //std::cout << mouseDown << std::endl;
+    irr::core::dimension2d<irr::u32> screenSize = driver->getScreenSize();
+    chart.setViewport(irr::core::recti(0, 0, screenSize.Width, screenSize.Height));
 
-    //Check if current zoom is valid, if not return.
-    if(!(currentZoom<zoomLevels)) {
-        return;
+    //Start centred on the own ship (its position is only known once the scenario has been read)
+    if (!viewInitialised) {
+        chart.centreOnXZ(scenarioData->ownShipData.initialX, scenarioData->ownShipData.initialZ);
+        viewInitialised = true;
     }
 
-    //Find mouse position change if clicked, and clicked last time
-    if (mouseClickedLastUpdate && mouseDown) {
-        irr::core::position2d<irr::s32> mouseNow = device->getCursorControl()->getPosition();
-        irr::s32 mouseDeltaX = mouseNow.X - mouseLastPosition.X;
-        irr::s32 mouseDeltaY = mouseNow.Y - mouseLastPosition.Y;
-
-        //Change offset
-        mapOffsetX += mouseDeltaX;
-        mapOffsetZ += mouseDeltaY;
-    }
-    //Update mouse position and clicked state
-    mouseLastPosition = device->getCursorControl()->getPosition();
-    mouseClickedLastUpdate = mouseDown;
-
-
-    //TODO: Work out the required area of the map image, and create this as a texture to go to the gui
-    irr::core::dimension2d<irr::u32> screenSize = device->getVideoDriver()->getScreenSize();
-    //grab an area this size from the scaled map
-    irr::video::IImage* tempImage = driver->createImage(scaledMap.at(currentZoom)->getColorFormat(),screenSize); //Empty image
-    tempImage->fill(irr::video::SColor(255,0,0,32)); //Initialise background
-
-    //Copy in data
-    irr::s32 topLeftX = -1*scenarioData->ownShipData.initialX/metresPerPx.at(currentZoom) + driver->getScreenSize().Width/2 + mapOffsetX;
-    irr::s32 topLeftZ = scenarioData->ownShipData.initialZ/metresPerPx.at(currentZoom)    + driver->getScreenSize().Height/2 - scaledMap.at(currentZoom)->getDimension().Height + mapOffsetZ;
-
-    scaledMap.at(currentZoom)->copyTo(tempImage,irr::core::position2d<irr::s32>(topLeftX,topLeftZ)); //Fixme: Check bounds are reasonable
-
-    //Drop any previous textures
-    for(irr::u32 i = 0; i < driver->getTextureCount(); i++) {
-        if (driver->getTextureByIndex(i)->getName().getPath()=="DisplayTexture") {
-            driver->removeTexture(driver->getTextureByIndex(i));
+    //Ship under the cursor, highlighted when it can be picked up
+    irr::s32 hoverShip = -1;
+    if (dragShip < 0 && !panning) {
+        irr::gui::IGUIElement* overElement = device->getGUIEnvironment()->getRootGUIElement()->getElementFromPoint(mouse);
+        if (overElement == 0 || overElement == device->getGUIEnvironment()->getRootGUIElement()) {
+            hoverShip = shipAt(mouse);
         }
     }
 
-    //Make a texture - The name is required to remove the texture from memory.
-    irr::video::ITexture* displayMapTexture = driver->addTexture("DisplayTexture", tempImage);
-
-    tempImage->drop();
-
     //Send the current data to the gui, and update it
-    gui->updateGuiData(*scenarioData,mapOffsetX,mapOffsetZ,metresPerPx.at(currentZoom),*buoysData,displayMapTexture,selectedShip,selectedLeg, terrainLong, terrainLongExtent, terrainXWidth, terrainLat, terrainLatExtent, terrainZWidth);
+    gui->updateGuiData(*scenarioData, chart, *buoysData, selectedShip, selectedLeg, hoverShip, dragShip >= 0, mouse);
 }
 
 void ControllerModel::resetOffset()
 {
-    mapOffsetX = 0;
-    mapOffsetZ = 0;
+    chart.centreOnXZ(scenarioData->ownShipData.initialX, scenarioData->ownShipData.initialZ);
 }
 
 void ControllerModel::increaseZoom()
 {
-    if(currentZoom+1<zoomLevels) {
-        currentZoom++;
-
-        irr::f32 scaleChange = (irr::f32)scaledMap.at(currentZoom)->getDimension().Width/(irr::f32)scaledMap.at(currentZoom-1)->getDimension().Width;
-        mapOffsetX*=scaleChange;
-        mapOffsetZ*=scaleChange;
-    }
+    chart.zoomAt(chart.getViewport().getCenter(), 0.5f);
 }
 
 void ControllerModel::decreaseZoom()
 {
-    if(currentZoom>0) {
-        currentZoom--;
+    chart.zoomAt(chart.getViewport().getCenter(), 2.0f);
+}
 
-        irr::f32 scaleChange = (irr::f32)scaledMap.at(currentZoom)->getDimension().Width/(irr::f32)scaledMap.at(currentZoom+1)->getDimension().Width;
-        mapOffsetX*=scaleChange;
-        mapOffsetZ*=scaleChange;
+void ControllerModel::nextChartStyle()
+{
+    chart.nextStyle();
+}
+
+irr::f32 ControllerModel::chartWidth() const
+{
+    return terrainXWidth;
+}
+
+irr::f32 ControllerModel::chartHeight() const
+{
+    return terrainZWidth;
+}
+
+irr::core::position2di ControllerModel::shipScreenPosition(irr::s32 ship) const
+{
+    if (ship == 0) {
+        return chart.toScreenXZ(scenarioData->ownShipData.initialX, scenarioData->ownShipData.initialZ);
     }
+    const OtherShipData& other = scenarioData->otherShipsData.at(ship - 1);
+    return chart.toScreenXZ(other.initialX, other.initialZ);
+}
+
+irr::s32 ControllerModel::shipAt(irr::core::position2di screen) const
+{
+    //Nearest ship symbol within a few pixels; the own ship wins a tie, as it is drawn on top.
+    const irr::s32 pickRadius = 14;
+    irr::s32 best = -1;
+    irr::s32 bestDistSq = pickRadius * pickRadius + 1;
+    for (irr::s32 ship = 0; ship <= (irr::s32)scenarioData->otherShipsData.size(); ship++) {
+        irr::core::position2di p = shipScreenPosition(ship);
+        irr::s32 dx = p.X - screen.X;
+        irr::s32 dy = p.Y - screen.Y;
+        irr::s32 distSq = dx * dx + dy * dy;
+        if (distSq < bestDistSq) {
+            best = ship;
+            bestDistSq = distSq;
+        }
+    }
+    return best;
+}
+
+bool ControllerModel::onMouse(const irr::SEvent::SMouseInput& mouseInput, bool overGui)
+{
+    irr::core::position2di at(mouseInput.X, mouseInput.Y);
+    mouse = at;
+
+    switch (mouseInput.Event) {
+    case irr::EMIE_MOUSE_MOVED: {
+        if (dragShip >= 0) {
+            double x, z;
+            chart.toXZ(at + dragOffset, x, z);
+            setShipPosition(dragShip, irr::core::vector2df((irr::f32)x, (irr::f32)z));
+        } else if (panning) {
+            chart.panPixels(at.X - lastMouse.X, at.Y - lastMouse.Y);
+        }
+        lastMouse = at;
+        return dragShip >= 0 || panning;
+    }
+    case irr::EMIE_MOUSE_WHEEL:
+        if (overGui) {
+            return false;
+        }
+        chart.zoomAt(at, mouseInput.Wheel > 0 ? 0.8f : 1.25f);
+        return true;
+    case irr::EMIE_LMOUSE_PRESSED_DOWN: {
+        if (overGui) {
+            return false;
+        }
+        device->getGUIEnvironment()->setFocus(0);
+        lastMouse = at;
+        irr::s32 ship = shipAt(at);
+        if (ship >= 0) {
+            gui->selectShip(ship); //Same as choosing it in the ship list
+            dragShip = ship;
+            dragOffset = shipScreenPosition(ship) - at;
+        } else {
+            panning = true;
+        }
+        return true;
+    }
+    case irr::EMIE_LMOUSE_LEFT_UP:
+        dragShip = -1;
+        panning = rightDown;
+        return false;
+    case irr::EMIE_RMOUSE_PRESSED_DOWN:
+    case irr::EMIE_MMOUSE_PRESSED_DOWN:
+        if (overGui) {
+            return false;
+        }
+        rightDown = true;
+        panning = true;
+        lastMouse = at;
+        return true;
+    case irr::EMIE_RMOUSE_LEFT_UP:
+    case irr::EMIE_MMOUSE_LEFT_UP:
+        rightDown = false;
+        panning = false;
+        return false;
+    default:
+        return false;
+    }
+}
+
+bool ControllerModel::onKey(const irr::SEvent::SKeyInput& keyInput)
+{
+    if (keyInput.Key == irr::KEY_HOME) {
+        resetOffset();
+        return true;
+    }
+    if (keyInput.Key == irr::KEY_LEFT || keyInput.Key == irr::KEY_RIGHT) {
+        //Own ship: initial heading. Other ship: course of its first leg.
+        irr::f32* heading = 0;
+        if (selectedShip < 0) {
+            heading = &scenarioData->ownShipData.initialBearing;
+        } else if (selectedShip < (irr::s32)scenarioData->otherShipsData.size() && scenarioData->otherShipsData.at(selectedShip).legs.size() > 1) {
+            heading = &scenarioData->otherShipsData.at(selectedShip).legs.at(0).bearing;
+        }
+        if (heading == 0) {
+            return false;
+        }
+        irr::f32 step = keyInput.Shift ? 1.0f : 5.0f;
+        *heading += (keyInput.Key == irr::KEY_LEFT) ? -step : step;
+        while (*heading < 0) { *heading += 360; }
+        while (*heading >= 360) { *heading -= 360; }
+        gui->updateEditBoxes();
+        return true;
+    }
+    return false;
 }
 
 void ControllerModel::setShipPosition(irr::s32 ship, irr::core::vector2df position)
@@ -697,9 +622,4 @@ void ControllerModel::save()
     }
 
 
-}
-
-void ControllerModel::setMouseDown(bool isMouseDown)
-{
-    mouseDown = isMouseDown;
 }

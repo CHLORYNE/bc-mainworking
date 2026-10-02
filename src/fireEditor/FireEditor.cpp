@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "../Utilities.hpp"
+#include "../chartView/ChartDraw.hpp"
 
 namespace {
 
@@ -25,7 +26,7 @@ enum {
     ID_BOAT_PLACE, ID_BOAT_OUT, ID_BOAT_OUT_CLEAR, ID_BOAT_RET, ID_BOAT_RET_CLEAR,
     ID_HELO_DELAY, ID_HELO_SPEED, ID_HELO_LIST, ID_HELO_ADD, ID_HELO_DELETE, ID_HELO_MODEL, ID_HELO_BASE, ID_HELO_BASE_CLEAR,
     ID_HELO_BASE_H, ID_HELO_PAD, ID_HELO_PAD_CLEAR, ID_HELO_PAD_H,
-    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU, ID_MRSC
+    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU, ID_MRSC, ID_STYLE
 };
 
 enum { TAB_SCENARIO = 0, TAB_CASUALTY = 1, TAB_SURVIVORS = 2, TAB_BOATS = 3, TAB_HELOS = 4 };
@@ -37,7 +38,7 @@ const irr::video::SColor kOwnFill(255, 70, 140, 255);
 const irr::video::SColor kCasualtyFill(255, 220, 30, 30);
 const irr::video::SColor kTrafficFill(255, 150, 150, 150);
 const irr::video::SColor kMobFill(255, 255, 90, 40);
-const irr::video::SColor kHeloColour(255, 255, 255, 120);
+const irr::video::SColor kHeloColour(255, 196, 130, 255);
 const irr::video::SColor kSelect(255, 0, 255, 255);
 const irr::video::SColor kHover(180, 255, 255, 255);
 
@@ -127,7 +128,7 @@ std::wstring fmtLatLong(const IncidentPoint& p)
 
 } // namespace
 
-FireEditor::FireEditor(irr::IrrlichtDevice* dev, FireScenario* scenario, FireMap* chart, const std::string& path,
+FireEditor::FireEditor(irr::IrrlichtDevice* dev, FireScenario* scenario, ChartView* chart, const std::string& path,
     const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes,
     const std::vector<std::string>& rescueShipTypes, bool isNewScenario)
     : device(dev), scn(scenario), map(chart), scenariosPath(path), ownTypes(ownShipTypes), otherTypes(otherShipTypes),
@@ -226,6 +227,8 @@ void FireEditor::buildGui()
     button(0, x0 + bw + 10, y, bw, ID_MENU, L"Retour au menu");
     y += rowH + 2;
     statusText = guienv->addStaticText(L"", irr::core::recti(x0, y, x0 + pw, y + rowH * 2 - 6), false, true, 0);
+    styleButton = guienv->addButton(irr::core::recti(panelX - 270, rowH + 12, panelX - 12, rowH * 2 + 10), 0, ID_STYLE,
+        (L"Fond : " + map->styleName()).c_str(), L"Changer le fond de carte : carte marine jour / nuit, carte d'origine, image HD");
     y += rowH * 2 - 4;
 
     tabs = guienv->addTabControl(irr::core::recti(panelX + 4, y, screenW - 4, screenH - 4), 0, true, true, ID_TABS);
@@ -953,6 +956,11 @@ void FireEditor::onButton(irr::s32 id)
     IncidentConfig& c = scn->incident;
     switch (id) {
     case ID_SAVE: save(false); return;
+    case ID_STYLE:
+        map->nextStyle();
+        styleButton->setText((L"Fond : " + map->styleName()).c_str());
+        guienv->setFocus(0);
+        return;
     case ID_MENU:
         if (dirty) {
             guienv->addMessageBox(L"Modifications non enregistr\u00E9es",
@@ -1262,118 +1270,55 @@ FireEditor::Pick FireEditor::pickAt(irr::core::position2di at)
 irr::video::SColor FireEditor::boatColour(int index) const
 {
     static const irr::video::SColor palette[6] = {
-        irr::video::SColor(255, 255, 150, 0), irr::video::SColor(255, 255, 230, 0), irr::video::SColor(255, 120, 235, 60),
-        irr::video::SColor(255, 0, 215, 235), irr::video::SColor(255, 235, 90, 235), irr::video::SColor(255, 255, 255, 255) };
+        irr::video::SColor(255, 255, 140, 0), irr::video::SColor(255, 40, 185, 70), irr::video::SColor(255, 0, 165, 225),
+        irr::video::SColor(255, 225, 70, 210), irr::video::SColor(255, 205, 85, 40), irr::video::SColor(255, 130, 95, 255) };
     return palette[(index < 0 ? 0 : index) % 6];
 }
 
 void FireEditor::fillPolygon(const std::vector<irr::core::position2df>& pts, irr::video::SColor color)
 {
-    if (pts.size() < 3) { return; }
-    std::vector<irr::video::S3DVertex> v;
-    std::vector<irr::u16> idx;
-    for (size_t i = 0; i < pts.size(); i++) {
-        v.push_back(irr::video::S3DVertex(pts[i].X, pts[i].Y, 0.0f, 0, 0, 1, color, 0, 0));
-    }
-    for (size_t i = 1; i + 1 < pts.size(); i++) {   // triangle fan from point 0 (convex shapes)
-        idx.push_back(0); idx.push_back((irr::u16)i); idx.push_back((irr::u16)(i + 1));
-    }
-    irr::video::SMaterial m;
-    m.Lighting = false;
-    m.MaterialType = irr::video::EMT_TRANSPARENT_VERTEX_ALPHA;
-    driver->setMaterial(m);
-    driver->draw2DVertexPrimitiveList(&v[0], (irr::u32)v.size(), &idx[0], (irr::u32)idx.size() / 3,
-        irr::video::EVT_STANDARD, irr::scene::EPT_TRIANGLES, irr::video::EIT_16BIT);
+    ChartDraw::fillPolygon(driver, pts, color);
 }
 
 void FireEditor::drawPolyline(const std::vector<irr::core::position2di>& pts, irr::video::SColor color, bool dashed, irr::s32 width)
 {
-    for (size_t i = 0; i + 1 < pts.size(); i++) {
-        irr::core::position2df a((irr::f32)pts[i].X, (irr::f32)pts[i].Y), b((irr::f32)pts[i + 1].X, (irr::f32)pts[i + 1].Y);
-        irr::core::vector2df d = b - a;
-        irr::f32 len = d.getLength();
-        if (len < 1.0f) { continue; }
-        irr::core::vector2df u = d / len;
-        irr::core::vector2df n(-u.Y, u.X);
-        irr::f32 step = dashed ? 14.0f : len;
-        irr::f32 on = dashed ? 8.0f : len;
-        for (irr::f32 s = 0; s < len; s += step) {
-            irr::f32 e = std::min(s + on, len);
-            for (irr::s32 w = 0; w < width; w++) {
-                irr::f32 off = (irr::f32)w - (irr::f32)(width - 1) / 2.0f;
-                irr::core::vector2df p0 = a + u * s + n * off, p1 = a + u * e + n * off;
-                driver->draw2DLine(irr::core::position2di((irr::s32)p0.X, (irr::s32)p0.Y),
-                    irr::core::position2di((irr::s32)p1.X, (irr::s32)p1.Y), color);
-            }
-        }
-    }
+    ChartDraw::polyline(driver, pts, color, dashed, width);
 }
 
-void FireEditor::drawText(const std::wstring& text, irr::core::position2di at, irr::video::SColor color, bool centred)
+void FireEditor::drawText(const std::wstring& text, irr::core::position2di at, irr::video::SColor color, bool centred, bool boxed)
 {
-    irr::core::dimension2du d = font->getDimension(text.c_str());
-    irr::core::recti r(at.X, at.Y, at.X + (irr::s32)d.Width, at.Y + (irr::s32)d.Height);
-    if (centred) { r -= irr::core::position2di((irr::s32)d.Width / 2, (irr::s32)d.Height / 2); }
     irr::core::recti clip = map->getViewport();
-    font->draw(text.c_str(), r + irr::core::position2di(1, 1), irr::video::SColor(200, 0, 0, 0), false, false, &clip);
-    font->draw(text.c_str(), r, color, false, false, &clip);
+    if (boxed) {
+        irr::core::dimension2du d = font->getDimension(text.c_str());
+        irr::core::recti r(at.X - 2, at.Y, at.X + (irr::s32)d.Width + 2, at.Y + (irr::s32)d.Height);
+        if (centred) { r -= irr::core::position2di((irr::s32)d.Width / 2, (irr::s32)d.Height / 2); }
+        r.clipAgainst(clip);
+        if (r.isValid()) { driver->draw2DRectangle(irr::video::SColor(150, 10, 16, 26), r); }
+    }
+    ChartDraw::text(font, text, at, color, &clip, centred);
 }
 
 void FireEditor::drawMarker(irr::core::position2di at, int shape, irr::video::SColor fill, irr::video::SColor edge, irr::s32 r)
 {
-    std::vector<irr::core::position2df> pts;
-    irr::f32 fr = (irr::f32)r;
-    if (shape == Shape_Square) {
-        pts.push_back(irr::core::position2df(at.X - fr, at.Y - fr)); pts.push_back(irr::core::position2df(at.X + fr, at.Y - fr));
-        pts.push_back(irr::core::position2df(at.X + fr, at.Y + fr)); pts.push_back(irr::core::position2df(at.X - fr, at.Y + fr));
-    }
-    else if (shape == Shape_Diamond) {
-        pts.push_back(irr::core::position2df((irr::f32)at.X, at.Y - fr * 1.3f)); pts.push_back(irr::core::position2df(at.X + fr * 1.3f, (irr::f32)at.Y));
-        pts.push_back(irr::core::position2df((irr::f32)at.X, at.Y + fr * 1.3f)); pts.push_back(irr::core::position2df(at.X - fr * 1.3f, (irr::f32)at.Y));
-    }
-    else {
-        for (int i = 0; i < 14; i++) {
-            irr::f32 a = (irr::f32)i / 14.0f * 6.2832f;
-            pts.push_back(irr::core::position2df(at.X + fr * std::cos(a), at.Y + fr * std::sin(a)));
-        }
-    }
-    fillPolygon(pts, fill);
-    std::vector<irr::core::position2di> outline;
-    for (size_t i = 0; i < pts.size(); i++) { outline.push_back(irr::core::position2di((irr::s32)pts[i].X, (irr::s32)pts[i].Y)); }
-    outline.push_back(outline[0]);
-    drawPolyline(outline, edge, false, 1);
+    ChartDraw::marker(driver, at, shape, fill, edge, r);
 }
 
 void FireEditor::drawShip(const IncidentPoint& p, float heading, irr::video::SColor fill, irr::video::SColor edge, float size)
 {
-    irr::core::position2di c = map->toScreen(p);
-    irr::f32 h = heading * 3.14159265f / 180.0f;
-    irr::core::vector2df fwd(std::sin(h), -std::cos(h)), right(std::cos(h), std::sin(h));
-    const irr::f32 hull[5][2] = { { 0.0f, 1.0f }, { 0.38f, 0.35f }, { 0.38f, -1.0f }, { -0.38f, -1.0f }, { -0.38f, 0.35f } };
-    std::vector<irr::core::position2df> pts;
-    for (int i = 0; i < 5; i++) {
-        irr::core::vector2df v = irr::core::vector2df((irr::f32)c.X, (irr::f32)c.Y) + fwd * (hull[i][1] * size) + right * (hull[i][0] * size);
-        pts.push_back(irr::core::position2df(v.X, v.Y));
-    }
-    fillPolygon(pts, fill);
-    std::vector<irr::core::position2di> outline;
-    for (size_t i = 0; i < pts.size(); i++) { outline.push_back(irr::core::position2di((irr::s32)pts[i].X, (irr::s32)pts[i].Y)); }
-    outline.push_back(outline[0]);
-    drawPolyline(outline, edge, false, 1);
+    ChartDraw::ship(driver, map->toScreen(p), heading, fill, edge, size);
 }
 
 void FireEditor::drawHighlight(const Pick& p, irr::video::SColor color)
 {
     IncidentPoint* pos = positionOf(p);
     if (!pos) { return; }
-    irr::core::position2di s = map->toScreen(*pos);
-    driver->draw2DPolygon(s, 17.0f, color, 20);
-    driver->draw2DPolygon(s, 18.0f, color, 20);
+    ChartDraw::ring(driver, map->toScreen(*pos), 17.0f, color);
 }
 
 void FireEditor::drawMap()
 {
     map->draw(driver);
+    map->drawGraticule(driver, font, rowH + 4, rowH + 2);
 }
 
 void FireEditor::drawOverlay()
@@ -1496,28 +1441,16 @@ void FireEditor::drawOverlay()
     std::wstring hint = toolHint();
     irr::core::recti bar(vp.UpperLeftCorner.X, vp.UpperLeftCorner.Y, vp.LowerRightCorner.X, vp.UpperLeftCorner.Y + rowH + 4);
     driver->draw2DRectangle(tool == Tool_Select ? irr::video::SColor(170, 0, 0, 0) : irr::video::SColor(220, 140, 60, 0), bar);
-    drawText(hint, irr::core::position2di(bar.UpperLeftCorner.X + 10, bar.UpperLeftCorner.Y + 5), kWhite);
+    drawText(hint, irr::core::position2di(bar.UpperLeftCorner.X + 10, bar.UpperLeftCorner.Y + 5), kWhite, false, false);
 
     // Status line: cursor position and scale bar
     irr::core::recti status(vp.UpperLeftCorner.X, vp.LowerRightCorner.Y - rowH - 2, vp.LowerRightCorner.X, vp.LowerRightCorner.Y);
     driver->draw2DRectangle(irr::video::SColor(170, 0, 0, 0), status);
     std::wstring where = overMap(mouse) ? fmtLatLong(map->toLatLong(mouse)) : std::wstring(L"");
     drawText(where + L"    molette : zoom   clic droit + glisser : d\u00E9placer la carte   Origine : recentrer   fl\u00E8ches gauche/droite : cap du navire s\u00E9lectionn\u00E9",
-        irr::core::position2di(status.UpperLeftCorner.X + 10, status.UpperLeftCorner.Y + 4), irr::video::SColor(255, 220, 220, 220));
+        irr::core::position2di(status.UpperLeftCorner.X + 10, status.UpperLeftCorner.Y + 4), irr::video::SColor(255, 220, 220, 220), false, false);
 
-    double target = map->metresPerPixel() * 150.0;
-    double magnitude = std::pow(10.0, std::floor(std::log10(target)));
-    double nice = magnitude;
-    if (target / magnitude >= 5) { nice = 5 * magnitude; }
-    else if (target / magnitude >= 2) { nice = 2 * magnitude; }
-    irr::s32 px = (irr::s32)(nice / map->metresPerPixel());
-    irr::s32 sx = status.LowerRightCorner.X - px - 20, sy = status.UpperLeftCorner.Y - 12;
-    driver->draw2DRectangle(irr::video::SColor(170, 0, 0, 0), irr::core::recti(sx - 8, sy - 20, sx + px + 8, sy + 6));
-    driver->draw2DLine(irr::core::position2di(sx, sy), irr::core::position2di(sx + px, sy), kWhite);
-    driver->draw2DLine(irr::core::position2di(sx, sy - 5), irr::core::position2di(sx, sy + 3), kWhite);
-    driver->draw2DLine(irr::core::position2di(sx + px, sy - 5), irr::core::position2di(sx + px, sy + 3), kWhite);
-    std::wstring scaleText = nice >= 1000 ? fmtNum(nice / 1000.0, nice >= 10000 ? 0 : 1) + L" km" : fmtNum(nice, 0) + L" m";
-    drawText(scaleText, irr::core::position2di(sx + px / 2, sy - 11), kWhite, true);
+    ChartDraw::scaleBar(driver, font, *map, rowH + 2);
 }
 
 std::wstring FireEditor::toolHint() const

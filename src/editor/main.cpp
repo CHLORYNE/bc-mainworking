@@ -559,11 +559,6 @@ int main(int argc, char** argv)
         }
     }
 
-    irr::u32 zoomLevels = IniFile::iniFileTou32(iniFilename, "zoom_levels");
-    if (zoomLevels == 0) {
-        zoomLevels = 10;
-    }
-
     irr::IrrlichtDevice* device = irr::createDevice(irr::video::EDT_OPENGL, irr::core::dimension2d<irr::u32>(graphicsWidth, graphicsHeight), graphicsDepth, fullScreen, false, false, 0);
     irr::video::IVideoDriver* driver = device->getVideoDriver();
     //scene::ISceneManager* smgr = device->getSceneManager();
@@ -731,7 +726,7 @@ int main(int argc, char** argv)
         }
 
         //Main model
-        ControllerModel controller(device, &language, &guiMain, worldName, &scenarioData, &buoysData, zoomLevels);
+        ControllerModel controller(device, &language, &guiMain, worldName, &scenarioData, &buoysData);
 
         if (scenarioData.dataPopulated == false) {
             //If an existing scenario, load data into these structures
@@ -882,6 +877,10 @@ int main(int argc, char** argv)
                 }
                 scenarioData.description = descriptionLines;
 
+            } else {
+                //New scenario: start the own ship in the middle of the chart
+                scenarioData.ownShipData.initialX = controller.chartWidth() / 2;
+                scenarioData.ownShipData.initialZ = controller.chartHeight() / 2;
             }
         }
         else {

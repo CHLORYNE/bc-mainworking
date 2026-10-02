@@ -17,6 +17,8 @@
 #include "GUI.hpp"
 #include "../Constants.hpp"
 #include "../Utilities.hpp"
+#include "../chartView/ChartView.hpp"
+#include "../chartView/ChartDraw.hpp"
 
 #include <iostream>
 #include <limits>
@@ -106,6 +108,11 @@ GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::s
     zoomOut = guienv->addButton(
         irr::core::rect<irr::s32>(0.96f * su, 0.06f * sh, 0.99f * su, 0.10f * sh),
         nullptr, GUI_ID_ZOOMOUT_BUTTON, L"-");
+
+    // Chart background (nautical chart day / night, original map, HD image); label set in updateGuiData
+    chartStyleButton = guienv->addButton(
+        irr::core::rect<irr::s32>(0.64f * su, 0.01f * sh, 0.84f * su, 0.05f * sh),
+        nullptr, GUI_ID_CHARTSTYLE_BUTTON, L"Fond");
     //--------------------------------------------------
 
     shipSelector = guienv->addComboBox(
@@ -372,18 +379,30 @@ void GUIMain::updateEditBoxes()
     editBoxesNeedUpdating = true;
 }
 
-void GUIMain::updateGuiData(ScenarioData scenarioData, irr::s32 mapOffsetX, irr::s32 mapOffsetZ, irr::f32 metresPerPx, const std::vector<PositionData>& buoys, irr::video::ITexture* displayMapTexture, irr::s32 selectedShip, irr::s32 selectedLeg, irr::f32 terrainLong, irr::f32 terrainLongExtent, irr::f32 terrainXWidth, irr::f32 terrainLat, irr::f32 terrainLatExtent, irr::f32 terrainZWidth)
+void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip, bool draggingShip, irr::core::position2di mouse)
 {
-    //Show map texture
-    device->getVideoDriver()->draw2DImage(displayMapTexture, irr::core::position2d<irr::s32>(0,0));
-    //TODO: Check that conversion to texture does not distort image
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    irr::s32 statusBarHeight = (font ? (irr::s32)font->getDimension(L"Ag").Height : 14) + 6;
 
-    //Calculate map centre as displayed
-    mapCentreX = scenarioData.ownShipData.initialX - mapOffsetX*metresPerPx;
-    mapCentreZ = scenarioData.ownShipData.initialZ + mapOffsetZ*metresPerPx;
+    //Show the chart, with a lat/long grid
+    chart.draw(driver);
+    chart.drawGraticule(driver, font, 0, statusBarHeight);
 
-    irr::f32 mapCentreLong = terrainLong + mapCentreX*terrainLongExtent/terrainXWidth;
-    irr::f32 mapCentreLat = terrainLat + mapCentreZ*terrainLatExtent/terrainZWidth;
+    std::wstring styleText = L"Fond : " + chart.styleName();
+    if (styleText != chartStyleShown) {
+        chartStyleButton->setText(styleText.c_str());
+        chartStyleShown = styleText;
+    }
+
+    //Map centre as displayed (where 'move' and 'add ship' place a ship)
+    double centreX, centreZ;
+    chart.centreXZ(centreX, centreZ);
+    mapCentreX = centreX;
+    mapCentreZ = centreZ;
+
+    irr::f32 mapCentreLong = chart.xToLon(centreX);
+    irr::f32 mapCentreLat = chart.zToLat(centreZ);
 
     //Convert lat/long into a readable format
     wchar_t eastWest;
@@ -534,8 +553,9 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, irr::s32 mapOffsetX, irr:
     //Store what's been shown
     oldScenarioInfo = scenarioData;
 
-    //Draw cross hairs, buoys, other ships
-    drawInformationOnMap(scenarioData.startTime, mapOffsetX, mapOffsetZ, metresPerPx, scenarioData.ownShipData.initialX, scenarioData.ownShipData.initialZ, scenarioData.ownShipData.initialBearing, buoys, scenarioData.otherShipsData, selectedShip, selectedLeg);
+    //Draw centre mark, buoys, ships and their routes, then the status line
+    drawInformationOnMap(chart, scenarioData, buoys, selectedShip, selectedLeg, hoverShip);
+    drawStatusBar(chart, mouse, draggingShip);
 
   //KYARA UPDATE -----------------------------------------------------
     if (editBoxesNeedUpdating) {
@@ -645,7 +665,7 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, irr::s32 mapOffsetX, irr:
 
     //kyara 
     // Control visibility of the picture block so it only shows on the "Les navires" (Ships) tab
-    if (tabControl->getActiveTab() == 1) { // Tab 1 is the Ships tab
+    if (tabControl->getActiveTab() == 1 && generalDataWindow->isVisible()) { // Tab 1 is the Ships tab (and the window is shown)
         if (hasValidImage) {
             shipImageDisplay->setVisible(true);
             shipImageNotFoundText->setVisible(false);
@@ -664,148 +684,185 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, irr::s32 mapOffsetX, irr:
 
 }
 
-void GUIMain::drawInformationOnMap(const irr::f32& time, const irr::s32& mapOffsetX, const irr::s32& mapOffsetZ, const irr::f32& metresPerPx, const irr::f32& ownShipPosX, const irr::f32& ownShipPosZ, const irr::f32& ownShipHeading, const std::vector<PositionData>& buoys, const std::vector<OtherShipData>& otherShips,  const irr::s32& selectedShip, const irr::s32& selectedLeg)
+namespace {
+const irr::video::SColor kOwnShipFill(255, 70, 140, 255);
+const irr::video::SColor kOtherShipFill(255, 0, 190, 165);
+const irr::video::SColor kOtherShipText(255, 150, 255, 230);
+const irr::video::SColor kRouteColour(255, 215, 70, 215);
+const irr::video::SColor kSelectedLegColour(255, 255, 160, 0);
+const irr::video::SColor kSelectColour(255, 0, 255, 255);
+const irr::video::SColor kHoverColour(200, 255, 255, 255);
+const irr::video::SColor kShadow(150, 0, 0, 0);
+const irr::video::SColor kWhiteColour(255, 255, 255, 255);
+const irr::video::SColor kBlackColour(255, 0, 0, 0);
+}
+
+void GUIMain::drawLabel(ChartView& chart, const std::wstring& text, irr::core::position2di at, irr::video::SColor colour)
 {
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) {
+        return;
+    }
+    irr::core::recti clip = chart.getViewport();
+    irr::core::dimension2du d = font->getDimension(text.c_str());
+    irr::core::recti box(at.X - 2, at.Y, at.X + (irr::s32)d.Width + 2, at.Y + (irr::s32)d.Height);
+    box.clipAgainst(clip);
+    if (box.isValid()) {
+        device->getVideoDriver()->draw2DRectangle(irr::video::SColor(150, 10, 16, 26), box);
+    }
+    ChartDraw::text(font, text, at, colour, &clip, false);
+}
 
-    //draw cross hairs
-    irr::s32 width = device->getVideoDriver()->getScreenSize().Width;
-    irr::s32 height = device->getVideoDriver()->getScreenSize().Height;
-    irr::s32 screenCentreX = width/2;
-    irr::s32 screenCentreY = height/2;
-    device->getVideoDriver()->draw2DLine(irr::core::position2d<irr::s32>(screenCentreX,0),irr::core::position2d<irr::s32>(screenCentreX,height),irr::video::SColor(255, 255, 255, 255));
-    device->getVideoDriver()->draw2DLine(irr::core::position2d<irr::s32>(0,screenCentreY),irr::core::position2d<irr::s32>(width,screenCentreY),irr::video::SColor(255, 255, 255, 255));
+void GUIMain::drawInformationOnMap(ChartView& chart, const ScenarioData& scenarioInfo, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip)
+{
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const std::vector<OtherShipData>& otherShips = scenarioInfo.otherShipsData;
+    irr::f32 time = scenarioInfo.startTime;
 
-    //Dimensions for dots
-    irr::u32 dotHalfWidth = width/400;
-    if(dotHalfWidth<1) {dotHalfWidth=1;}
+    //Centre mark: where 'move' and 'add ship' place a ship
+    irr::core::position2di c = chart.getViewport().getCenter();
+    irr::video::SColor markColour = chart.lightBackground() ? irr::video::SColor(220, 40, 50, 60) : irr::video::SColor(220, 230, 230, 230);
+    driver->draw2DLine(irr::core::position2di(c.X - 10, c.Y), irr::core::position2di(c.X - 3, c.Y), markColour);
+    driver->draw2DLine(irr::core::position2di(c.X + 3, c.Y), irr::core::position2di(c.X + 10, c.Y), markColour);
+    driver->draw2DLine(irr::core::position2di(c.X, c.Y - 10), irr::core::position2di(c.X, c.Y - 3), markColour);
+    driver->draw2DLine(irr::core::position2di(c.X, c.Y + 3), irr::core::position2di(c.X, c.Y + 10), markColour);
 
-
-    //Draw location of own ship
-    irr::s32 ownRelPosX = 0 + mapOffsetX;
-    irr::s32 ownRelPosY = 0 - mapOffsetZ;
-    device->getVideoDriver()->draw2DRectangle(irr::video::SColor(255, 255, 0, 0),irr::core::rect<irr::s32>(screenCentreX-dotHalfWidth+ownRelPosX,screenCentreY-dotHalfWidth-ownRelPosY,screenCentreX+dotHalfWidth+ownRelPosX,screenCentreY+dotHalfWidth-ownRelPosY));
-    if (selectedShip == -1) {
-        //Own ship selected
-        device->getVideoDriver()->draw2DPolygon(irr::core::position2d<irr::s32>(screenCentreX+ownRelPosX,screenCentreY-ownRelPosY),dotHalfWidth*4,irr::video::SColor(255, 255, 0, 0),10);
+    //Buoys
+    for (std::vector<PositionData>::const_iterator it = buoys.begin(); it != buoys.end(); ++it) {
+        ChartDraw::marker(driver, chart.toScreenXZ(it->X, it->Z), ChartDraw::Diamond, irr::video::SColor(255, 255, 210, 0), irr::video::SColor(255, 40, 40, 40), 4);
     }
 
-    //Heading line
-    irr::s32 hdgLineX = ownRelPosX + width/10*sin(ownShipHeading * RAD_IN_DEG);
-    irr::s32 hdgLineY = ownRelPosY + width/10*cos(ownShipHeading * RAD_IN_DEG);
-    irr::core::position2d<irr::s32> hdgStart (screenCentreX + ownRelPosX, screenCentreY - ownRelPosY);
-    irr::core::position2d<irr::s32> hdgEnd   (screenCentreX + hdgLineX  , screenCentreY - hdgLineY  );
-    device->getVideoDriver()->draw2DLine(hdgStart,hdgEnd,irr::video::SColor(255, 255, 0, 0));
+    //Other ships: route, then the ship symbol and its label
+    for (irr::u32 i = 0; i < otherShips.size(); i++) {
+        const OtherShipData& ship = otherShips.at(i);
+        bool selected = (selectedShip == (irr::s32)i);
+        irr::core::position2di shipPos = chart.toScreenXZ(ship.initialX, ship.initialZ);
 
-    //Draw location of buoys
-    for(std::vector<PositionData>::const_iterator it = buoys.begin(); it != buoys.end(); ++it) {
-        irr::s32 relPosX = (it->X - ownShipPosX)/metresPerPx + mapOffsetX;
-        irr::s32 relPosY = (it->Z - ownShipPosZ)/metresPerPx - mapOffsetZ;
-
-        device->getVideoDriver()->draw2DRectangle(irr::video::SColor(255, 255, 255, 255),irr::core::rect<irr::s32>(screenCentreX-dotHalfWidth+relPosX,screenCentreY-dotHalfWidth-relPosY,screenCentreX+dotHalfWidth+relPosX,screenCentreY+dotHalfWidth-relPosY));
-    }
-
-    //Draw location of ships
-    for(std::vector<OtherShipData>::const_iterator it = otherShips.begin(); it != otherShips.end(); ++it) {
-        irr::s32 relPosX = (it->initialX - ownShipPosX)/metresPerPx + mapOffsetX;
-        irr::s32 relPosY = (it->initialZ - ownShipPosZ)/metresPerPx - mapOffsetZ;
-
-        device->getVideoDriver()->draw2DRectangle(irr::video::SColor(255, 2, 255, 216),irr::core::rect<irr::s32>(screenCentreX-dotHalfWidth+relPosX,screenCentreY-dotHalfWidth-relPosY,screenCentreX+dotHalfWidth+relPosX,screenCentreY+dotHalfWidth-relPosY));
-        if (selectedShip == (it - otherShips.begin()) ) {
-            //This ship selected
-            device->getVideoDriver()->draw2DPolygon(irr::core::position2d<irr::s32>(screenCentreX+relPosX,screenCentreY-relPosY),dotHalfWidth*4,irr::video::SColor(255, 2, 255, 216),10);
-        }
-
-        //number
-        int thisShipNumber = 1 + it - otherShips.begin();
-        irr::core::stringw label(thisShipNumber);
-        //name
-        label.append(" ");
-        label.append(it->shipName.c_str());
-
-        //CHANGE SHIP NAME
-        guienv->getSkin()->getFont()->draw(label,irr::core::rect<irr::s32>(screenCentreX+relPosX,screenCentreY-relPosY-0.050*height,screenCentreX+relPosX,screenCentreY-relPosY), irr::video::SColor(255,226,255,2),true,true);
-        // --- NEW: Draw heading line for Other Ships like Own Ship ---
-        if (it->legs.size() > 0) {
-            irr::f32 shipHeading = it->legs.at(0).bearing; // Get initial course
-
-            // Calculate end point using the same math as the Own Ship heading line (width/20 to keep it tidy)
-            irr::s32 hdgLineX = relPosX + width / 20 * sin(shipHeading * RAD_IN_DEG);
-            irr::s32 hdgLineY = relPosY + width / 20 * cos(shipHeading * RAD_IN_DEG);
-
-            irr::core::position2d<irr::s32> hdgStart(screenCentreX + relPosX, screenCentreY - relPosY);
-            irr::core::position2d<irr::s32> hdgEnd(screenCentreX + hdgLineX, screenCentreY - hdgLineY);
-
-            // Draw line in Cyan/Light Blue so it stands out distinctly from the red Own Ship line
-            device->getVideoDriver()->draw2DLine(hdgStart, hdgEnd, irr::video::SColor(255, 0, 255, 255));
-        }
-        // ------------------------------------------------------------
-        //Draw leg information for each ship
-        if (it->legs.size() > 0) {
-
-            //Find current leg: This is the last leg, or the leg where the start time is in the past, and then next start time is in the future. Leg times are from the start of the day of the scenario start.
-            irr::u32 currentLeg = 0;
-            bool currentLegFound = false;
-            for (irr::u32 i=0; i < (it->legs.size()-1); i++) {
-                if (time >= it->legs.at(i).startTime &&  time < it->legs.at(i+1).startTime) {
-                    currentLeg = i;
-                    currentLegFound = true;
+        //Route from the start position along each leg, except the final 'stop' leg. Leg times are from
+        //the start of the day of the scenario start; the current leg is the one running at the start.
+        if (ship.legs.size() > 1) {
+            irr::u32 currentLeg = ship.legs.size() - 1;
+            for (irr::u32 l = 0; l + 1 < ship.legs.size(); l++) {
+                if (time >= ship.legs.at(l).startTime && time < ship.legs.at(l + 1).startTime) {
+                    currentLeg = l;
                 }
             }
-            if (!currentLegFound) {
-                currentLeg = it->legs.size()-1;
+            std::vector<irr::core::position2di> route;
+            std::vector<irr::u32> routeLeg; //leg drawn by the segment ending at route[k + 1]
+            route.push_back(shipPos);
+            irr::f32 x = ship.initialX;
+            irr::f32 z = ship.initialZ;
+            for (irr::u32 l = currentLeg; l + 1 < ship.legs.size(); l++) {
+                irr::f32 legStart = (l == currentLeg) ? time : ship.legs.at(l).startTime;
+                irr::f32 duration = ship.legs.at(l + 1).startTime - legStart;
+                if (!(duration < 1e9f)) { break; } //Stopped (zero speed) leg: never ends
+                if (!(duration > 0)) { continue; }
+                irr::f32 distance = duration * ship.legs.at(l).speed * KTS_TO_MPS;
+                x += distance * sin(ship.legs.at(l).bearing * RAD_IN_DEG);
+                z += distance * cos(ship.legs.at(l).bearing * RAD_IN_DEG);
+                route.push_back(chart.toScreenXZ(x, z));
+                routeLeg.push_back(l);
             }
+            if (route.size() > 1) {
+                irr::video::SColor routeColour = selected ? kRouteColour : irr::video::SColor(170, kRouteColour.getRed(), kRouteColour.getGreen(), kRouteColour.getBlue());
+                ChartDraw::polyline(driver, route, routeColour, !selected, selected ? 2 : 1);
+                for (irr::u32 k = 0; k < routeLeg.size(); k++) {
+                    if (selected && (irr::s32)routeLeg.at(k) == selectedLeg) {
+                        std::vector<irr::core::position2di> segment;
+                        segment.push_back(route.at(k));
+                        segment.push_back(route.at(k + 1));
+                        ChartDraw::polyline(driver, segment, kSelectedLegColour, false, 3);
+                    }
+                    ChartDraw::marker(driver, route.at(k + 1), ChartDraw::Square, routeColour, kBlackColour, selected ? 4 : 3);
+                    if (selected) {
+                        //Leg number, as in the leg list, half way along the leg
+                        irr::core::position2di mid((route.at(k).X + route.at(k + 1).X) / 2, (route.at(k).Y + route.at(k + 1).Y) / 2);
+                        drawLabel(chart, std::wstring(irr::core::stringw(routeLeg.at(k) + 1).c_str()), mid + irr::core::position2di(6, -6),
+                            (irr::s32)routeLeg.at(k) == selectedLeg ? kSelectedLegColour : kRouteColour);
+                    }
+                }
+            }
+        }
 
-            //find time remaining on current leg
-            irr::f32 currentLegTimeRemaining = 0;
-            if (currentLeg < (it->legs.size()-1) ) { //If not on the last leg, find time until we change onto next course
+        irr::f32 heading = ship.legs.size() > 0 ? ship.legs.at(0).bearing : 0;
+        ChartDraw::ship(driver, shipPos, heading, kOtherShipFill, kBlackColour, 12.0f);
 
-                irr::f32 legStartX = screenCentreX + relPosX;
-                irr::f32 legStartY = screenCentreY - relPosY;
+        irr::core::stringw label(i + 1);
+        label.append(L" ");
+        label.append(ship.shipName.c_str());
+        drawLabel(chart, std::wstring(label.c_str()), shipPos + irr::core::position2di(21, -8), kOtherShipText);
+    }
 
-                irr::f32 legEndX = legStartX; //Default values in case current leg is zero length
-                irr::f32 legEndY = legStartY;
+    //Own ship on top, with a six minute run along its initial course when under way
+    irr::core::position2di ownPos = chart.toScreenXZ(scenarioInfo.ownShipData.initialX, scenarioInfo.ownShipData.initialZ);
+    if (fabs(scenarioInfo.ownShipData.initialSpeed) > 0.01) {
+        irr::f32 run = scenarioInfo.ownShipData.initialSpeed * KTS_TO_MPS * 360.0f;
+        irr::f32 bearing = scenarioInfo.ownShipData.initialBearing * RAD_IN_DEG;
+        std::vector<irr::core::position2di> vector;
+        vector.push_back(ownPos);
+        vector.push_back(chart.toScreenXZ(scenarioInfo.ownShipData.initialX + run * sin(bearing), scenarioInfo.ownShipData.initialZ + run * cos(bearing)));
+        ChartDraw::polyline(driver, vector, kOwnShipFill, false, 2);
+    }
+    ChartDraw::ship(driver, ownPos, scenarioInfo.ownShipData.initialBearing, kOwnShipFill, kWhiteColour, 15.0f);
+    drawLabel(chart, std::wstring(language->translate("own").c_str()), ownPos + irr::core::position2di(21, -8), irr::video::SColor(255, 150, 200, 255));
 
-                currentLegTimeRemaining = it->legs.at(currentLeg+1).startTime - time;
-                if (currentLegTimeRemaining>0) {
-                    //Line starts at screenCentreX + relPosX, screenCentreY-relPosY
-                    irr::f32 legLengthPx = currentLegTimeRemaining * it->legs.at(currentLeg).speed * KTS_TO_MPS / metresPerPx;
-                    if (fabs(currentLegTimeRemaining) != std::numeric_limits<irr::f32>::infinity()) {
-                        legEndX = legStartX + legLengthPx*sin(it->legs.at(currentLeg).bearing * RAD_IN_DEG);
-                        legEndY = legStartY - legLengthPx*cos(it->legs.at(currentLeg).bearing * RAD_IN_DEG);
+    //Hover and selection rings (selectedShip: -1 own ship, 0.. other ships; hoverShip: 0 own ship, 1.. other ships)
+    irr::s32 selectedIndex = selectedShip + 1;
+    for (int pass = 0; pass < 2; pass++) {
+        irr::s32 ship = (pass == 0) ? hoverShip : selectedIndex;
+        if (ship < 0 || ship > (irr::s32)otherShips.size() || (pass == 0 && ship == selectedIndex)) {
+            continue;
+        }
+        irr::core::position2di at = (ship == 0) ? ownPos : chart.toScreenXZ(otherShips.at(ship - 1).initialX, otherShips.at(ship - 1).initialZ);
+        ChartDraw::ring(driver, at, 19.0f, kShadow);
+        ChartDraw::ring(driver, at, 18.0f, pass == 0 ? kHoverColour : kSelectColour);
+    }
+}
 
-                        irr::core::position2d<irr::s32> startLine (legStartX, legStartY);
-                        irr::core::position2d<irr::s32> endLine (legEndX, legEndY);
+void GUIMain::drawStatusBar(ChartView& chart, irr::core::position2di mouse, bool draggingShip)
+{
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) {
+        return;
+    }
+    const irr::core::recti& vp = chart.getViewport();
+    irr::s32 barHeight = (irr::s32)font->getDimension(L"Ag").Height + 6;
+    irr::core::recti bar(vp.UpperLeftCorner.X, vp.LowerRightCorner.Y - barHeight, vp.LowerRightCorner.X, vp.LowerRightCorner.Y);
+    driver->draw2DRectangle(irr::video::SColor(170, 0, 0, 0), bar);
 
-                        device->getVideoDriver()->draw2DLine(startLine,endLine,irr::video::SColor(128, 255, 255, 255));
+    //Cursor position, then the mouse and key controls
+    std::wstring text;
+    if (vp.isPointInside(mouse)) {
+        IncidentPoint p = chart.toLatLong(mouse);
+        wchar_t buf[64];
+        double lat = fabs(p.lat);
+        double lon = fabs(p.lon);
+        swprintf(buf, 64, L"%02d\u00B0%06.3f'%lc  %03d\u00B0%06.3f'%lc", (int)lat, (lat - (int)lat) * 60.0, p.lat >= 0 ? L'N' : L'S',
+            (int)lon, (lon - (int)lon) * 60.0, p.lon >= 0 ? L'E' : L'W');
+        text = buf;
+        text += L"    ";
+    }
+    if (draggingShip) {
+        text += L"Rel\u00E2chez pour poser le navire";
+    } else {
+        text += L"clic sur un navire : le choisir, glisser : le d\u00E9placer    glisser la carte : la d\u00E9placer    molette : zoom    Origine : recentrer    fl\u00E8ches gauche/droite : cap du navire s\u00E9lectionn\u00E9";
+    }
+    ChartDraw::text(font, text, irr::core::position2di(bar.UpperLeftCorner.X + 10, bar.UpperLeftCorner.Y + 3), irr::video::SColor(255, 220, 220, 220), &bar, false);
 
-                    } //Not infinite
+    ChartDraw::scaleBar(driver, font, chart, barHeight);
+}
 
-                } //If currentLegTimeRemaining > 0
-
-                //Draw remaining legs, excluding 'stop'one
-                for (irr::u32 i = currentLeg+1; i < (it->legs.size()-1); i++) {
-                    irr::f32 legTimeRemaining = it->legs.at(i+1).startTime -  it->legs.at(i).startTime;
-                    irr::f32 legLengthPx = legTimeRemaining * it->legs.at(i).speed * KTS_TO_MPS / metresPerPx;
-
-                    if (fabs(legTimeRemaining) != std::numeric_limits<irr::f32>::infinity()) { //FIXME: Also check for NaN?
-                        //current start is previous end
-                        legStartX = legEndX;
-                        legStartY = legEndY;
-
-                        //find new end
-                        legEndX = legStartX + legLengthPx*sin(it->legs.at(i).bearing * RAD_IN_DEG);
-                        legEndY = legStartY - legLengthPx*cos(it->legs.at(i).bearing * RAD_IN_DEG);
-
-                        //Draw
-                        irr::core::position2d<irr::s32> startLine (legStartX, legStartY);
-                        irr::core::position2d<irr::s32> endLine (legEndX, legEndY);
-
-                        device->getVideoDriver()->draw2DLine(startLine,endLine,irr::video::SColor(128, 255, 255, 255));
-                    } //Not infinite
-                } //Each leg, except last
-            } //If not currently on the last leg
-        }//If Legs.size() >0
-    } //Loop for each ship
+void GUIMain::selectShip(irr::s32 shipIndex)
+{
+    if (shipIndex < 0 || shipIndex >= (irr::s32)shipSelector->getItemCount()) {
+        return;
+    }
+    tabControl->setActiveTab(1); //Ships tab, to show the chosen ship's details
+    if (shipSelector->getSelected() != shipIndex) {
+        shipSelector->setSelected(shipIndex);
+        manuallyTriggerGUIEvent((irr::gui::IGUIElement*)shipSelector, irr::gui::EGET_COMBO_BOX_CHANGED);
+    }
 }
 
 void GUIMain::updateDropDowns(const std::vector<OtherShipData>& otherShips, irr::s32 selectedShip, irr::f32 time) {

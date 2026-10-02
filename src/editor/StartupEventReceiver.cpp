@@ -357,7 +357,14 @@ bool StartupEventReceiver::OnEvent(const irr::SEvent& event)
 
             if (id == importExportOKButtonID) {
                 if (guiImportExport->getMode() == 1) {
-                    scenarioData->deserialise(guiImportExport->getText());
+                    //An exercise exported by the fire scenario editor carries its fire / SAR settings on an
+                    //extra "@INCIDENT@" line, which this editor does not use.
+                    std::string importText = guiImportExport->getText();
+                    size_t incidentLine = importText.find("@INCIDENT@");
+                    if (incidentLine != std::string::npos) {
+                        importText = Utilities::trim(importText.substr(0, incidentLine));
+                    }
+                    scenarioData->deserialise(importText);
                 }
                 guiImportExport->setVisible(false, 0);
                 selectWindow->setVisible(true);
