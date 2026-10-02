@@ -3820,7 +3820,11 @@ void SimulationModel::advanceComms()
         callSarHelicopters();   // on scene now, or after the scenario's helicopter delay
         break;
     case 3: pushComms(L"Compte-rendu au MRCC : nature, POB, moyens engag\u00E9s"); break;
-    default: pushComms(L"Point de situation transmis au MRCC BOUZNIKA via le MRSC DAKHLA"); break;
+    default:
+        // SCENARIO INCENDIE: the local centre comes from the scenario (MRSC DAKHLA without incident.ini).
+        pushComms(incident.coordinationCentre.empty() ? std::wstring(L"Point de situation transmis au MRCC BOUZNIKA")
+            : L"Point de situation transmis au MRCC BOUZNIKA via le " + widen(incident.coordinationCentre));
+        break;
     }
     if (commsStep < 4) { commsStep++; }
 }

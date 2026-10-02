@@ -25,7 +25,7 @@ enum {
     ID_BOAT_PLACE, ID_BOAT_OUT, ID_BOAT_OUT_CLEAR, ID_BOAT_RET, ID_BOAT_RET_CLEAR,
     ID_HELO_DELAY, ID_HELO_SPEED, ID_HELO_LIST, ID_HELO_ADD, ID_HELO_DELETE, ID_HELO_MODEL, ID_HELO_BASE, ID_HELO_BASE_CLEAR,
     ID_HELO_BASE_H, ID_HELO_PAD, ID_HELO_PAD_CLEAR, ID_HELO_PAD_H,
-    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU
+    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU, ID_MRSC
 };
 
 enum { TAB_SCENARIO = 0, TAB_CASUALTY = 1, TAB_SURVIVORS = 2, TAB_BOATS = 3, TAB_HELOS = 4 };
@@ -128,8 +128,10 @@ std::wstring fmtLatLong(const IncidentPoint& p)
 } // namespace
 
 FireEditor::FireEditor(irr::IrrlichtDevice* dev, FireScenario* scenario, FireMap* chart, const std::string& path,
-    const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes, bool isNewScenario)
+    const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes,
+    const std::vector<std::string>& rescueShipTypes, bool isNewScenario)
     : device(dev), scn(scenario), map(chart), scenariosPath(path), ownTypes(ownShipTypes), otherTypes(otherShipTypes),
+    rescueTypes(rescueShipTypes),
     quit(false), backToMenu(false), dirty(isNewScenario), needRefresh(false), tool(Tool_Select), selBoat(-1), selHelo(-1), selSurvivor(-1),
     moveGroupWithCasualty(true),
     leftDown(false), rightDown(false), panning(false), dragging(false), rightMoved(false)
@@ -269,6 +271,9 @@ void FireEditor::buildGui()
     label(t, lx, y, lw, L"Vent : direction (\u00B0) / force (nds)");
     windDirBox = edit(t, fx, y, hw, ID_WINDDIR);
     windSpdBox = edit(t, fx + hw + 4, y, fw - hw - 4, ID_WINDSPD);
+    y += rowH;
+    label(t, lx, y, lw, L"Centre SAR local (journal radio)");
+    mrscBox = edit(t, fx, y, fw, ID_MRSC);
     y += rowH;
     label(t, lx, y, tw, L"Description");
     y += rowH - 6;
@@ -465,6 +470,7 @@ void FireEditor::refreshScenarioTab()
     setEditText(guienv, visBox, fmtNum(scn->visibility, 1));
     setEditText(guienv, windDirBox, fmtNum(scn->windDirection, 0));
     setEditText(guienv, windSpdBox, fmtNum(scn->windSpeed, 1));
+    setEditText(guienv, mrscBox, wide(scn->incident.coordinationCentre));
     setEditText(guienv, descBox, wide(scn->description));
     if (!guienv->hasFocus(ownTypeBox, true)) { fillTypeCombo(ownTypeBox, ownTypes, scn->ownShip.type); }
     setEditText(guienv, ownHdgBox, fmtNum(scn->ownShip.heading, 0));
@@ -544,6 +550,14 @@ void FireEditor::refreshSurvivorTab()
     survInfoText->setText(buf);
 }
 
+std::wstring FireEditor::rescueModelsLine() const
+{
+    wchar_t buf[256];
+    swprintf(buf, 256, L"Mod\u00E8les propos\u00E9s : navires de Models/Othership avec FireFighting=1 dans leur boat.ini (%d install\u00E9(s)).\n\n",
+        (int)rescueTypes.size());
+    return buf;
+}
+
 void FireEditor::refreshBoatTab()
 {
     if (selBoat >= (int)scn->sarBoats.size()) { selBoat = (int)scn->sarBoats.size() - 1; }
@@ -560,12 +574,12 @@ void FireEditor::refreshBoatTab()
     if (!has) {
         boatTypeBox->clear();
         boatHdgBox->setText(L""); boatSpeedBox->setText(L""); boatDelayBox->setText(L""); boatMoorBox->setText(L"");
-        boatInfoText->setText(L"Aucune vedette SAR : les radeaux ne seront pas r\u00E9cup\u00E9r\u00E9s. Ajoutez une vedette puis placez son point de d\u00E9part.");
+        boatInfoText->setText((rescueModelsLine() + L"Aucune vedette SAR : les radeaux ne seront pas r\u00E9cup\u00E9r\u00E9s. Ajoutez une vedette puis placez son point de d\u00E9part.").c_str());
         return;
     }
     const EdShip& s = scn->sarBoats[selBoat];
     const IncidentSarBoat& c = scn->incident.sarBoats[selBoat];
-    if (!guienv->hasFocus(boatTypeBox, true)) { fillTypeCombo(boatTypeBox, otherTypes, s.type); }
+    if (!guienv->hasFocus(boatTypeBox, true)) { fillTypeCombo(boatTypeBox, rescueTypes, s.type); }
     setEditText(guienv, boatHdgBox, fmtNum(s.heading, 0));
     setEditText(guienv, boatSpeedBox, fmtNum(c.speedKts, 1));
     setEditText(guienv, boatDelayBox, fmtTime(c.launchDelay));
@@ -589,7 +603,7 @@ void FireEditor::refreshBoatTab()
         (int)c.outbound.size(), (int)c.inbound.size(),
         c.inbound.empty() ? L" (retour au d\u00E9part)" : L" (le dernier = poste \u00E0 quai)",
         assigned, shared);
-    boatInfoText->setText(buf);
+    boatInfoText->setText((rescueModelsLine() + buf).c_str());
 }
 
 void FireEditor::refreshHeloTab()
@@ -648,7 +662,11 @@ void FireEditor::refreshInfo()
     if (rafts > 0 && scn->sarBoats.empty()) { warn += L"- Des radeaux mais aucune vedette : ils ne seront pas r\u00E9cup\u00E9r\u00E9s.\n"; }
     if (mobs > 0 && c.helos.empty()) { warn += L"- Des hommes \u00E0 la mer mais aucun h\u00E9licopt\u00E8re.\n"; }
     for (size_t b = 0; b < scn->sarBoats.size(); b++) {
-        if (scn->sarBoats[b].type.empty()) { warn += L"- Vedette " + fmtNum((double)b + 1, 0) + L" sans mod\u00E8le.\n"; }
+        const std::string& type = scn->sarBoats[b].type;
+        if (type.empty()) { warn += L"- Vedette " + fmtNum((double)b + 1, 0) + L" sans mod\u00E8le.\n"; }
+        else if (std::find(rescueTypes.begin(), rescueTypes.end(), type) == rescueTypes.end()) {
+            warn += L"- Vedette " + fmtNum((double)b + 1, 0) + L" : le mod\u00E8le " + wide(type) + L" n'a pas FireFighting=1 dans son boat.ini.\n";
+        }
     }
     if (!warn.empty()) { s += L"\nA V\u00C9RIFIER :\n" + warn; }
     casInfoText->setText(s.c_str());
@@ -873,6 +891,7 @@ void FireEditor::onEditChanged(irr::s32 id, const std::wstring& text)
     case ID_WINDDIR: if (num && v >= 0 && v <= 360) { scn->windDirection = (float)v; } else { changed = false; } break;
     case ID_WINDSPD: if (num && v >= 0) { scn->windSpeed = (float)v; } else { changed = false; } break;
     case ID_DESC: scn->description = narrow(text); break;
+    case ID_MRSC: scn->incident.coordinationCentre = narrow(trimW(text)); break;
     case ID_OWN_HDG: if (num) { scn->ownShip.heading = (float)std::fmod(v + 360.0, 360.0); } else { changed = false; } break;
     case ID_OWN_SPD: if (num) { scn->ownShip.speed = (float)v; } else { changed = false; } break;
     case ID_CAS_HDG: if (num) { scn->casualty.heading = (float)std::fmod(v + 360.0, 360.0); } else { changed = false; } break;
@@ -970,9 +989,16 @@ void FireEditor::onButton(irr::s32 id)
         }
         break;
     case ID_BOAT_ADD: {
+        if (rescueTypes.empty()) {
+            statusText->setText(L"Aucun mod\u00E8le de vedette disponible : seuls les navires de Models/Othership dont le boat.ini contient FireFighting=1 peuvent \u00EAtre des vedettes SAR.");
+            statusText->setOverrideColor(irr::video::SColor(255, 255, 110, 110));
+            return;
+        }
         EdShip s;
-        s.type = !otherTypes.empty() ? otherTypes[0] : scn->casualty.type;
-        if (!scn->sarBoats.empty()) { s.type = scn->sarBoats.back().type; }
+        s.type = rescueTypes[0];
+        if (!scn->sarBoats.empty() && std::find(rescueTypes.begin(), rescueTypes.end(), scn->sarBoats.back().type) != rescueTypes.end()) {
+            s.type = scn->sarBoats.back().type;
+        }
         s.pos = map->centre();
         s.mmsi = scn->nextMmsi();
         scn->sarBoats.push_back(s);

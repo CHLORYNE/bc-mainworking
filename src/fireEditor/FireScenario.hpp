@@ -32,7 +32,8 @@ public:
 
     // A brand-new exercise on worldName, laid out around the given position.
     void makeNew(const std::string& worldName, const IncidentPoint& centre,
-        const std::string& ownShipType, const std::string& otherShipType, const std::string& heloModel);
+        const std::string& ownShipType, const std::string& otherShipType, const std::string& rescueShipType,
+        const std::string& heloModel);
 
     // Load an existing scenario folder. Without an incident.ini the burning ship, the SAR boats and
     // the survivors are set up the way the simulator would run that scenario today.
@@ -40,6 +41,10 @@ public:
 
     // Write environment.ini, ownship.ini, othership.ini, description.ini and incident.ini.
     bool save(const std::string& scenarioDir, std::string& error);
+
+    // A model may be a SAR boat only if it is an other-ship whose boat.ini says FireFighting=1
+    // (Models/Othership/<type>/boat.ini, user folder first).
+    static bool isRescueModel(const std::string& type);
 
     // True if pt lies on the world's chart (used to decide whether the built-in preset applies).
     static bool inBounds(const IncidentPoint& pt, double south, double west, double latExtent, double longExtent);

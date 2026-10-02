@@ -284,6 +284,16 @@ int main(int argc, char** argv)
     std::sort(ownTypes.begin(), ownTypes.end());
     std::sort(otherTypes.begin(), otherTypes.end());
 
+    // SAR boats: other-ship models certified FireFighting=1 only. The burning ship defaults to
+    // the first model that is not one of those.
+    std::vector<std::string> rescueTypes;
+    std::string defaultCasualtyType = otherTypes.empty() ? "" : otherTypes[0];
+    bool casualtyTypeFound = false;
+    for (size_t i = 0; i < otherTypes.size(); i++) {
+        if (FireScenario::isRescueModel(otherTypes[i])) { rescueTypes.push_back(otherTypes[i]); }
+        else if (!casualtyTypeFound) { defaultCasualtyType = otherTypes[i]; casualtyTypeFound = true; }
+    }
+
     int worldIndex = -1, scenarioIndex = -1;
     std::wstring message =
         L"Cet \u00E9diteur pr\u00E9pare les exercices d'incendie : navire en feu, chronologie (abandon, naufrage), naufrag\u00E9s, "
@@ -316,7 +326,7 @@ int main(int argc, char** argv)
             }
             map.setViewport(irr::core::recti(0, 0, (irr::s32)graphicsWidth, (irr::s32)graphicsHeight));
             scenario.makeNew(worlds[worldIndex], map.centre(),
-                ownTypes.empty() ? "" : ownTypes[0], otherTypes.empty() ? "" : otherTypes[0], "");
+                ownTypes.empty() ? "" : ownTypes[0], defaultCasualtyType, rescueTypes.empty() ? "" : rescueTypes[0], "");
         }
         else {
             if (scenarioIndex < 0 || !scenario.load(scenariosPath + scenarios[scenarioIndex], scenarios[scenarioIndex], error)) {
@@ -332,7 +342,7 @@ int main(int argc, char** argv)
 
         bool backToMenu;
         {
-            FireEditor editor(device, &scenario, &map, scenariosPath, ownTypes, otherTypes, isNew);
+            FireEditor editor(device, &scenario, &map, scenariosPath, ownTypes, otherTypes, rescueTypes, isNew);
             device->setEventReceiver(&editor);
             backToMenu = editor.run();
             device->setEventReceiver(0);

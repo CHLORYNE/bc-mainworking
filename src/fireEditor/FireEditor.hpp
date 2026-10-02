@@ -14,7 +14,8 @@
 class FireEditor : public irr::IEventReceiver {
 public:
     FireEditor(irr::IrrlichtDevice* device, FireScenario* scenario, FireMap* map, const std::string& scenariosPath,
-        const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes, bool isNewScenario);
+        const std::vector<std::string>& ownShipTypes, const std::vector<std::string>& otherShipTypes,
+        const std::vector<std::string>& rescueShipTypes, bool isNewScenario);
     ~FireEditor();
 
     virtual bool OnEvent(const irr::SEvent& event);
@@ -82,6 +83,7 @@ private:
     std::wstring survivorName(int kind) const;
     std::wstring toolHint() const;
     std::wstring boatLabel(int index) const;
+    std::wstring rescueModelsLine() const;
 
     irr::IrrlichtDevice* device;
     irr::video::IVideoDriver* driver;
@@ -92,6 +94,7 @@ private:
     std::string scenariosPath;
     std::string loadedName;          // folder the scenario came from ("" for a new one)
     std::vector<std::string> ownTypes, otherTypes;
+    std::vector<std::string> rescueTypes;   // other-ship models with FireFighting=1: the only ones offered for SAR boats
 
     irr::s32 screenW, screenH, panelX, rowH;
     bool quit, backToMenu, dirty, needRefresh;
@@ -112,7 +115,7 @@ private:
     irr::gui::IGUITab* tabScenario; irr::gui::IGUITab* tabCasualty; irr::gui::IGUITab* tabSurvivors;
     irr::gui::IGUITab* tabBoats; irr::gui::IGUITab* tabHelos;
     irr::gui::IGUIEditBox *dayBox, *monthBox, *yearBox, *startBox, *sunriseBox, *sunsetBox, *weatherBox, *rainBox,
-        *visBox, *windDirBox, *windSpdBox, *descBox, *ownHdgBox, *ownSpdBox;
+        *visBox, *windDirBox, *windSpdBox, *mrscBox, *descBox, *ownHdgBox, *ownSpdBox;
     irr::gui::IGUIComboBox* ownTypeBox;
     irr::gui::IGUIStaticText* trafficText;
     irr::gui::IGUIComboBox* casTypeBox;

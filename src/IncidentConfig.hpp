@@ -69,6 +69,7 @@ public:
     float permanentListTime;   // put out after this -> saved, but the list is permanent
     float heloDelay;           // s from the trainee's call (3rd Ctrl+A, OSC) to the helicopters on scene
     float heloSpeedKts;        // helicopter transit speed (inbound and back to the pad)
+    std::string coordinationCentre;   // local SAR centre named in the radio log, e.g. "MRSC DAKHLA"
 
     std::vector<IncidentSurvivor> survivors;
     std::vector<IncidentSarBoat> sarBoats;

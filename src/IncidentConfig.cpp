@@ -114,7 +114,7 @@ IncidentConfig::IncidentConfig()
     : casualtyShip(0),
     fireDuration(63.0f), sinkLeadTime(18.0f), fireSpreadTime(30.0f), abandonTime(20.0f),
     survivorInterval(4.0f), permanentListTime(180.0f),
-    heloDelay(0.0f), heloSpeedKts(79.7f)
+    heloDelay(0.0f), heloSpeedKts(79.7f), coordinationCentre("MRSC DAKHLA")
 {
     helos.push_back(IncidentHelo());
     helos.push_back(IncidentHelo());
@@ -167,6 +167,7 @@ bool IncidentConfig::load(const std::string& fileName)
     permanentListTime = (float)num(m, "PermanentListTime", permanentListTime);
     heloDelay = (float)num(m, "HeloDelay", heloDelay);
     heloSpeedKts = (float)num(m, "HeloSpeed", heloSpeedKts);
+    coordinationCentre = str(m, "CoordinationCentre", coordinationCentre);
     if (fireSpreadTime < 1.0f) { fireSpreadTime = 1.0f; }
     if (sinkLeadTime < 1.0f) { sinkLeadTime = 1.0f; }
     if (heloSpeedKts < 1.0f) { heloSpeedKts = 1.0f; }
@@ -243,6 +244,7 @@ bool IncidentConfig::save(const std::string& fileName) const
     f << "PermanentListTime=" << permanentListTime << std::endl;
     f << "HeloDelay=" << heloDelay << std::endl;
     f << "HeloSpeed=" << heloSpeedKts << std::endl;
+    f << "CoordinationCentre=\"" << coordinationCentre << "\"" << std::endl;
 
     f << std::endl << "# Naufrages et radeaux, dans l'ordre de mise a l'eau" << std::endl;
     f << "Survivors=" << survivors.size() << std::endl;

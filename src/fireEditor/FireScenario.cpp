@@ -56,6 +56,21 @@ bool isFireFightingType(const std::string& type)
     return (int)IncidentIni::num(m, "FireFighting", 0) == 1;
 }
 
+} // namespace
+
+bool FireScenario::isRescueModel(const std::string& type)
+{
+    if (type.empty()) { return false; }
+    std::string ini = "Models/Othership/" + type + "/boat.ini";
+    std::string userIni = Utilities::getUserDir() + ini;
+    if (Utilities::pathExists(userIni)) { ini = userIni; }
+    IncidentIni::Map m;
+    if (!IncidentIni::read(ini, m)) { return false; }
+    return (int)IncidentIni::num(m, "FireFighting", 0) == 1;
+}
+
+namespace {
+
 // OtherShips::findByName: exact match first, then case-insensitive containment.
 int findByName(const std::vector<EdShip>& ships, const std::string& shipName)
 {
@@ -157,7 +172,8 @@ unsigned int FireScenario::nextMmsi() const
 }
 
 void FireScenario::makeNew(const std::string& world, const IncidentPoint& centre,
-    const std::string& ownShipType, const std::string& otherShipType, const std::string& heloModel)
+    const std::string& ownShipType, const std::string& otherShipType, const std::string& rescueShipType,
+    const std::string& heloModel)
 {
     *this = FireScenario();
     name = "Nouvel exercice incendie";
@@ -182,14 +198,19 @@ void FireScenario::makeNew(const std::string& world, const IncidentPoint& centre
     casualty.heading = 90.0f;
     casualty.mmsi = 242000101;
 
-    EdShip boat;
-    boat.type = otherShipType;
-    boat.pos = offsetMetres(centre, -800.0, -300.0);
-    boat.mmsi = 242000102;
-    sarBoats.push_back(boat);
-
     incident = IncidentConfig::trainingPreset();
-    incident.sarBoats.push_back(IncidentSarBoat());
+    std::string upperWorld = world;
+    for (size_t i = 0; i < upperWorld.size(); i++) { upperWorld[i] = (char)std::toupper((unsigned char)upperWorld[i]); }
+    incident.coordinationCentre = "MRSC " + upperWorld;
+
+    if (!rescueShipType.empty()) {   // only when a FireFighting=1 model is installed
+        EdShip boat;
+        boat.type = rescueShipType;
+        boat.pos = offsetMetres(centre, -800.0, -300.0);
+        boat.mmsi = 242000102;
+        sarBoats.push_back(boat);
+        incident.sarBoats.push_back(IncidentSarBoat());
+    }
     incident.survivors = defaultSurvivors(casualty.pos);
     for (size_t k = 0; k < incident.helos.size(); k++) {
         if (!heloModel.empty()) { incident.helos[k].model = heloModel; }
@@ -298,9 +319,10 @@ bool FireScenario::load(const std::string& dir, const std::string& scenarioName,
         const IncidentBuiltInPreset& preset = incidentBuiltInPreset();
         int idx = findByName(ships, preset.rescueBoatName);
         if (idx < 0) {
-            // ...or, to give the instructor a starting point, the first ship with SAR in its name.
+            // ...or, to give the instructor a starting point, the first ship certified as a
+            // rescue / fire-fighting craft (FireFighting=1).
             for (size_t i = 0; i < ships.size() && idx < 0; i++) {
-                if (lowerCopy(ships[i].type).find("sar") != std::string::npos) { idx = (int)i; }
+                if (isRescueModel(ships[i].type)) { idx = (int)i; }
             }
         }
         if (idx >= 0) {
