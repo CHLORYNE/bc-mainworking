@@ -9,7 +9,6 @@
 #include "Utilities.hpp"
 
 #include <chrono>
-#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <random>
@@ -123,13 +122,22 @@ namespace {
         return hex;
     }
 
+    int hexDigit(char c)
+    {
+        if (c >= '0' && c <= '9') { return c - '0'; }
+        if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+        if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+        return -1;
+    }
+
+    //Bytes from hex text; empty if the text is not hex.
     std::string fromHex(const std::string& hex)
     {
         std::string bytes;
         for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-            unsigned int v = 0;
-            if (sscanf(hex.substr(i, 2).c_str(), "%2x", &v) != 1) { return ""; }
-            bytes += (char)v;
+            const int high = hexDigit(hex[i]), low = hexDigit(hex[i + 1]);
+            if (high < 0 || low < 0) { return ""; }
+            bytes += (char)(high * 16 + low);
         }
         return bytes;
     }
