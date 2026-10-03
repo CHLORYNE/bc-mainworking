@@ -19,6 +19,8 @@
 #include "../Utilities.hpp"
 #include "../chartView/ChartView.hpp"
 #include "../chartView/ChartDraw.hpp"
+#include "../IniFile.hpp"
+#include "../UiTheme.hpp"
 
 #include <iostream>
 #include <limits>
@@ -27,260 +29,440 @@
 
 //using namespace irr;
 
+namespace {
+    //Language of the NAUTITECH tools: the simulator's (bc5.ini lang). French unless it is set to something else.
+    bool productFrench()
+    {
+        std::string ini = "bc5.ini";
+        if (Utilities::pathExists(Utilities::getUserDir() + ini)) { ini = Utilities::getUserDir() + ini; }
+        const std::string lang = IniFile::iniFileToString(ini, "lang");
+        return lang.empty() || lang == "fr";
+    }
+
+    //The editor's font (map.ini font and font_scale) at a given size.
+    irr::gui::IGUIFont* editorFont(irr::gui::IGUIEnvironment* env, int size)
+    {
+        std::string ini = "map.ini";
+        if (Utilities::pathExists(Utilities::getUserDir() + ini)) { ini = Utilities::getUserDir() + ini; }
+        std::string name = IniFile::iniFileToString(ini, "font");
+        if (name.empty()) { name = "noto-sans"; }
+        irr::f32 scale = IniFile::iniFileTof32(ini, "font_scale");
+        if (scale < 1) { scale = 1; }
+        size = irr::core::min_((int)(size * scale + 0.5f), 36);
+        irr::gui::IGUIFont* f = env->getFont(("media/fonts/" + name + "/" + name + "-" + std::to_string(size) + ".xml").c_str());
+        return f ? f : env->getSkin()->getFont();
+    }
+
+    //Side panel background: header (badge, title, area), tab bar, and the bar with Apply / Save.
+    class SidePanel : public irr::gui::IGUIElement
+    {
+    public:
+        SidePanel(irr::gui::IGUIEnvironment* env, const irr::core::rect<irr::s32>& r, const std::wstring& title,
+            irr::gui::IGUIFont* titleFont, irr::gui::IGUIFont* smallFont, irr::s32 tabsBottom, irr::s32 footerTop)
+            : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, env->getRootGUIElement(), -1, r),
+            title(title), titleFont(titleFont), smallFont(smallFont), tabsBottom(tabsBottom), footerTop(footerTop)
+        {
+        }
+        void setSubtitle(const std::wstring& s) { subtitle = s; }
+
+        virtual void draw()
+        {
+            if (!IsVisible) { return; }
+            const irr::core::rect<irr::f32> r = Ui::toF(AbsoluteRect);
+            irr::video::IVideoDriver* driver = Environment->getVideoDriver();
+            driver->draw2DRectangle(AbsoluteRect, Ui::panelTop, Ui::panelTop, Ui::background, Ui::background);
+            irr::gui::PanelBatch b;
+            b.begin(driver);
+            b.rect(irr::core::rect<irr::f32>(r.LowerRightCorner.X - 1, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y), Ui::edge);
+            const irr::core::vector2df badge(r.UpperLeftCorner.X + 38, r.UpperLeftCorner.Y + 38);
+            b.disc(badge, 20, irr::video::SColor(70, 64, 156, 240), irr::video::SColor(70, 64, 156, 240));
+            //Route icon: track with waypoints
+            const irr::f32 s = 10;
+            const irr::core::vector2df p[4] = { irr::core::vector2df(badge.X - s * 0.8f, badge.Y + s * 0.62f), irr::core::vector2df(badge.X - s * 0.2f, badge.Y + s * 0.05f),
+                irr::core::vector2df(badge.X + s * 0.28f, badge.Y + s * 0.38f), irr::core::vector2df(badge.X + s * 0.78f, badge.Y - s * 0.55f) };
+            for (int i = 0; i < 3; i++) { b.line(p[i], p[i + 1], 1.8f, Ui::accentHi); }
+            for (int i = 0; i < 3; i++) { b.disc(p[i], 2.2f, Ui::accentHi, Ui::accentHi); }
+            b.sector(p[3], 1.8f, 3.6f, 0, 360, Ui::accentHi, Ui::accentHi);
+            b.rect(irr::core::rect<irr::f32>(r.UpperLeftCorner.X + 18, r.UpperLeftCorner.Y + tabsBottom + 10, r.LowerRightCorner.X - 18, r.UpperLeftCorner.Y + tabsBottom + 11), Ui::rule);
+            b.rect(irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + footerTop, r.LowerRightCorner.X - 1, r.LowerRightCorner.Y), irr::video::SColor(255, 9, 18, 33));
+            b.rect(irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + footerTop, r.LowerRightCorner.X - 1, r.UpperLeftCorner.Y + footerTop + 1), Ui::edge);
+            b.flush();
+            Ui::drawText(titleFont, title, irr::core::rect<irr::f32>(r.UpperLeftCorner.X + 68, r.UpperLeftCorner.Y + 16, r.LowerRightCorner.X - 100, r.UpperLeftCorner.Y + 42), Ui::text);
+            Ui::drawText(smallFont, subtitle, irr::core::rect<irr::f32>(r.UpperLeftCorner.X + 68, r.UpperLeftCorner.Y + 42, r.LowerRightCorner.X - 100, r.UpperLeftCorner.Y + 62), Ui::textDim);
+            IGUIElement::draw();
+        }
+
+    private:
+        std::wstring title, subtitle;
+        irr::gui::IGUIFont* titleFont;
+        irr::gui::IGUIFont* smallFont;
+        irr::s32 tabsBottom, footerTop;
+    };
+
+    //Page of the side panel: cards with a title, labels, and a rounded field behind each edit box and
+    //list (they draw no frame of their own), then its controls.
+    class SidePage : public irr::gui::IGUIElement
+    {
+    public:
+        SidePage(irr::gui::IGUIEnvironment* env, irr::gui::IGUIElement* parent, const irr::core::rect<irr::s32>& r,
+            irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont)
+            : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, parent, -1, r), textFont(textFont), smallFont(smallFont)
+        {
+        }
+
+        void addCard(const irr::core::rect<irr::s32>& r, const std::wstring& title) { cards.push_back(Item(r, title)); }
+        void addLabel(const irr::core::rect<irr::s32>& r, const std::wstring& text) { labels.push_back(Item(r, text)); }
+
+        virtual void draw()
+        {
+            if (!IsVisible) { return; }
+            const irr::core::position2di o = AbsoluteRect.UpperLeftCorner;
+            irr::gui::PanelBatch b;
+            b.begin(Environment->getVideoDriver());
+            for (size_t i = 0; i < cards.size(); i++) {
+                Ui::card(b, Ui::toF(cards[i].r + o), 12);
+            }
+            //Fields behind edit boxes and lists
+            for (irr::core::list<irr::gui::IGUIElement*>::Iterator it = Children.begin(); it != Children.end(); ++it) {
+                irr::gui::IGUIElement* e = *it;
+                if (!e->isVisible()) { continue; }
+                const irr::gui::EGUI_ELEMENT_TYPE t = e->getType();
+                if (t != irr::gui::EGUIET_EDIT_BOX && t != irr::gui::EGUIET_LIST_BOX) { continue; }
+                irr::core::rect<irr::f32> f = Ui::toF(e->getAbsolutePosition());
+                if (t == irr::gui::EGUIET_EDIT_BOX) { f.UpperLeftCorner.X -= 8; f.LowerRightCorner.X += 8; }
+                const bool focus = Environment->hasFocus(e);
+                Ui::roundRect(b, f, 7, Ui::field, Ui::field);
+                Ui::roundRectOutline(b, f, 7, 1.0f, focus ? Ui::accentHi : irr::video::SColor(120, 110, 160, 220));
+            }
+            b.flush();
+            for (size_t i = 0; i < cards.size(); i++) {
+                const irr::core::rect<irr::s32> c = cards[i].r + o;
+                Ui::drawText(textFont, cards[i].text, irr::core::rect<irr::f32>((irr::f32)c.UpperLeftCorner.X + 14, (irr::f32)c.UpperLeftCorner.Y + 8,
+                    (irr::f32)c.LowerRightCorner.X - 14, (irr::f32)c.UpperLeftCorner.Y + 34), Ui::accentHi);
+            }
+            for (size_t i = 0; i < labels.size(); i++) {
+                Ui::drawText(smallFont, labels[i].text, Ui::toF(labels[i].r + o), Ui::textDim);
+            }
+            IGUIElement::draw();
+        }
+
+    private:
+        struct Item {
+            irr::core::rect<irr::s32> r;
+            std::wstring text;
+            Item(const irr::core::rect<irr::s32>& r, const std::wstring& t) : r(r), text(t) {}
+        };
+        irr::gui::IGUIFont* textFont;
+        irr::gui::IGUIFont* smallFont;
+        std::vector<Item> cards, labels;
+    };
+
+    //An edit box without its own frame (the page draws the field), in the panel's text colour.
+    irr::gui::IGUIEditBox* fieldEdit(irr::gui::IGUIEnvironment* env, irr::gui::IGUIElement* page, const irr::core::rect<irr::s32>& r, irr::s32 id,
+        irr::gui::IGUIFont* font)
+    {
+        irr::gui::IGUIEditBox* e = env->addEditBox(L"", irr::core::rect<irr::s32>(r.UpperLeftCorner.X + 8, r.UpperLeftCorner.Y, r.LowerRightCorner.X - 8, r.LowerRightCorner.Y), false, page, id);
+        e->setDrawBorder(false);
+        e->setDrawBackground(false);
+        e->setOverrideColor(Ui::text);
+        e->setOverrideFont(font);
+        return e;
+    }
+
+    Ui::Button* panelButton(irr::gui::IGUIEnvironment* env, irr::gui::IGUIElement* parent, const irr::core::rect<irr::s32>& r, irr::s32 id,
+        const std::wstring& label, Ui::Button::Kind kind, irr::gui::IGUIFont* font)
+    {
+        Ui::Button* b = new Ui::Button(env, parent, id, r, label.c_str(), kind);
+        b->setFont(font);
+        b->drop(); //the GUI tree holds it
+        return b;
+    }
+
+    irr::gui::IGUIStaticText* noteText(irr::gui::IGUIEnvironment* env, irr::gui::IGUIElement* page, const irr::core::rect<irr::s32>& r,
+        const std::wstring& text, irr::video::SColor colour, irr::gui::IGUIFont* font)
+    {
+        irr::gui::IGUIStaticText* t = env->addStaticText(text.c_str(), r, false, true, page);
+        t->setOverrideColor(colour);
+        t->setOverrideFont(font);
+        return t;
+    }
+}
+
 GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::string> ownShipTypes, std::vector<std::string> otherShipTypes, bool multiplayer)
 {
     this->device = device;
-    guienv = device->getGUIEnvironment();
-    returnToMenuFlag = false;
-
-//CHANGES COLORS AND BUTTONS -KYARA
-   
-    irr::video::IVideoDriver* driver = device->getVideoDriver();
-    irr::u32 su = driver->getScreenSize().Width;
-    irr::u32 sh = driver->getScreenSize().Height;
-    
-    // --- MATCH MODERN MENU STYLING ---
-    irr::gui::IGUISkin* skin = guienv->getSkin();
-
-    irr::video::SColor bgDark(255, 30, 34, 43);       // Main window bg
-    irr::video::SColor panelColor(255, 45, 52, 60);   // Buttons, lists, tabs
-    irr::video::SColor borderDark(255, 20, 24, 30);   // Shadows/Borders
-    irr::video::SColor borderLight(255, 65, 75, 85);  // Highlights
-    irr::video::SColor textMain(255, 240, 245, 250);  // Off-white text
-    irr::video::SColor highlightBlue(255, 52, 152, 219); // Azure selection highlight
-    irr::video::SColor editBg(255, 20, 24, 30);       // Darker inset for text inputs
-
-    // Apply Base & Windows
-    skin->setColor(irr::gui::EGDC_WINDOW, bgDark);
-    skin->setColor(irr::gui::EGDC_3D_FACE, panelColor);
-
-    // Flatten 3D effects
-    skin->setColor(irr::gui::EGDC_3D_SHADOW, borderDark);
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, borderDark);
-    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, borderLight);
-
-    // Text Styling
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, textMain);
-    skin->setColor(irr::gui::EGDC_GRAY_TEXT, borderLight);
-    skin->setColor(irr::gui::EGDC_TOOLTIP, textMain);
-
-    // Selections / Highlighting
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT, highlightBlue);
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 0, 0, 0));
-
-    // Edit Boxes & Inputs
-    skin->setColor(irr::gui::EGDC_EDITABLE, editBg);
-    skin->setColor(irr::gui::EGDC_FOCUSED_EDITABLE, borderLight);
-    skin->setColor(irr::gui::EGDC_GRAY_EDITABLE, bgDark);
-  
-    // create the window with a Title Bar (making it draggable) and an ID
-    generalDataWindow = guienv->addWindow(
-        irr::core::rect<irr::s32>(0.01f * su, 0.01f * sh, 0.49f * su, 0.49f * sh),
-        false, L"Param\u00E8tres du Sc\u00E9nario", nullptr, GUI_ID_GENERAL_WINDOW);
-    // REMOVED the setVisible(false) line so the top-right 'X' button appears!
-
-    tabControl = guienv->addTabControl(
-        irr::core::rect<irr::s32>(0.010f * su, 0.03f * sh, 0.470f * su, 0.470f * sh),
-        generalDataWindow);
-    tabControl->setTabHeight((irr::f32)(0.03f * sh));
-
-    irr::gui::IGUITab* generalTab = tabControl->addTab(
-        language->translate("general").c_str());
-    irr::gui::IGUITab* shipTab = tabControl->addTab(
-        language->translate("ships").c_str());
-    irr::gui::IGUITab* weatherTab = tabControl->addTab(language->translate("weather").c_str());
-    
-    
-    //kyara back button (Fixed overlap with zoom button)
-    backButton = guienv->addButton(
-        irr::core::rect<irr::s32>(0.85f * su, 0.01f * sh, 0.95f * su, 0.05f * sh),
-        nullptr, GUI_ID_BACK_BUTTON, L"Back to Menu");
-    backButton->setOverrideColor(irr::video::SColor(255, 255, 100, 100)); // red
-
-    // NEW: Hide/Show UI Button
-    toggleUIButton = guienv->addButton(
-        irr::core::rect<irr::s32>(0.85f * su, 0.06f * sh, 0.95f * su, 0.10f * sh),
-        nullptr, GUI_ID_TOGGLE_UI_BUTTON, L"Cacher Menu");
-
-    zoomIn = guienv->addButton(
-        irr::core::rect<irr::s32>(0.96f * su, 0.01f * sh, 0.99f * su, 0.05f * sh),
-        nullptr, GUI_ID_ZOOMIN_BUTTON, L"+");
-    zoomOut = guienv->addButton(
-        irr::core::rect<irr::s32>(0.96f * su, 0.06f * sh, 0.99f * su, 0.10f * sh),
-        nullptr, GUI_ID_ZOOMOUT_BUTTON, L"-");
-
-    // Chart background (nautical chart day / night, original map, HD image); label set in updateGuiData
-    chartStyleButton = guienv->addButton(
-        irr::core::rect<irr::s32>(0.64f * su, 0.01f * sh, 0.84f * su, 0.05f * sh),
-        nullptr, GUI_ID_CHARTSTYLE_BUTTON, L"Fond");
-    //--------------------------------------------------
-
-    shipSelector = guienv->addComboBox(
-        irr::core::rect<irr::s32>(0.01f * su, 0.09f * sh, 0.13f * su, 0.12f * sh),
-        shipTab, GUI_ID_SHIP_COMBOBOX);
-    ownShipTypeSelector = guienv->addComboBox(
-        irr::core::rect<irr::s32>(0.01f * su, 0.16f * sh, 0.13f * su, 0.19f * sh),
-        shipTab, GUI_ID_OWNSHIPSELECT_COMBOBOX);
-    otherShipTypeSelector = guienv->addComboBox(
-        irr::core::rect<irr::s32>(0.01f * su, 0.16f * sh, 0.13f * su, 0.19f * sh),
-        shipTab, GUI_ID_OTHERSHIPSELECT_COMBOBOX);
-
-    legSelector = guienv->addListBox(
-        irr::core::rect<irr::s32>(0.32f * su, 0.09f * sh, 0.45f * su, 0.19f * sh),
-        shipTab, GUI_ID_LEG_LISTBOX);
-
-    setMMSI = guienv->addButton(
-        irr::core::rect<irr::s32>(0.18f * su, 0.13f * sh, 0.31f * su, 0.16f * sh),
-        shipTab, GUI_ID_SETMMSI_BUTTON,
-        language->translate("setMMSI").c_str());
-    changeLeg = guienv->addButton(
-        irr::core::rect<irr::s32>(0.03f * su, 0.28f * sh, 0.23f * su, 0.31f * sh),
-        shipTab, GUI_ID_CHANGE_BUTTON,
-        language->translate("changeLeg").c_str());
-    addShip = guienv->addButton(
-        irr::core::rect<irr::s32>(0.25f * su, 0.28f * sh, 0.45f * su, 0.31f * sh),
-        shipTab, GUI_ID_ADDSHIP_BUTTON,
-        language->translate("addShip").c_str());
-    addLeg = guienv->addButton(
-        irr::core::rect<irr::s32>(0.03f * su, 0.31f * sh, 0.23f * su, 0.34f * sh),
-        shipTab, GUI_ID_ADDLEG_BUTTON,
-        language->translate("addLeg").c_str());
-    deleteLeg = guienv->addButton(
-        irr::core::rect<irr::s32>(0.25f * su, 0.31f * sh, 0.45f * su, 0.34f * sh),
-        shipTab, GUI_ID_DELETELEG_BUTTON,
-        language->translate("deleteLeg").c_str());
-    moveShip = guienv->addButton(
-        irr::core::rect<irr::s32>(0.14f * su, 0.34f * sh, 0.34f * su, 0.37f * sh),
-        shipTab, GUI_ID_MOVESHIP_BUTTON,
-        language->translate("move").c_str());
-    deleteShip = guienv->addButton(
-        irr::core::rect<irr::s32>(0.14f * su, 0.09f * sh, 0.17f * su, 0.12f * sh),
-        shipTab, GUI_ID_DELETESHIP_BUTTON,
-        language->translate("deleteShip").c_str());
-
-   
-    //  edit boxes
-    legCourseEdit = guienv->addEditBox(
-        L"C", irr::core::rect<irr::s32>(0.01f * su, 0.24f * sh, 0.13f * su, 0.27f * sh),
-        false, shipTab, GUI_ID_COURSE_EDITBOX);
-    legSpeedEdit = guienv->addEditBox(
-        L"S", irr::core::rect<irr::s32>(0.18f * su, 0.24f * sh, 0.30f * su, 0.27f * sh),
-        false, shipTab, GUI_ID_SPEED_EDITBOX);
-    legDistanceEdit = guienv->addEditBox(
-        L"D", irr::core::rect<irr::s32>(0.35f * su, 0.24f * sh, 0.45f * su, 0.27f * sh),
-        false, shipTab, GUI_ID_DISTANCE_EDITBOX);
-    mmsiEdit = guienv->addEditBox(
-        L"", irr::core::rect<irr::s32>(0.18f * su, 0.09f * sh, 0.31f * su, 0.12f * sh),
-        false, shipTab, GUI_ID_MMSI_EDITBOX);
-
     this->language = language;
     this->multiplayer = multiplayer;
+    guienv = device->getGUIEnvironment();
+    returnToMenuFlag = false;
+    french = productFrench();
 
-    
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::s32 W = (irr::s32)driver->getScreenSize().Width;
+    const irr::s32 H = (irr::s32)driver->getScreenSize().Height;
 
-    //add data display:
-    dataDisplay = guienv->addStaticText(L"", irr::core::rect<irr::s32>(0.01*su,0.01*sh,0.45*su,0.04*sh), true, false, shipTab, -1, true); //Actual text set later
+    //Look: the launcher's navy theme. Controls use a slightly larger font than before; the chart keeps
+    //the smaller one for its labels.
+    irr::gui::IGUISkin* skin = guienv->getSkin();
+    originalSkinFont = skin->getFont();
+    mapFont = originalSkinFont;
+    titleFont = editorFont(guienv, 19);
+    textFont = editorFont(guienv, 15);
+    smallFont = editorFont(guienv, 13);
+    Ui::applySkin(skin);
+    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, Ui::field);                       //combo and list backgrounds
+    skin->setColor(irr::gui::EGDC_3D_SHADOW, irr::video::SColor(255, 40, 64, 98));  //their borders
+    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, irr::video::SColor(255, 40, 64, 98));
+    skin->setFont(textFont);
 
-    //Add ship selector drop down
-    shipSelector = guienv->addComboBox(irr::core::rect<irr::s32>(0.01*su,0.09*sh,0.13*su,0.12*sh),shipTab,GUI_ID_SHIP_COMBOBOX);
-    guienv->addStaticText(language->translate("selectShip").c_str(),irr::core::rect<irr::s32>(0.01*su,0.05*sh,0.13*su,0.08*sh),false,false,shipTab);
+    //Side panel geometry
+    sidebarWidth = irr::core::clamp((irr::s32)(W * 0.31f), 360, 470);
+    sidebarShown = true;
+    activeTab = 0;
+    const irr::s32 S = sidebarWidth;
+    const irr::s32 ch = (irr::s32)Ui::textHeight(textFont) + 14;  //control height
+    const irr::s32 lh = (irr::s32)Ui::textHeight(smallFont) + 6;  //label height
+    const irr::s32 tabsTop = 82, tabsBottom = tabsTop + 38;
+    const irr::s32 footerTop = H - 66;
+    const irr::s32 contentTop = tabsBottom + 22;
+    const irr::s32 x0 = 18, x1 = S - 18;          //cards
+    const irr::s32 cx0 = x0 + 14, cx1 = x1 - 14;  //inside cards
+    const irr::s32 mid = (cx0 + cx1) / 2;
 
-    //Add selectors to allow changing own and other ships (only one visible at a time)
-    guienv->addStaticText(language->translate("shipType").c_str(),irr::core::rect<irr::s32>(0.01*su,0.13*sh,0.13*su,0.16*sh),false,false,shipTab);
-    ownShipTypeSelector = guienv->addComboBox(irr::core::rect<irr::s32>(0.01*su,0.16*sh,0.13*su,0.19*sh),shipTab,GUI_ID_OWNSHIPSELECT_COMBOBOX);
-    for (int i = 0; i<ownShipTypes.size(); i++) {
-        ownShipTypeSelector->addItem( irr::core::stringw(ownShipTypes.at(i).c_str()).c_str() );
+    SidePanel* panel = new SidePanel(guienv, irr::core::rect<irr::s32>(0, 0, S, H),
+        french ? L"\u00C9diteur d'exercices" : L"Exercise editor", titleFont, smallFont, tabsBottom, footerTop);
+    panel->drop();
+    sidebar = panel;
+
+    backButton = panelButton(guienv, sidebar, irr::core::rect<irr::s32>(x1 - 86, 22, x1, 22 + 34), GUI_ID_BACK_BUTTON,
+        french ? L"Menu" : L"Menu", Ui::Button::Secondary, textFont);
+    backButton->setToolTipText(french ? L"Retour \u00E0 l'\u00E9cran de choix (sans enregistrer)" : L"Back to the start screen (without saving)");
+
+    //Tabs
+    const wchar_t* tabNames[4] = { french ? L"Exercice" : L"Exercise", french ? L"Navires" : L"Ships",
+        french ? L"Route" : L"Route", french ? L"M\u00E9t\u00E9o" : L"Weather" };
+    const irr::s32 tabW = (x1 - x0 - 3 * 6) / 4;
+    for (int i = 0; i < 4; i++) {
+        const irr::s32 tx = x0 + i * (tabW + 6);
+        tabButtons[i] = panelButton(guienv, sidebar, irr::core::rect<irr::s32>(tx, tabsTop, tx + tabW, tabsBottom), GUI_ID_TAB_EXERCISE + i,
+            tabNames[i], Ui::Button::Secondary, textFont);
     }
-    otherShipTypeSelector = guienv->addComboBox(irr::core::rect<irr::s32>(0.01*su,0.16*sh,0.13*su,0.19*sh),shipTab,GUI_ID_OTHERSHIPSELECT_COMBOBOX);
-    for (int i = 0; i<otherShipTypes.size(); i++) {
-        otherShipTypeSelector->addItem( irr::core::stringw(otherShipTypes.at(i).c_str()).c_str() );
+
+    //Apply / Save
+    apply = panelButton(guienv, sidebar, irr::core::rect<irr::s32>(x0, footerTop + 14, x0 + 130, footerTop + 14 + 38), GUI_ID_APPLY_BUTTON,
+        french ? L"Appliquer" : L"Apply", Ui::Button::Secondary, textFont);
+    apply->setToolTipText(french ? L"Prendre en compte l'exercice et la m\u00E9t\u00E9o sans enregistrer" : L"Use the exercise and weather settings without saving");
+    save = panelButton(guienv, sidebar, irr::core::rect<irr::s32>(x0 + 142, footerTop + 14, x1, footerTop + 14 + 38), GUI_ID_SAVE_BUTTON,
+        french ? L"Enregistrer l'exercice" : L"Save the exercise", Ui::Button::Primary, textFont);
+
+    //Pages (and the ship card shared by Ships and Route), below the tabs
+    const irr::s32 contentH = footerTop - 12 - contentTop;
+    SidePage* page[4];
+    for (int i = 0; i < 4; i++) {
+        page[i] = new SidePage(guienv, sidebar, irr::core::rect<irr::s32>(0, contentTop, S, contentTop + contentH), textFont, smallFont);
+        page[i]->drop();
+        pages[i] = page[i];
     }
-    otherShipTypeSelector->setVisible(false); //Initially show own ship selector.
+    //Ship card: which ship, add / delete, place at the chart centre
+    const irr::s32 stripH = 40 + ch + 8 + ch + 6 + lh + 12;
+    SidePage* strip = new SidePage(guienv, sidebar, irr::core::rect<irr::s32>(0, contentTop, S, contentTop + stripH), textFont, smallFont);
+    strip->drop();
+    shipStrip = strip;
+    {
+        strip->addCard(irr::core::rect<irr::s32>(x0, 0, x1, stripH - 2), french ? L"Navire" : L"Ship");
+        irr::s32 y = 40;
+        shipSelector = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx1 - 112, y + ch), strip, GUI_ID_SHIP_COMBOBOX);
+        deleteShip = panelButton(guienv, strip, irr::core::rect<irr::s32>(cx1 - 104, y, cx1, y + ch), GUI_ID_DELETESHIP_BUTTON,
+            french ? L"Supprimer" : L"Delete", Ui::Button::Danger, textFont);
+        deleteShip->setToolTipText(french ? L"Supprimer le navire choisi (pas le navire propre)" : L"Delete the chosen ship (not the own ship)");
+        y += ch + 8;
+        addShip = panelButton(guienv, strip, irr::core::rect<irr::s32>(cx0, y, mid - 4, y + ch), GUI_ID_ADDSHIP_BUTTON,
+            french ? L"+ Nouveau navire" : L"+ New ship", Ui::Button::Secondary, textFont);
+        addShip->setToolTipText(french ? L"Ajoute un navire au centre de la carte (rep\u00E8re +), du mod\u00E8le choisi" : L"Adds a ship at the chart centre (+ mark), of the chosen model");
+        moveShip = panelButton(guienv, strip, irr::core::rect<irr::s32>(mid + 4, y, cx1, y + ch), GUI_ID_MOVESHIP_BUTTON,
+            french ? L"Placer au centre" : L"Move to centre", Ui::Button::Secondary, textFont);
+        moveShip->setToolTipText(french ? L"Place le navire choisi au centre de la carte (rep\u00E8re +)" : L"Moves the chosen ship to the chart centre (+ mark)");
+        y += ch + 6;
+        dataDisplay = noteText(guienv, strip, irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), L"", Ui::textFaint, smallFont);
+    }
+    const irr::s32 belowStrip = stripH + 12;
 
-    //Add leg selector drop down
-    legSelector  = guienv->addListBox(irr::core::rect<irr::s32>(0.32*su,0.09*sh,0.45*su,0.19*sh),shipTab,GUI_ID_LEG_LISTBOX);
-    guienv->addStaticText(language->translate("selectLeg").c_str(),irr::core::rect<irr::s32>(0.32*su,0.05*sh,0.45*su,0.08*sh),false,false,shipTab);
+    //--- Exercise page ---
+    {
+        SidePage* p = page[0];
+        irr::s32 y = 0;
+        const irr::s32 cardA = 40 + lh + ch + 4 + 2 * lh + 6 + lh + 3 * ch + 14;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + cardA), french ? L"Exercice" : L"Exercise");
+        y += 40;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), french ? L"Nom de l'exercice" : L"Exercise name");
+        y += lh;
+        scenarioName = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1, y + ch), GUI_ID_SCENARIONAME_EDITBOX, textFont);
+        y += ch + 4;
+        overwriteWarning = noteText(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1, y + 2 * lh),
+            french ? L"Un exercice porte d\u00E9j\u00E0 ce nom : il sera remplac\u00E9 \u00E0 l'enregistrement." : L"An exercise already has this name: it will be replaced when saved.",
+            irr::video::SColor(255, 255, 150, 120), smallFont);
+        multiplayerNameWarning = noteText(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1, y + 2 * lh),
+            french ? L"Exercice multijoueur : le nom doit se terminer par _mp." : L"Multiplayer exercise: the name must end with _mp.",
+            Ui::warning, smallFont);
+        notMultiplayerNameWarning = noteText(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1, y + 2 * lh),
+            french ? L"Exercice simple : le nom ne doit pas se terminer par _mp." : L"Single-station exercise: the name must not end with _mp.",
+            Ui::warning, smallFont);
+        y += 2 * lh + 6;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), french ? L"Description (affich\u00E9e au choix de l'exercice)" : L"Description (shown when choosing the exercise)");
+        y += lh;
+        descriptionEdit = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y + 4, cx1, y + 3 * ch - 4), GUI_ID_DESCRIPTION_EDITBOX, textFont);
+        descriptionEdit->setMultiLine(true);
+        descriptionEdit->setWordWrap(true);
+        descriptionEdit->setAutoScroll(true);
+        descriptionEdit->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
 
-    //Add edit boxes for this leg element
-    legCourseEdit   = guienv->addEditBox(L"C",irr::core::rect<irr::s32>(0.01*su,0.24*sh,0.13*su,0.27*sh),false,shipTab,GUI_ID_COURSE_EDITBOX);
-    legSpeedEdit    = guienv->addEditBox(L"S",irr::core::rect<irr::s32>(0.18*su,0.24*sh,0.30*su,0.27*sh),false,shipTab,GUI_ID_SPEED_EDITBOX);
-    legDistanceEdit = guienv->addEditBox(L"D",irr::core::rect<irr::s32>(0.35*su,0.24*sh,0.45*su,0.27*sh),false,shipTab,GUI_ID_DISTANCE_EDITBOX);
+        y = cardA + 12;
+        const irr::s32 cardB = 40 + 2 * (lh + ch) + 8 + 14;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + cardB), french ? L"D\u00E9part" : L"Start");
+        y += 40;
+        //Date fields, then the time just after them (or at mid width if there is room).
+        const irr::s32 tx = irr::core::max_(mid + 16, cx0 + 168 + 20);
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, tx - 8, y + lh), french ? L"Date (JJ / MM / AAAA)" : L"Date (DD / MM / YYYY)");
+        p->addLabel(irr::core::rect<irr::s32>(tx, y, cx1, y + lh), french ? L"Heure (HH : MM)" : L"Time (HH : MM)");
+        y += lh;
+        startDay = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx0 + 44, y + ch), GUI_ID_STARTDAY_EDITBOX, textFont);
+        startMonth = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0 + 54, y, cx0 + 98, y + ch), GUI_ID_STARTMONTH_EDITBOX, textFont);
+        startYear = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0 + 108, y, cx0 + 168, y + ch), GUI_ID_STARTYEAR_EDITBOX, textFont);
+        startHours = fieldEdit(guienv, p, irr::core::rect<irr::s32>(tx, y, tx + 44, y + ch), GUI_ID_STARTHOURS_EDITBOX, textFont);
+        startMins = fieldEdit(guienv, p, irr::core::rect<irr::s32>(tx + 54, y, tx + 98, y + ch), GUI_ID_STARTMINS_EDITBOX, textFont);
+        y += ch + 8;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, mid, y + lh), french ? L"Lever du soleil (h)" : L"Sunrise (h)");
+        p->addLabel(irr::core::rect<irr::s32>(tx, y, cx1, y + lh), french ? L"Coucher du soleil (h)" : L"Sunset (h)");
+        y += lh;
+        sunRise = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx0 + 90, y + ch), GUI_ID_SUNRISE_EDITBOX, textFont);
+        sunSet = fieldEdit(guienv, p, irr::core::rect<irr::s32>(tx, y, tx + 90, y + ch), GUI_ID_SUNSET_EDITBOX, textFont);
+    }
 
-    guienv->addStaticText(language->translate("setCourse").c_str(),irr::core::rect<irr::s32>(0.01*su,0.20*sh,0.13*su,0.23*sh),false,false,shipTab);
-    guienv->addStaticText(language->translate("setSpeed").c_str(),irr::core::rect<irr::s32>(0.18*su,0.20*sh,0.30*su,0.23*sh),false,false,shipTab);
-    guienv->addStaticText(language->translate("setDistance").c_str(),irr::core::rect<irr::s32>(0.35*su,0.20*sh,0.45*su,0.23*sh),false,false,shipTab);
+    //--- Ships page: model with its picture, identification ---
+    {
+        SidePage* p = page[1];
+        irr::s32 y = belowStrip;
+        //Picture as large as the space allows (4:3 at most, none if there is no room).
+        const irr::s32 identityH = 40 + lh + ch + 10 + ch + 14;
+        const irr::s32 roomForPicture = contentH - belowStrip - (40 + ch + 10 + 14) - 12 - identityH;
+        const irr::s32 pictureH = irr::core::clamp(roomForPicture, 0, (cx1 - cx0) * 9 / 16);
+        const irr::s32 modelH = 40 + ch + (pictureH > 40 ? 10 + pictureH : 0) + 14;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + modelH), french ? L"Mod\u00E8le" : L"Model");
+        y += 40;
+        ownShipTypeSelector = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx1, y + ch), p, GUI_ID_OWNSHIPSELECT_COMBOBOX);
+        for (int i = 0; i < ownShipTypes.size(); i++) {
+            ownShipTypeSelector->addItem(irr::core::stringw(ownShipTypes.at(i).c_str()).c_str());
+        }
+        otherShipTypeSelector = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx1, y + ch), p, GUI_ID_OTHERSHIPSELECT_COMBOBOX);
+        for (int i = 0; i < otherShipTypes.size(); i++) {
+            otherShipTypeSelector->addItem(irr::core::stringw(otherShipTypes.at(i).c_str()).c_str());
+        }
+        otherShipTypeSelector->setVisible(false); //Initially show own ship selector.
+        y += ch + 10;
+        const irr::core::rect<irr::s32> imageRect(cx0, y, cx1, y + irr::core::max_(pictureH, 1));
+        shipImageDisplay = guienv->addImage(imageRect, p);
+        shipImageDisplay->setScaleImage(true);
+        shipImageDisplay->setVisible(false);
+        shipImageNotFoundText = guienv->addStaticText(french ? L"Pas de photo pour ce mod\u00E8le" : L"No picture for this model", imageRect, false, true, p, -1, true);
+        shipImageNotFoundText->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
+        shipImageNotFoundText->setBackgroundColor(irr::video::SColor(255, 10, 20, 36));
+        shipImageNotFoundText->setOverrideColor(Ui::textFaint);
+        shipImageNotFoundText->setOverrideFont(smallFont);
+        shipImageNotFoundText->setVisible(false);
+        if (pictureH <= 40) { shipImageDisplay->setEnabled(false); } //no room: never shown
+        hasValidImage = false;
 
-    //Add MMSI editing
-    mmsiEdit = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.18*su,0.09*sh,0.31*su,0.12*sh),false,shipTab,GUI_ID_MMSI_EDITBOX);
-    setMMSI = guienv->addButton(irr::core::rect<irr::s32>(0.18*su,0.13*sh,0.31*su,0.16*sh),shipTab,GUI_ID_SETMMSI_BUTTON,language->translate("setMMSI").c_str());
+        y = belowStrip + modelH + 12;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + identityH), french ? L"Identification" : L"Identification");
+        y += 40;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), L"MMSI");
+        y += lh;
+        mmsiEdit = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1 - 112, y + ch), GUI_ID_MMSI_EDITBOX, textFont);
+        setMMSI = panelButton(guienv, p, irr::core::rect<irr::s32>(cx1 - 104, y, cx1, y + ch), GUI_ID_SETMMSI_BUTTON,
+            french ? L"Appliquer" : L"Apply", Ui::Button::Secondary, textFont);
+        y += ch + 10;
+        isDrifting = guienv->addCheckBox(false, irr::core::rect<irr::s32>(cx0, y, cx1, y + ch), p, GUI_ID_DRIFTING_CHECKBOX,
+            french ? L"D\u00E9rive libre (vent et courant)" : L"Free drift (wind and current)");
+    }
 
-    // Set if the ship can drift with wind and current
-    isDrifting = guienv->addCheckBox(false, irr::core::rect<irr::s32>(0.18*su,0.16*sh,0.20*su,0.19*sh), shipTab, GUI_ID_DRIFTING_CHECKBOX);
-    guienv->addStaticText(language->translate("allowDrifting").c_str(), irr::core::rect<irr::s32>(0.20 * su, 0.16 * sh, 0.31 * su, 0.19 * sh),false, false, shipTab);
+    //--- Route page: legs of the chosen ship ---
+    {
+        SidePage* p = page[2];
+        irr::s32 y = belowStrip;
+        const irr::s32 fixed = 40 + 2 * lh + 8 + 10 + lh + ch + 12 + ch + 14;
+        const irr::s32 listH = irr::core::clamp(contentH - belowStrip - fixed, 3 * (ch - 6), 8 * (ch - 6));
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + fixed + listH), french ? L"Route" : L"Route");
+        y += 40;
+        routeHint = noteText(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx1, y + 2 * lh), L"", Ui::textDim, smallFont);
+        y += 2 * lh + 8;
+        legSelector = guienv->addListBox(irr::core::rect<irr::s32>(cx0, y, cx1, y + listH), p, GUI_ID_LEG_LISTBOX, false);
+        legSelector->setItemHeight(ch - 6);
+        y += listH + 10;
+        const irr::s32 colW = (cx1 - cx0 - 2 * 10) / 3;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx0 + colW, y + lh), french ? L"Cap (\u00B0)" : L"Course (\u00B0)");
+        p->addLabel(irr::core::rect<irr::s32>(cx0 + colW + 10, y, cx0 + 2 * colW + 10, y + lh), french ? L"Vitesse (nds)" : L"Speed (kn)");
+        p->addLabel(irr::core::rect<irr::s32>(cx0 + 2 * colW + 20, y, cx1, y + lh), french ? L"Distance (NM)" : L"Distance (NM)");
+        y += lh;
+        legCourseEdit = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx0 + colW, y + ch), GUI_ID_COURSE_EDITBOX, textFont);
+        legSpeedEdit = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0 + colW + 10, y, cx0 + 2 * colW + 10, y + ch), GUI_ID_SPEED_EDITBOX, textFont);
+        legDistanceEdit = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0 + 2 * colW + 20, y, cx1, y + ch), GUI_ID_DISTANCE_EDITBOX, textFont);
+        y += ch + 12;
+        changeLeg = panelButton(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx0 + colW, y + ch), GUI_ID_CHANGE_BUTTON,
+            french ? L"Modifier" : L"Change", Ui::Button::Primary, textFont);
+        changeLeg->setToolTipText(french ? L"Applique cap, vitesse et distance au segment choisi" : L"Applies course, speed and distance to the chosen leg");
+        addLeg = panelButton(guienv, p, irr::core::rect<irr::s32>(cx0 + colW + 10, y, cx0 + 2 * colW + 10, y + ch), GUI_ID_ADDLEG_BUTTON,
+            french ? L"Ins\u00E9rer apr\u00E8s" : L"Insert after", Ui::Button::Secondary, textFont);
+        addLeg->setToolTipText(french ? L"Ajoute un segment apr\u00E8s celui choisi, avec ces valeurs" : L"Adds a leg after the chosen one, with these values");
+        deleteLeg = panelButton(guienv, p, irr::core::rect<irr::s32>(cx0 + 2 * colW + 20, y, cx1, y + ch), GUI_ID_DELETELEG_BUTTON,
+            french ? L"Supprimer" : L"Delete", Ui::Button::Danger, textFont);
+    }
 
-    //Add buttons
-    changeLeg       = guienv->addButton(irr::core::rect<irr::s32>(0.03*su, 0.28*sh, 0.23*su, 0.31*sh),shipTab,GUI_ID_CHANGE_BUTTON,language->translate("changeLeg").c_str());
-    addShip         = guienv->addButton(irr::core::rect<irr::s32>(0.25*su, 0.28*sh, 0.45*su, 0.31*sh),shipTab, GUI_ID_ADDSHIP_BUTTON,language->translate("addShip").c_str());
-    addLeg          = guienv->addButton(irr::core::rect<irr::s32>(0.03*su, 0.31*sh, 0.23*su, 0.34*sh),shipTab,GUI_ID_ADDLEG_BUTTON,language->translate("addLeg").c_str());
-    deleteLeg       = guienv->addButton(irr::core::rect<irr::s32>(0.25*su, 0.31*sh, 0.45*su, 0.34*sh),shipTab, GUI_ID_DELETELEG_BUTTON,language->translate("deleteLeg").c_str());
-    moveShip        = guienv->addButton(irr::core::rect<irr::s32>(0.14*su, 0.34*sh, 0.34*su, 0.37*sh),shipTab, GUI_ID_MOVESHIP_BUTTON,language->translate("move").c_str());
-	deleteShip		= guienv->addButton(irr::core::rect<irr::s32>(0.14*su, 0.09*sh, 0.17*su, 0.12*sh), shipTab, GUI_ID_DELETESHIP_BUTTON, language->translate("deleteShip").c_str());
-    //kyara
-    // --- SHIP PREVIEW IMAGE BLOCK ---
-    // Coordinates match the bottom right corner (Width: 70% to 98%, Height: 65% to 95%)
-    irr::core::rect<irr::s32> imageRect(0.70 * su, 0.65 * sh, 0.98 * su, 0.95 * sh);
+    //--- Weather page ---
+    {
+        SidePage* p = page[3];
+        irr::s32 y = 0;
+        const irr::s32 windH = 40 + lh + ch + 14;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + windH), french ? L"Vent" : L"Wind");
+        y += 40;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, mid, y + lh), french ? L"Direction (\u00B0, d'o\u00F9 il vient)" : L"Direction (\u00B0, from)");
+        p->addLabel(irr::core::rect<irr::s32>(mid + 16, y, cx1, y + lh), french ? L"Vitesse (nds)" : L"Speed (kn)");
+        y += lh;
+        windDirection = fieldEdit(guienv, p, irr::core::rect<irr::s32>(cx0, y, cx0 + 110, y + ch), GUI_ID_WINDDIRECTION_EDITBOX, textFont);
+        windSpeed = fieldEdit(guienv, p, irr::core::rect<irr::s32>(mid + 16, y, mid + 126, y + ch), GUI_ID_WINDSPEED_EDITBOX, textFont);
 
-    shipImageDisplay = guienv->addImage(imageRect);
-    shipImageDisplay->setScaleImage(true); // Forces image to fit the box
-    shipImageDisplay->setVisible(false);
+        y = windH + 12;
+        const irr::s32 seaH = 40 + 3 * (lh + ch) + 2 * 8 + 14;
+        p->addCard(irr::core::rect<irr::s32>(x0, y, x1, y + seaH), french ? L"Mer et visibilit\u00E9" : L"Sea and visibility");
+        y += 40;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), french ? L"\u00C9tat de la mer (0 \u00E0 12)" : L"Sea state (0 to 12)");
+        y += lh;
+        weather = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx0 + 140, y + ch), p, GUI_ID_WEATHER_COMBOBOX);
+        y += ch + 8;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), french ? L"Pluie (0 \u00E0 10)" : L"Rain (0 to 10)");
+        y += lh;
+        rain = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx0 + 140, y + ch), p, GUI_ID_RAIN_COMBOBOX);
+        y += ch + 8;
+        p->addLabel(irr::core::rect<irr::s32>(cx0, y, cx1, y + lh), french ? L"Visibilit\u00E9 (NM)" : L"Visibility (NM)");
+        y += lh;
+        visibility = guienv->addComboBox(irr::core::rect<irr::s32>(cx0, y, cx0 + 140, y + ch), p, GUI_ID_VISIBILITY_COMBOBOX);
+    }
 
-    shipImageNotFoundText = guienv->addStaticText(L"Picture not found", imageRect, true, true, 0, -1, true);
-    shipImageNotFoundText->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    shipImageNotFoundText->setBackgroundColor(irr::video::SColor(150, 0, 0, 0)); // Semi-transparent dark background
-    shipImageNotFoundText->setOverrideColor(irr::video::SColor(255, 255, 255, 255)); // White text
-    shipImageNotFoundText->setVisible(false);
-
-    hasValidImage = false;
-    //This is used to track when the edit boxes need updating, when ship or legs have changed. Set to true for initial load
-    editBoxesNeedUpdating = true;
-
-    // General scenario information
-    guienv->addStaticText(language->translate("startTime").c_str(),irr::core::rect<irr::s32>(0.010*su,0.01*sh,0.115*su,0.04*sh),false,false,generalTab);
-    startHours = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.010*su,0.04*sh,0.035*su,0.07*sh),false,generalTab,GUI_ID_STARTHOURS_EDITBOX );
-    startMins = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.045*su,0.04*sh,0.070*su,0.07*sh),false,generalTab,GUI_ID_STARTMINS_EDITBOX );
-
-    guienv->addStaticText(language->translate("startDate").c_str(),irr::core::rect<irr::s32>(0.130*su,0.01*sh,0.280*su,0.04*sh),false,false,generalTab);
-    startYear = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.130*su,0.04*sh,0.180*su,0.07*sh),false,generalTab,GUI_ID_STARTYEAR_EDITBOX );
-    startMonth = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.190*su,0.04*sh,0.215*su,0.07*sh),false,generalTab,GUI_ID_STARTMONTH_EDITBOX );
-    startDay = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.225*su,0.04*sh,0.250*su,0.07*sh),false,generalTab,GUI_ID_STARTDAY_EDITBOX );
-
-    guienv->addStaticText(language->translate("sunRise").c_str(),irr::core::rect<irr::s32>(0.010*su,0.08*sh,0.115*su,0.11*sh),false,false,generalTab);
-    guienv->addStaticText(language->translate("sunSet").c_str(),irr::core::rect<irr::s32>(0.130*su,0.08*sh,0.280*su,0.11*sh),false,false,generalTab);
-    sunRise = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.010*su,0.11*sh,0.085*su,0.14*sh),false,generalTab,GUI_ID_SUNRISE_EDITBOX );
-    sunSet = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.130*su,0.11*sh,0.205*su,0.14*sh),false,generalTab,GUI_ID_SUNSET_EDITBOX );
-
-    guienv->addStaticText(language->translate("weather").c_str(),irr::core::rect<irr::s32>(0.010*su,0.15*sh,0.130*su,0.18*sh),false,false,weatherTab);
-    guienv->addStaticText(language->translate("rain").c_str(),irr::core::rect<irr::s32>(0.130*su,0.15*sh,0.250*su,0.18*sh),false,false,weatherTab);
-    guienv->addStaticText(language->translate("visibility").c_str(),irr::core::rect<irr::s32>(0.250*su,0.15*sh,0.370*su,0.18*sh),false,false,weatherTab);
-    weather    = guienv->addComboBox(irr::core::rect<irr::s32>(0.010*su,0.18*sh,0.085*su,0.21*sh),weatherTab,GUI_ID_WEATHER_COMBOBOX);
-    rain       = guienv->addComboBox(irr::core::rect<irr::s32>(0.130*su,0.18*sh,0.205*su,0.21*sh),weatherTab,GUI_ID_RAIN_COMBOBOX);
-    visibility = guienv->addComboBox(irr::core::rect<irr::s32>(0.250*su,0.18*sh,0.325*su,0.21*sh),weatherTab,GUI_ID_VISIBILITY_COMBOBOX);
-
-    guienv->addStaticText(language->translate("scenario").c_str(),irr::core::rect<irr::s32>(0.010*su,0.22*sh,0.280*su,0.25*sh),false,false,generalTab);
-    scenarioName = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.010*su,0.25*sh,0.205*su,0.28*sh),false,generalTab,GUI_ID_SCENARIONAME_EDITBOX );
-    overwriteWarning = guienv->addStaticText(language->translate("overwrite").c_str(),irr::core::rect<irr::s32>(0.215*su,0.25*sh,0.450*su,0.28*sh),false,false,generalTab);
-
-    descriptionEdit = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.010*su,0.29*sh,0.450*su,0.37*sh),false,generalTab,GUI_ID_DESCRIPTION_EDITBOX );
-    descriptionEdit->setMultiLine(true);
-    descriptionEdit->setWordWrap(true);
-    descriptionEdit->setAutoScroll(true);
-    descriptionEdit->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
-
-    multiplayerNameWarning = guienv->addStaticText(language->translate("multiplayerNeedsMP").c_str(),irr::core::rect<irr::s32>(0.215*su,0.25*sh,0.450*su,0.31*sh),false,true,generalTab);
-    notMultiplayerNameWarning = guienv->addStaticText(language->translate("nonMultiplayerNoMP").c_str(),irr::core::rect<irr::s32>(0.215*su,0.25*sh,0.450*su,0.31*sh),false,true,generalTab);
-
-    apply = guienv->addButton(irr::core::rect<irr::s32>(0.300*su,0.01*sh,0.450*su,0.07*sh),generalTab,GUI_ID_APPLY_BUTTON,language->translate("apply").c_str());
-    save = guienv->addButton(irr::core::rect<irr::s32>(0.300*su,0.08*sh,0.450*su,0.14*sh),generalTab,GUI_ID_SAVE_BUTTON,language->translate("save").c_str());
+    //Map toolbar: chart background and zoom at the top right, the panel toggle beside the panel.
+    chartStyleButton = panelButton(guienv, 0, irr::core::rect<irr::s32>(W - 14 - 2 * 40 - 8 - 250, 14, W - 14 - 2 * 40 - 8, 14 + 36), GUI_ID_CHARTSTYLE_BUTTON,
+        french ? L"Fond" : L"Background", Ui::Button::Secondary, textFont);
+    chartStyleButton->setToolTipText(french ? L"Fond de carte : carte marine jour / nuit, carte d'origine, image" : L"Chart background: nautical chart day / night, original map, image");
+    zoomOut = panelButton(guienv, 0, irr::core::rect<irr::s32>(W - 14 - 2 * 40 - 4 + 4, 14, W - 14 - 40 - 4, 14 + 36), GUI_ID_ZOOMOUT_BUTTON,
+        L"", Ui::Button::Secondary, titleFont);
+    static_cast<Ui::Button*>(zoomOut)->setGlyph(Ui::Button::Minus);
+    zoomIn = panelButton(guienv, 0, irr::core::rect<irr::s32>(W - 14 - 36, 14, W - 14, 14 + 36), GUI_ID_ZOOMIN_BUTTON,
+        L"", Ui::Button::Secondary, titleFont);
+    static_cast<Ui::Button*>(zoomIn)->setGlyph(Ui::Button::Plus);
+    zoomOut->setToolTipText(french ? L"Zoom arri\u00E8re (molette)" : L"Zoom out (wheel)");
+    zoomIn->setToolTipText(french ? L"Zoom avant (molette)" : L"Zoom in (wheel)");
+    toggleUIButton = panelButton(guienv, 0, irr::core::rect<irr::s32>(S + 12, 14, S + 12 + 40, 14 + 36), GUI_ID_TOGGLE_UI_BUTTON,
+        L"", Ui::Button::Secondary, titleFont);
+    static_cast<Ui::Button*>(toggleUIButton)->setGlyph(Ui::Button::ChevronLeft);
+    toggleUIButton->setToolTipText(french ? L"Masquer / afficher le panneau" : L"Hide / show the panel");
 
     weather->addItem(L"0"); weather->addItem(L"0.5"); weather->addItem(L"1"); weather->addItem(L"1.5");
     weather->addItem(L"2"); weather->addItem(L"2.5"); weather->addItem(L"3"); weather->addItem(L"3.5");
@@ -306,13 +488,8 @@ GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::s
     visibility->addItem(L"0.6");visibility->addItem(L"0.5");visibility->addItem(L"0.4");
     visibility->addItem(L"0.3"); visibility->addItem(L"0.2"); visibility->addItem(L"0.1"); visibility->addItem(L"0");
 
-    // Wind
-    guienv->addStaticText(language->translate("windDirection").c_str(),irr::core::rect<irr::s32>(0.010*su,0.01*sh,0.115*su,0.04*sh),false,false,weatherTab);
-    windDirection = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.010*su,0.04*sh,0.070*su,0.07*sh),false,weatherTab,GUI_ID_WINDDIRECTION_EDITBOX );
-
-    guienv->addStaticText(language->translate("windSpeed").c_str(),irr::core::rect<irr::s32>(0.130*su,0.01*sh,0.280*su,0.04*sh),false,false,weatherTab);
-    windSpeed = guienv->addEditBox(L"",irr::core::rect<irr::s32>(0.130*su,0.04*sh,0.180*su,0.07*sh),false,weatherTab,GUI_ID_WINDSPEED_EDITBOX );
-    
+    //This is used to track when the edit boxes need updating, when ship or legs have changed. Set to true for initial load
+    editBoxesNeedUpdating = true;
 
     //Fill in initial info into dialog boxes:
     irr::f32 timeFloat = oldScenarioInfo.startTime/SECONDS_IN_HOUR;
@@ -342,9 +519,9 @@ GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::s
     sunSet->setText((irr::core::stringw(oldScenarioInfo.sunSet)).c_str());
     weather->setSelected(floor(oldScenarioInfo.weather*2));
     rain->setSelected(floor(oldScenarioInfo.rainIntensity*2));
-    
-    windDirection->setText((irr::core::stringw(oldScenarioInfo.windDirection)).c_str());
-    windSpeed->setText((irr::core::stringw(oldScenarioInfo.windSpeed)).c_str());
+
+    windDirection->setText(f32To1dp(oldScenarioInfo.windDirection).c_str());
+    windSpeed->setText(f32To1dp(oldScenarioInfo.windSpeed).c_str());
 
     irr::s32 selectedVis;
     if (oldScenarioInfo.visibilityRange<=1) {
@@ -366,11 +543,68 @@ GUIMain::GUIMain(irr::IrrlichtDevice* device, Lang* language, std::vector<std::s
     mapCentreX = 0;
     mapCentreZ = 0;
 
+    setActiveTab(0);
+
     //Add an info box if in multiplayer mode
     if (multiplayer) {
-        irr::gui::IGUIWindow* multiplayerInstructions = guienv->addMessageBox(L"",language->translate("multiplayerinfo").c_str());
+        guienv->addMessageBox(french ? L"Exercice multijoueur" : L"Multiplayer exercise", language->translate("multiplayerinfo").c_str());
     }
 
+}
+
+GUIMain::~GUIMain()
+{
+    //The start screen is drawn with the skin's font as it was.
+    if (originalSkinFont) { guienv->getSkin()->setFont(originalSkinFont); }
+}
+
+void GUIMain::setWorldName(const std::string& world)
+{
+    if (world == worldShown) { return; }
+    worldShown = world;
+    static_cast<SidePanel*>(sidebar)->setSubtitle((french ? L"Zone : " : L"Area: ") + std::wstring(world.begin(), world.end()));
+}
+
+void GUIMain::setActiveTab(int tab)
+{
+    activeTab = irr::core::clamp(tab, 0, 3);
+    for (int i = 0; i < 4; i++) {
+        pages[i]->setVisible(i == activeTab);
+        tabButtons[i]->setChecked(i == activeTab);
+    }
+    shipStrip->setVisible(activeTab == 1 || activeTab == 2);
+}
+
+irr::core::recti GUIMain::getMapViewport() const
+{
+    const irr::core::dimension2du s = device->getVideoDriver()->getScreenSize();
+    return irr::core::recti(sidebarShown ? sidebarWidth : 0, 0, (irr::s32)s.Width, (irr::s32)s.Height);
+}
+
+void GUIMain::placeToolbar()
+{
+    const irr::s32 x = sidebarShown ? sidebarWidth + 12 : 12;
+    toggleUIButton->setRelativePosition(irr::core::rect<irr::s32>(x, 14, x + 40, 14 + 36));
+    static_cast<Ui::Button*>(toggleUIButton)->setGlyph(sidebarShown ? Ui::Button::ChevronLeft : Ui::Button::ChevronRight);
+}
+
+std::wstring GUIMain::legLabel(const OtherShipData& ship, irr::u32 leg) const
+{
+    //Number, course, speed and distance of a leg, as in the edit boxes.
+    wchar_t text[96];
+    const LegData& l = ship.legs.at(leg);
+    const irr::f32 hours = (leg + 1 < ship.legs.size()) ? (ship.legs.at(leg + 1).startTime - l.startTime) / SECONDS_IN_HOUR : -1.0f;
+    if (fabs(l.speed) < 0.01f) {
+        //Stopped: the leg has no end, so no distance.
+        swprintf(text, 96, L"%u    %05.1f\u00B0    %ls", leg + 1, l.bearing, french ? L"\u00E0 l'arr\u00EAt" : L"stopped");
+    }
+    else if (hours >= 0 && hours < 1e6f) {
+        swprintf(text, 96, L"%u    %05.1f\u00B0    %.1f %ls    %.2f NM", leg + 1, l.bearing, l.speed, french ? L"nds" : L"kn", hours * l.speed);
+    }
+    else {
+        swprintf(text, 96, L"%u    %05.1f\u00B0    %.1f %ls", leg + 1, l.bearing, l.speed, french ? L"nds" : L"kn");
+    }
+    return text;
 }
 
 void GUIMain::updateEditBoxes()
@@ -382,14 +616,15 @@ void GUIMain::updateEditBoxes()
 void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip, bool draggingShip, irr::core::position2di mouse)
 {
     irr::video::IVideoDriver* driver = device->getVideoDriver();
-    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
-    irr::s32 statusBarHeight = (font ? (irr::s32)font->getDimension(L"Ag").Height : 14) + 6;
+    irr::gui::IGUIFont* font = mapFont;
+    irr::s32 statusBarHeight = (font ? (irr::s32)font->getDimension(L"Ag").Height : 14) + 8;
+    if (!scenarioData.worldName.empty()) { setWorldName(scenarioData.worldName); }
 
     //Show the chart, with a lat/long grid
     chart.draw(driver);
     chart.drawGraticule(driver, font, 0, statusBarHeight);
 
-    std::wstring styleText = L"Fond : " + chart.styleName();
+    std::wstring styleText = (french ? L"Fond : " : L"Background: ") + chart.styleName();
     if (styleText != chartStyleShown) {
         chartStyleButton->setText(styleText.c_str());
         chartStyleShown = styleText;
@@ -425,25 +660,11 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const s
     irr::u8 latDegrees = (int) displayLat;
     irr::u8 lonDegrees = (int) displayLong;
 
-    //update heading display element
-    irr::core::stringw displayText = language->translate("pos");
-    displayText.append(irr::core::stringw(latDegrees));
-    displayText.append(language->translate("deg"));
-    displayText.append(f32To3dp(latMinutes).c_str());
-    displayText.append(language->translate("minSymbol"));
-    displayText.append(northSouth);
-    displayText.append(L" ");
-
-    displayText.append(irr::core::stringw(lonDegrees));
-    displayText.append(language->translate("deg"));
-    displayText.append(f32To3dp(lonMinutes).c_str());
-    displayText.append(language->translate("minSymbol"));
-    displayText.append(eastWest);
-    displayText.append(L" (");
-    displayText.append(f32To4dp(mapCentreLat).c_str());
-    displayText.append(L",");
-    displayText.append(f32To4dp(mapCentreLong).c_str());
-    displayText.append(L")\n");
+    //Chart centre, where the + mark is ('new ship' and 'move to centre' use it)
+    wchar_t centreText[96];
+    swprintf(centreText, 96, L"%ls  %02d\u00B0%06.3f'%lc  %03d\u00B0%06.3f'%lc", french ? L"Centre de la carte (+) :" : L"Chart centre (+):",
+        (int)latDegrees, latMinutes, northSouth, (int)lonDegrees, lonMinutes, eastWest);
+    irr::core::stringw displayText(centreText);
 
     //Display
     dataDisplay->setText(displayText.c_str());
@@ -506,10 +727,10 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const s
         }
     }
     if (oldScenarioInfo.windDirection != scenarioData.windDirection) {
-        windDirection->setText((irr::core::stringw(scenarioData.windDirection)).c_str());
+        windDirection->setText(f32To1dp(scenarioData.windDirection).c_str());
     }
     if (oldScenarioInfo.windSpeed != scenarioData.windSpeed) {
-        windSpeed->setText((irr::core::stringw(scenarioData.windSpeed)).c_str());
+        windSpeed->setText(f32To1dp(scenarioData.windSpeed).c_str());
     }
     if (oldScenarioInfo.scenarioName != scenarioData.scenarioName) {
         scenarioName->setText(irr::core::stringw(scenarioData.scenarioName.c_str()).c_str());
@@ -604,7 +825,8 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const s
                 irr::f32 legDurationS = scenarioData.otherShipsData.at(selectedShip).legs.at(selectedLeg + 1).startTime - scenarioData.otherShipsData.at(selectedShip).legs.at(selectedLeg).startTime;
                 irr::f32 legDurationH = legDurationS / SECONDS_IN_HOUR;
                 irr::f32 legDistanceNm = legDurationH * scenarioData.otherShipsData.at(selectedShip).legs.at(selectedLeg).speed;
-                legDistanceEdit->setText(f32To2dp(legDistanceNm).c_str()); // FORMATTED
+                //(a stopped leg has no end, and so no distance)
+                legDistanceEdit->setText((legDistanceNm >= 0 && legDistanceNm < 1e6f) ? f32To2dp(legDistanceNm).c_str() : L""); // FORMATTED
             }
             else {
                 legDistanceEdit->setText(L"");
@@ -663,22 +885,18 @@ void GUIMain::updateGuiData(ScenarioData scenarioData, ChartView& chart, const s
     //Update comboboxes for other ships and legs
     updateDropDowns(scenarioData.otherShipsData,selectedShip,scenarioData.startTime);
 
-    //kyara 
-    // Control visibility of the picture block so it only shows on the "Les navires" (Ships) tab
-    if (tabControl->getActiveTab() == 1 && generalDataWindow->isVisible()) { // Tab 1 is the Ships tab (and the window is shown)
-        if (hasValidImage) {
-            shipImageDisplay->setVisible(true);
-            shipImageNotFoundText->setVisible(false);
-        }
-        else {
-            shipImageDisplay->setVisible(false);
-            shipImageNotFoundText->setVisible(true);
-        }
-    }
-    else {
-        shipImageDisplay->setVisible(false);
-        shipImageNotFoundText->setVisible(false);
-    }
+    //Picture of the model (on the Ships page, when there is room for it)
+    const bool pictureRoom = shipImageDisplay->isEnabled();
+    shipImageDisplay->setVisible(pictureRoom && hasValidImage);
+    shipImageNotFoundText->setVisible(pictureRoom && !hasValidImage);
+
+    //What the route page edits, for the chosen ship
+    const std::wstring hint = (selectedShip < 0)
+        ? (french ? L"Navire propre : cap et vitesse de d\u00E9part, pris en compte d\u00E8s la saisie. Il n'a pas de route."
+                  : L"Own ship: starting course and speed, used as soon as they are typed. It has no route.")
+        : (french ? L"Choisissez un segment, changez cap, vitesse ou distance, puis Modifier."
+                  : L"Choose a leg, change course, speed or distance, then Change.");
+    if (hint != std::wstring(routeHint->getText())) { routeHint->setText(hint.c_str()); }
 
     guienv->drawAll();
 
@@ -699,7 +917,7 @@ const irr::video::SColor kBlackColour(255, 0, 0, 0);
 
 void GUIMain::drawLabel(ChartView& chart, const std::wstring& text, irr::core::position2di at, irr::video::SColor colour)
 {
-    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    irr::gui::IGUIFont* font = mapFont;
     if (!font) {
         return;
     }
@@ -804,7 +1022,7 @@ void GUIMain::drawInformationOnMap(ChartView& chart, const ScenarioData& scenari
         ChartDraw::polyline(driver, vector, kOwnShipFill, false, 2);
     }
     ChartDraw::ship(driver, ownPos, scenarioInfo.ownShipData.initialBearing, kOwnShipFill, kWhiteColour, 15.0f);
-    drawLabel(chart, std::wstring(language->translate("own").c_str()), ownPos + irr::core::position2di(21, -8), irr::video::SColor(255, 150, 200, 255));
+    drawLabel(chart, french ? L"Navire propre" : L"Own ship", ownPos + irr::core::position2di(21, -8), irr::video::SColor(255, 150, 200, 255));
 
     //Hover and selection rings (selectedShip: -1 own ship, 0.. other ships; hoverShip: 0 own ship, 1.. other ships)
     irr::s32 selectedIndex = selectedShip + 1;
@@ -822,14 +1040,15 @@ void GUIMain::drawInformationOnMap(ChartView& chart, const ScenarioData& scenari
 void GUIMain::drawStatusBar(ChartView& chart, irr::core::position2di mouse, bool draggingShip)
 {
     irr::video::IVideoDriver* driver = device->getVideoDriver();
-    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    irr::gui::IGUIFont* font = mapFont;
     if (!font) {
         return;
     }
     const irr::core::recti& vp = chart.getViewport();
-    irr::s32 barHeight = (irr::s32)font->getDimension(L"Ag").Height + 6;
+    irr::s32 barHeight = (irr::s32)font->getDimension(L"Ag").Height + 8;
     irr::core::recti bar(vp.UpperLeftCorner.X, vp.LowerRightCorner.Y - barHeight, vp.LowerRightCorner.X, vp.LowerRightCorner.Y);
-    driver->draw2DRectangle(irr::video::SColor(170, 0, 0, 0), bar);
+    driver->draw2DRectangle(irr::video::SColor(215, 9, 18, 33), bar);
+    driver->draw2DRectangle(irr::video::SColor(90, 110, 160, 220), irr::core::recti(bar.UpperLeftCorner.X, bar.UpperLeftCorner.Y, bar.LowerRightCorner.X, bar.UpperLeftCorner.Y + 1));
 
     //Cursor position, then the mouse and key controls
     std::wstring text;
@@ -844,11 +1063,12 @@ void GUIMain::drawStatusBar(ChartView& chart, irr::core::position2di mouse, bool
         text += L"    ";
     }
     if (draggingShip) {
-        text += L"Rel\u00E2chez pour poser le navire";
+        text += french ? L"Rel\u00E2chez pour poser le navire" : L"Release to place the ship";
     } else {
-        text += L"clic sur un navire : le choisir, glisser : le d\u00E9placer    glisser la carte : la d\u00E9placer    molette : zoom    Origine : recentrer    fl\u00E8ches gauche/droite : cap du navire s\u00E9lectionn\u00E9";
+        text += french ? L"clic sur un navire : le choisir, glisser : le d\u00E9placer    glisser la carte : la d\u00E9placer    molette : zoom    Origine : recentrer    fl\u00E8ches gauche/droite : cap du navire s\u00E9lectionn\u00E9"
+                       : L"click a ship: choose it, drag: move it    drag the chart: pan    wheel: zoom    Home: centre    left/right arrows: heading of the chosen ship";
     }
-    ChartDraw::text(font, text, irr::core::position2di(bar.UpperLeftCorner.X + 10, bar.UpperLeftCorner.Y + 3), irr::video::SColor(255, 220, 220, 220), &bar, false);
+    ChartDraw::text(font, text, irr::core::position2di(bar.UpperLeftCorner.X + 10, bar.UpperLeftCorner.Y + 4), irr::video::SColor(255, 210, 220, 232), &bar, false);
 
     ChartDraw::scaleBar(driver, font, chart, barHeight);
 }
@@ -858,7 +1078,7 @@ void GUIMain::selectShip(irr::s32 shipIndex)
     if (shipIndex < 0 || shipIndex >= (irr::s32)shipSelector->getItemCount()) {
         return;
     }
-    tabControl->setActiveTab(1); //Ships tab, to show the chosen ship's details
+    if (activeTab != 1 && activeTab != 2) { setActiveTab(1); } //Ships tab, to show the chosen ship's details
     if (shipSelector->getSelected() != shipIndex) {
         shipSelector->setSelected(shipIndex);
         manuallyTriggerGUIEvent((irr::gui::IGUIElement*)shipSelector, irr::gui::EGET_COMBO_BOX_CHANGED);
@@ -874,7 +1094,7 @@ void GUIMain::updateDropDowns(const std::vector<OtherShipData>& otherShips, irr:
     bool changedShipSelectorLength = (shipSelector->getItemCount() != otherShips.size() + 1);
     bool initialiseList = (shipSelector->getItemCount() == 0); //If there were no items in list, then we're populating it for the first time (we'll use this to select the first item)
     shipSelector->clear();
-    shipSelector->addItem(language->translate("own").c_str()); //add own ship (at index 0)
+    shipSelector->addItem(french ? L"Navire propre" : L"Own ship"); //add own ship (at index 0)
     for(irr::u32 i = 0; i<otherShips.size(); i++) { //Add other ships (at index 1,2,...)
         irr::core::stringw otherShipLabel(irr::core::stringw(i+1));
         otherShipLabel.append(L" ");
@@ -912,42 +1132,17 @@ void GUIMain::updateDropDowns(const std::vector<OtherShipData>& otherShips, irr:
         manuallyTriggerGUIEvent((irr::gui::IGUIElement*)legSelector, irr::gui::EGET_LISTBOX_CHANGED ); //Trigger event here so any changes caused by the update are found
 
     } else {
-        //don't clear and update, but show which legs are past, current and future
+        //don't clear and update, but show each leg's values
         if (legSelector->getItemCount() > 0) {
 
             //Get legs for selected ship
             if (selectedShip>=0 && otherShips.size() > selectedShip) { //SelectedShip is valid
-                std::vector<LegData> selectedShipLegs = otherShips.at(selectedShip).legs;
+                const std::vector<LegData>& selectedShipLegs = otherShips.at(selectedShip).legs;
 
-                //Find current leg (FIXME: Duplicated code)
-                //Find current leg: This is the last leg, or the leg where the start time is in the past, and then next start time is in the future. Leg times are from the start of the day of the scenario start.
-                irr::u32 currentLeg = 0;
-                bool currentLegFound = false;
-                for (irr::u32 i=0; i < (selectedShipLegs.size()-1); i++) {
-                    if (time >= selectedShipLegs.at(i).startTime &&  time < selectedShipLegs.at(i+1).startTime) {
-                        currentLeg = i;
-                        currentLegFound = true;
-                    }
-                }
-                if (!currentLegFound) {
-                    currentLeg = selectedShipLegs.size()-1;
-                }
-
-                //Update text for past, current and future legs.
-                for (irr::u32 i=0; i<legSelector->getItemCount(); i++) {
-                    if (i < currentLeg) {
-                        std::wstring label(irr::core::stringw(i+1).c_str());
-                        //label.append(language->translate("past").c_str());
-                        legSelector->setItem(i,label.c_str(),-1);
-                    }
-                    if (i == currentLeg) {
-                        std::wstring label(irr::core::stringw(i+1).c_str());
-                        //label.append(language->translate("current").c_str());
-                        legSelector->setItem(i,label.c_str(),-1);
-                    }
-                    if (i > currentLeg) {
-                        std::wstring label(irr::core::stringw(i+1).c_str());
-                        //label.append(language->translate("future").c_str());
+                //Number, course, speed and distance of each leg.
+                for (irr::u32 i=0; i<legSelector->getItemCount() && i<selectedShipLegs.size(); i++) {
+                    const std::wstring label = legLabel(otherShips.at(selectedShip), i);
+                    if (label != std::wstring(legSelector->getListItem(i))) {
                         legSelector->setItem(i,label.c_str(),-1);
                     }
                 }
@@ -1192,18 +1387,15 @@ void GUIMain::setReturnToMenu() {
 }
 
 
-//hide/show controls 
+//hide/show the side panel (the chart then uses the whole window)
 void GUIMain::hideUI() {
-    generalDataWindow->setVisible(false);
-    toggleUIButton->setText(L"Afficher Menu");
+    sidebarShown = false;
+    sidebar->setVisible(false);
+    placeToolbar();
 }
 
 void GUIMain::toggleUI() {
-    if (generalDataWindow->isVisible()) {
-        hideUI();
-    }
-    else {
-        generalDataWindow->setVisible(true);
-        toggleUIButton->setText(L"Cacher Menu");
-    }
+    sidebarShown = !sidebarShown;
+    sidebar->setVisible(sidebarShown);
+    placeToolbar();
 }

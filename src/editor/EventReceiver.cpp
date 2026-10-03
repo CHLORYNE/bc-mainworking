@@ -62,6 +62,10 @@ bool EventReceiver::OnEvent(const irr::SEvent& event)
         }
 
         if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED) {
+            //Side panel tabs
+            if (id >= GUIMain::GUI_ID_TAB_EXERCISE && id <= GUIMain::GUI_ID_TAB_WEATHER) {
+                gui->setActiveTab(id - GUIMain::GUI_ID_TAB_EXERCISE);
+            }
             //back button
             if (id == GUIMain::GUI_ID_BACK_BUTTON) {
                 gui->setReturnToMenu();

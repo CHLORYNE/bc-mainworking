@@ -104,6 +104,8 @@
     <ClCompile Include="..\multiplayerHub\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\GUIPanelDraw.hpp" />
+    <ClInclude Include="..\UiTheme.hpp" />
     <ClInclude Include="..\Constants.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />

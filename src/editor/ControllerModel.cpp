@@ -66,8 +66,7 @@ ControllerModel::ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMai
 
     std::cout << "Width m " << terrainXWidth << " Height m " << terrainZWidth << std::endl;
 
-    irr::core::dimension2d<irr::u32> screenSize = driver->getScreenSize();
-    chart.setViewport(irr::core::recti(0, 0, screenSize.Width, screenSize.Height));
+    chart.setViewport(gui->getMapViewport()); //beside the side panel
     chart.setMetresPerPixel(20.0); //About the old default zoom level
 }
 
@@ -98,8 +97,7 @@ irr::f32 ControllerModel::zToLat(irr::f32 z) const
 
 void ControllerModel::update()
 {
-    irr::core::dimension2d<irr::u32> screenSize = driver->getScreenSize();
-    chart.setViewport(irr::core::recti(0, 0, screenSize.Width, screenSize.Height));
+    chart.setViewport(gui->getMapViewport()); //beside the side panel
 
     //Start centred on the own ship (its position is only known once the scenario has been read)
     if (!viewInitialised) {

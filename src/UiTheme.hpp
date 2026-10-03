@@ -238,17 +238,20 @@ namespace Ui {
     {
     public:
         enum Kind { Primary, Secondary, Danger, Quiet };
+        //A drawn symbol instead of the label (crisper than font glyphs).
+        enum Glyph { NoGlyph, Plus, Minus, ChevronLeft, ChevronRight };
 
         Button(irr::gui::IGUIEnvironment* env, irr::gui::IGUIElement* parent, irr::s32 id, const irr::core::rect<irr::s32>& r,
             const wchar_t* label, Kind kind = Secondary)
             : irr::gui::IGUIElement(irr::gui::EGUIET_BUTTON, env, parent ? parent : env->getRootGUIElement(), id, r),
-            kind(kind), font(0), hovered(false), pressed(false), checked(false), hover(0), lastMs(0)
+            kind(kind), glyph(NoGlyph), font(0), hovered(false), pressed(false), checked(false), hover(0), lastMs(0)
         {
             setTabStop(true);
             setText(label);
         }
 
         void setKind(Kind k) { kind = k; }
+        void setGlyph(Glyph g) { glyph = g; }
         void setFont(irr::gui::IGUIFont* f) { font = f; }
         //A checked button is drawn as selected (for tabs and choices).
         void setChecked(bool c) { checked = c; }
@@ -333,7 +336,19 @@ namespace Ui {
                 f.LowerRightCorner += irr::core::vector2df(2, 2);
                 roundRectOutline(b, f, rad + 2, 1.0f, irr::video::SColor(120, 150, 205, 255));
             }
+            if (glyph != NoGlyph) {
+                const irr::core::vector2df c = r.getCenter();
+                const irr::f32 g = irr::core::min_(r.getWidth(), r.getHeight()) * 0.2f;
+                if (glyph == Plus || glyph == Minus) { b.line(irr::core::vector2df(c.X - g, c.Y), irr::core::vector2df(c.X + g, c.Y), 2.0f, labelCol); }
+                if (glyph == Plus) { b.line(irr::core::vector2df(c.X, c.Y - g), irr::core::vector2df(c.X, c.Y + g), 2.0f, labelCol); }
+                const irr::f32 dir = (glyph == ChevronLeft) ? -1.0f : 1.0f;
+                if (glyph == ChevronLeft || glyph == ChevronRight) {
+                    b.line(irr::core::vector2df(c.X - dir * g * 0.5f, c.Y - g), irr::core::vector2df(c.X + dir * g * 0.5f, c.Y), 2.0f, labelCol);
+                    b.line(irr::core::vector2df(c.X + dir * g * 0.5f, c.Y), irr::core::vector2df(c.X - dir * g * 0.5f, c.Y + g), 2.0f, labelCol);
+                }
+            }
             b.flush();
+            if (glyph != NoGlyph) { return; }
             irr::gui::IGUIFont* f = font ? font : Environment->getSkin()->getFont();
             const irr::core::rect<irr::s32> clip = AbsoluteClippingRect;
             drawText(f, Text.c_str(), r, labelCol, Centre, &clip);
@@ -351,6 +366,7 @@ namespace Ui {
         }
 
         Kind kind;
+        Glyph glyph;
         irr::gui::IGUIFont* font;
         bool hovered, pressed, checked;
         irr::f32 hover;

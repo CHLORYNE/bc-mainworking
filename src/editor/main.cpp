@@ -150,14 +150,14 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     irr::gui::IGUIEnvironment* guienv = device->getGUIEnvironment();
     irr::gui::IGUISkin* skin = guienv->getSkin();
 
-    // Modern Palette: Slate Grays and Azure Blues (A, R, G, B)
-    irr::video::SColor bgDark(240, 30, 34, 43);       // Main window bg (slight transparency)
-    irr::video::SColor panelColor(255, 45, 52, 60);   // Buttons, lists, tabs
-    irr::video::SColor borderDark(255, 20, 24, 30);   // Shadows/Borders
-    irr::video::SColor borderLight(255, 65, 75, 85);  // Highlights
+    // Palette: the launcher's navy (A, R, G, B)
+    irr::video::SColor bgDark(240, 14, 26, 44);       // Main window bg (slight transparency)
+    irr::video::SColor panelColor(255, 28, 46, 72);   // Buttons, lists, tabs
+    irr::video::SColor borderDark(255, 12, 22, 38);   // Shadows/Borders
+    irr::video::SColor borderLight(255, 46, 72, 106); // Highlights
     irr::video::SColor textMain(255, 240, 245, 250);  // Off-white text
-    irr::video::SColor highlightBlue(255, 52, 152, 219); // Azure selection highlight
-    irr::video::SColor editBg(255, 20, 24, 30);       // Darker inset for text inputs
+    irr::video::SColor highlightBlue(255, 36, 122, 222); // Selection highlight
+    irr::video::SColor editBg(255, 8, 16, 30);        // Darker inset for text inputs
 
     // Apply Base & Windows
     skin->setColor(irr::gui::EGDC_WINDOW, bgDark);
@@ -175,7 +175,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
 
     // Selections / Highlighting
     skin->setColor(irr::gui::EGDC_HIGH_LIGHT, highlightBlue);
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 0, 0, 0));
+    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 255, 255, 255));
 
     // Checkbox tick / window symbols (also combo + scrollbar arrows) -> azure blue.
     // Irrlicht draws the checkbox tick via drawIcon(), which uses EGDC_WINDOW_SYMBOL.
@@ -285,7 +285,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
 
     // Run until we know scenario data to use
     while (device->run() && startupReceiver.getScenarioSelected() < 0 && startupReceiver.getWorldSelected() < 0 && scenarioData->dataPopulated == false) {
-        driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+        driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
         device->getGUIEnvironment()->drawAll();
         driver->endScene();
     }
@@ -339,7 +339,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     //Show patience message
     irr::gui::IGUIStaticText* patienceText = device->getGUIEnvironment()->addStaticText(language->translate("loadingMap").c_str(), irr::core::rect<irr::s32>(0.01 * su, 0.04 * sh, 0.95 * su, 0.95 * sh), false, true, scnWorldChoiceWindow);
     if (device->run()) {
-        driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+        driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
         device->getGUIEnvironment()->drawAll();
         driver->endScene();
     }
@@ -548,13 +548,13 @@ int main(int argc, char** argv)
 #endif
     if (graphicsWidth == 0) {
         graphicsWidth = 1200 * fontScale;
-        if (graphicsWidth > deskres.Width * 0.90) {
+        if (deskres.Width > 0 && graphicsWidth > deskres.Width * 0.90) { //(0 x 0 when the desktop size cannot be found)
             graphicsWidth = deskres.Width * 0.90;
         }
     }
     if (graphicsHeight == 0) {
         graphicsHeight = 900 * fontScale;
-        if (graphicsHeight > deskres.Height * 0.90) {
+        if (deskres.Height > 0 && graphicsHeight > deskres.Height * 0.90) {
             graphicsHeight = deskres.Height * 0.90;
         }
     }
@@ -680,6 +680,7 @@ int main(int argc, char** argv)
 
         //GUI class
         GUIMain guiMain(device, &language, ownShipTypes, otherShipTypes, multiplayer);
+        guiMain.setWorldName(worldName);
         //kyara update to display pc clock 
         if (scenarioData.dataPopulated == false) {
             // Get current PC system time
@@ -955,7 +956,7 @@ int main(int argc, char** argv)
         device->setEventReceiver(&receiver);
 
         while (device->run()) {
-            driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+            driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
             //network.update(time, ownShipData, otherShipsData, buoysData);
             controller.update();
             driver->endScene();
