@@ -195,7 +195,7 @@ void roundRectOutline(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& 
     b.sector(vector2df(x0 + rad, y1 - rad), rad - w, rad, 180, 270, col, col);
 }
 
-enum LauncherIcon { Icon_Helm, Icon_Route, Icon_Flame, Icon_Network, Icon_Gear, Icon_Keys, Icon_Power };
+enum LauncherIcon { Icon_Helm, Icon_Route, Icon_Flame, Icon_Network, Icon_Gear, Icon_Keys, Icon_Power, Icon_Compass };
 
 //Line icons, drawn in a box of half-size s around c.
 void drawIcon(irr::gui::PanelBatch& b, LauncherIcon icon, irr::core::vector2df c, irr::f32 s, irr::video::SColor col)
@@ -277,6 +277,17 @@ void drawIcon(irr::gui::PanelBatch& b, LauncherIcon icon, irr::core::vector2df c
         b.line(vector2df(c.X, c.Y - s * 0.90f), vector2df(c.X, c.Y - s * 0.15f), lw, col);
         break;
     }
+    case Icon_Compass: {  //compass card: ring, cardinal marks, needle (north half solid)
+        b.sector(c, s * 0.86f, s * 0.86f + lw, 0, 360, col, col);
+        for (int i = 0; i < 4; i++) {
+            b.line(panelPolar(c, s * 0.60f, 90.0f * i), panelPolar(c, s * 0.80f, 90.0f * i), lw, col);
+        }
+        const vector2df north = panelPolar(c, s * 0.56f, 0), south = panelPolar(c, s * 0.56f, 180);
+        const vector2df west = panelPolar(c, s * 0.19f, 270), east = panelPolar(c, s * 0.19f, 90);
+        b.tri(north, east, west, col);
+        b.tri(south, west, east, irr::video::SColor(col.getAlpha() / 2, col.getRed(), col.getGreen(), col.getBlue()));
+        break;
+    }
     }
 }
 
@@ -326,6 +337,18 @@ public:
     void setFonts(irr::gui::IGUIFont* t, irr::gui::IGUIFont* s) { titleFont = t; subFont = s; }
     //Padlock at the end of a chip: the tool it opens asks for the administrator password.
     void setLocked(bool on) { locked = on; }
+
+    //Height a card needs at this width: icon badge, title and description (up to three lines), as draw() lays them out.
+    irr::s32 neededCardHeight(irr::s32 width) const
+    {
+        irr::s32 h = 22 + 46 + 14;
+        if (titleFont) { h += (irr::s32)titleFont->getDimension(title.c_str()).Height + 4; }
+        if (subFont) {
+            const size_t lines = irr::core::min_(wrapText(subFont, subtitle, width - 44).size(), (size_t)3);
+            h += (irr::s32)lines * ((irr::s32)subFont->getDimension(L"Ag").Height + 1);
+        }
+        return h + 10;
+    }
 
     //Width a chip needs for its label.
     irr::s32 preferredChipWidth() const
@@ -472,8 +495,9 @@ public:
             }
             if (subFont) {
                 const std::vector<std::wstring> lines = wrapText(subFont, subtitle, w);
-                for (size_t i = 0; i < lines.size() && i < 2; i++) {
+                for (size_t i = 0; i < lines.size() && i < 3; i++) {
                     const irr::core::dimension2du d = subFont->getDimension(lines[i].c_str());
+                    if (y + (irr::s32)d.Height > (irr::s32)r.LowerRightCorner.Y - 8) { break; } //no room left in the card
                     subFont->draw(lines[i].c_str(), irr::core::rect<irr::s32>(x, y, x + w, y + (irr::s32)d.Height),
                         style == Tile_Primary ? irr::video::SColor(255, 214, 230, 248) : Theme::textDim, false, false, &clip);
                     y += (irr::s32)d.Height + 1;
@@ -707,7 +731,6 @@ struct ScreenInfo {
     bool primary;
     bool launcherHere;              //the launcher window is on this screen
     std::wstring inUse;             //the simulator's windows already open there (simulator, instruments, repeater)
-    bool simulatorOpen;             //a simulator among them
 };
 
 bool g_french = true; //launcher language
@@ -733,7 +756,6 @@ std::vector<ScreenInfo> listScreens()
         s.launcherHere = (found[i].left == launcherScreen.left && found[i].top == launcherScreen.top
             && found[i].right == launcherScreen.right && found[i].bottom == launcherScreen.bottom);
         s.inUse = found[i].inUse;
-        s.simulatorOpen = (s.inUse.find(L"Simulat") != std::wstring::npos);
         screens.push_back(s);
     }
 #else
@@ -741,10 +763,10 @@ std::vector<ScreenInfo> listScreens()
     //Test builds only: a made-up desk (instructor screen and two large displays, a simulator already
     //open on the second), so the picker can be checked on a machine without them.
     ScreenInfo s;
-    s.area = irr::core::rect<irr::s32>(0, 0, 1920, 1080); s.primary = true; s.launcherHere = true; s.simulatorOpen = false; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(0, 0, 1920, 1080); s.primary = true; s.launcherHere = true; screens.push_back(s);
     s.area = irr::core::rect<irr::s32>(1920, -180, 5760, 1980); s.primary = false; s.launcherHere = false;
-    s.inUse = L"Simulateur, Instruments"; s.simulatorOpen = true; screens.push_back(s);
-    s.area = irr::core::rect<irr::s32>(-1280, 56, 0, 1080); s.inUse = L""; s.simulatorOpen = false; screens.push_back(s);
+    s.inUse = L"Simulateur, Instruments"; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(-1280, 56, 0, 1080); s.inUse = L""; screens.push_back(s);
 #endif
 #endif
     return screens;
@@ -755,38 +777,45 @@ class ScreenPicker : public LauncherOverlay
 public:
     //Bridge view screen (1..n); instrument console screen (1..n, or 0: in the bridge view).
     typedef std::function<void(int, int)> LaunchFn;
+    //Gyro repeater screen (1..n).
+    typedef std::function<void(int)> RepeaterFn;
 
     ScreenPicker(irr::gui::IGUIEnvironment* env, bool french, irr::gui::IGUIFont* bigFont, irr::gui::IGUIFont* titleFont,
-        irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch)
+        irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch, RepeaterFn launchRepeater)
         : LauncherOverlay(env), french(french), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
-        launch(launch), selected(0), consoleScreen(-1), lastClickMs(0), lastClickScreen(-1)
+        launch(launch), launchRepeater(launchRepeater), repeaterMode(false), selected(0), consoleScreen(-1), lastClickMs(0), lastClickScreen(-1)
     {
+    }
+
+    //The gyro repeater: a single screen to choose. lastScreen: the last choice (1..n, 0 for none).
+    void openForRepeater(const std::vector<ScreenInfo>& list, int lastScreen)
+    {
+        repeaterMode = true;
+        screens = list;
+        const int n = (int)screens.size();
+        selected = (lastScreen >= 1 && lastScreen <= n) ? lastScreen - 1 : firstOffLauncher();
+        //Something already open there: offer a free screen.
+        if (n > 0 && !screens[selected].inUse.empty()) {
+            const int f = freeScreen();
+            if (f >= 0) { selected = f; }
+        }
+        consoleScreen = -1;
+        lastClickScreen = -1;
+        show();
     }
 
     //lastBridge, lastConsole: the last choice (1..n, 0 for none), offered again if it fits this desk.
     void open(const std::vector<ScreenInfo>& list, int lastBridge, int lastConsole)
     {
+        repeaterMode = false;
         screens = list;
         const int n = (int)screens.size();
-        selected = (lastBridge >= 1 && lastBridge <= n) ? lastBridge - 1 : -1;
+        selected = (lastBridge >= 1 && lastBridge <= n) ? lastBridge - 1 : firstOffLauncher();
         consoleScreen = (lastConsole >= 1 && lastConsole <= n) ? lastConsole - 1 : -1;
-        if (selected < 0) {
-            //Most often the simulator goes on a screen other than the instructor's, where the launcher is.
-            selected = 0;
-            for (int i = 0; i < n; i++) {
-                if (!screens[i].launcherHere) { selected = i; break; }
-            }
-        }
-        //Another copy (a second view, say): a simulator is already open there, so offer a free screen.
-        if (n > 0 && screens[selected].simulatorOpen) {
-            int freeScreen = -1;
-            for (int i = 0; i < n && freeScreen < 0; i++) {
-                if (screens[i].inUse.empty() && !screens[i].launcherHere) { freeScreen = i; }
-            }
-            for (int i = 0; i < n && freeScreen < 0; i++) {
-                if (screens[i].inUse.empty()) { freeScreen = i; }
-            }
-            if (freeScreen >= 0) { selected = freeScreen; }
+        //Something already open there (another simulator for a second view, the repeater...): offer a free screen.
+        if (n > 0 && !screens[selected].inUse.empty()) {
+            const int f = freeScreen();
+            if (f >= 0) { selected = f; }
         }
         if (consoleScreen == selected || (consoleScreen >= 0 && !screens[consoleScreen].inUse.empty())) { consoleScreen = -1; }
         lastClickScreen = -1;
@@ -849,10 +878,12 @@ public:
 
         //Text
         const irr::f32 x = panel.UpperLeftCorner.X + 36;
-        drawTextIn(titleFont, french ? L"Choisir les \u00E9crans du simulateur" : L"Choose the simulator screens",
+        drawTextIn(titleFont, repeaterMode ? (french ? L"Choisir l'\u00E9cran du r\u00E9p\u00E9titeur gyro" : L"Choose the gyro repeater screen")
+            : (french ? L"Choisir les \u00E9crans du simulateur" : L"Choose the simulator screens"),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 22, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 52), Theme::text, false);
-        drawTextIn(textFont, french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Les instruments peuvent aller sur un autre \u00E9cran."
-            : L"Click the screen for the bridge view. The instruments can go on another screen.",
+        drawTextIn(textFont, repeaterMode ? (french ? L"Cliquez sur l'\u00E9cran o\u00F9 afficher le r\u00E9p\u00E9titeur." : L"Click the screen the repeater should be shown on.")
+            : (french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Les instruments peuvent aller sur un autre \u00E9cran."
+            : L"Click the screen for the bridge view. The instruments can go on another screen."),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 54, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 78), Theme::textDim, false);
 
         for (size_t i = 0; i < screens.size(); i++) {
@@ -868,7 +899,10 @@ public:
             std::vector<Line> lines;
             Line number = { std::to_wstring(i + 1), bigFont, main };
             lines.push_back(number);
-            if (bridge) { Line role = { french ? L"Vue passerelle" : L"Bridge view", textFont, sub }; lines.push_back(role); }
+            if (bridge) {
+                Line role = { repeaterMode ? (french ? L"R\u00E9p\u00E9titeur gyro" : L"Gyro repeater") : (french ? L"Vue passerelle" : L"Bridge view"), textFont, sub };
+                lines.push_back(role);
+            }
             if (instruments) { Line role = { L"Instruments", textFont, sub }; lines.push_back(role); }
             Line size = { std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont, sub };
             lines.push_back(size);
@@ -896,7 +930,7 @@ public:
             }
         }
 
-        drawTextIn(textFont, french ? L"Instruments :" : L"Instruments:", instrumentsLabel, Theme::text, false);
+        if (!repeaterMode) { drawTextIn(textFont, french ? L"Instruments :" : L"Instruments:", instrumentsLabel, Theme::text, false); }
         for (size_t c = 0; c < chips.size(); c++) {
             const bool on = (chips[c].screen == consoleScreen);
             drawTextIn(textFont, chips[c].label, chips[c].area, on ? irr::video::SColor(255, 255, 255, 255) : Theme::text, true);
@@ -908,9 +942,14 @@ public:
         //Key hints: as many as fit before the buttons.
         const wchar_t* hintsFr[4] = { L"1 \u00E0 9 : vue passerelle", L"I : instruments", L"Entr\u00E9e : lancer", L"\u00C9chap : annuler" };
         const wchar_t* hintsEn[4] = { L"1 to 9: bridge view", L"I: instruments", L"Enter: launch", L"Esc: cancel" };
+        if (repeaterMode) {
+            hintsFr[0] = L"1 \u00E0 9 : \u00E9cran"; hintsFr[1] = L"Entr\u00E9e : lancer"; hintsFr[2] = L"\u00C9chap : annuler"; hintsFr[3] = L"";
+            hintsEn[0] = L"1 to 9: screen"; hintsEn[1] = L"Enter: launch"; hintsEn[2] = L"Esc: cancel"; hintsEn[3] = L"";
+        }
         std::wstring hints;
         for (int h = 0; h < 4; h++) {
             const std::wstring part = french ? hintsFr[h] : hintsEn[h];
+            if (part.empty()) { break; }
             const std::wstring longer = hints.empty() ? part : hints + L"  \u00B7  " + part;
             if (textWidth(smallFont, longer) > cancelButton.UpperLeftCorner.X - 16 - x) { break; }
             hints = longer;
@@ -918,7 +957,8 @@ public:
         drawTextIn(smallFont, hints, irr::core::rect<irr::f32>(x, launchButton.UpperLeftCorner.Y, cancelButton.UpperLeftCorner.X - 12, launchButton.LowerRightCorner.Y),
             irr::video::SColor(170, 178, 192, 208), false);
         drawTextIn(textFont, french ? L"Annuler" : L"Cancel", cancelButton, Theme::text, true);
-        drawTextIn(textFont, french ? L"Lancer le simulateur" : L"Launch the simulator", launchButton, irr::video::SColor(255, 255, 255, 255), true);
+        drawTextIn(textFont, repeaterMode ? (french ? L"Lancer le r\u00E9p\u00E9titeur" : L"Launch the repeater") : (french ? L"Lancer le simulateur" : L"Launch the simulator"),
+            launchButton, irr::video::SColor(255, 255, 255, 255), true);
     }
 
 protected:
@@ -931,7 +971,7 @@ protected:
         for (size_t i = 0; i < screenRects.size(); i++) {
             if (over(screenRects[i])) {
                 if (right) { //right click: instruments on this screen (or back in the view)
-                    if ((int)i != selected) { consoleScreen = (consoleScreen == (int)i) ? -1 : (int)i; }
+                    if (!repeaterMode && (int)i != selected) { consoleScreen = (consoleScreen == (int)i) ? -1 : (int)i; }
                     return;
                 }
                 //Double click on a screen launches at once.
@@ -963,7 +1003,7 @@ protected:
         if (n < 1) { return; }
         if (k.Key == irr::KEY_LEFT || k.Key == irr::KEY_UP) { selectBridge((selected + n - 1) % n); }
         if (k.Key == irr::KEY_RIGHT || k.Key == irr::KEY_DOWN || k.Key == irr::KEY_TAB) { selectBridge((selected + 1) % n); }
-        if (k.Key == irr::KEY_KEY_I) { //next choice for the instruments
+        if (k.Key == irr::KEY_KEY_I && !repeaterMode) { //next choice for the instruments
             layout();
             for (size_t c = 0; c < chips.size(); c++) {
                 if (chips[c].screen == consoleScreen) { consoleScreen = chips[(c + 1) % chips.size()].screen; break; }
@@ -990,7 +1030,33 @@ private:
     {
         if (selected < 0 || selected >= (int)screens.size()) { return; }
         hide();
-        if (launch) { launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0); }
+        if (repeaterMode) {
+            if (launchRepeater) { launchRepeater(selected + 1); }
+        }
+        else if (launch) {
+            launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0);
+        }
+    }
+
+    //Most often the programs go on a screen other than the instructor's, where the launcher is.
+    int firstOffLauncher() const
+    {
+        for (size_t i = 0; i < screens.size(); i++) {
+            if (!screens[i].launcherHere) { return (int)i; }
+        }
+        return 0;
+    }
+
+    //A screen with none of the simulator's windows on it, preferably not the launcher's; -1 if none.
+    int freeScreen() const
+    {
+        for (size_t i = 0; i < screens.size(); i++) {
+            if (screens[i].inUse.empty() && !screens[i].launcherHere) { return (int)i; }
+        }
+        for (size_t i = 0; i < screens.size(); i++) {
+            if (screens[i].inUse.empty()) { return (int)i; }
+        }
+        return -1;
     }
 
     void layout()
@@ -1005,30 +1071,32 @@ private:
         cancelButton = irr::core::rect<irr::f32>(launchButton.UpperLeftCorner.X - 142, bottom - 70, launchButton.UpperLeftCorner.X - 12, bottom - 26);
         infoRow = irr::core::rect<irr::f32>(left, bottom - 116, right, bottom - 94);
 
-        //Instruments row: a chip for "in the bridge view", then one per other screen.
-        const irr::f32 chipTop = bottom - 168, chipBottom = bottom - 134;
+        //Instruments row (simulator only): a chip for "in the bridge view", then one per other screen.
+        const irr::f32 chipTop = repeaterMode ? infoRow.UpperLeftCorner.Y : bottom - 168, chipBottom = bottom - 134;
         instrumentsLabel = irr::core::rect<irr::f32>(left, chipTop, left + textWidth(textFont, french ? L"Instruments :" : L"Instruments:") + 8, chipBottom);
         chips.clear();
-        Chip inView;
-        inView.screen = -1;
-        inView.label = french ? L"Dans la vue passerelle" : L"In the bridge view";
-        chips.push_back(inView);
-        for (size_t i = 0; i < screens.size(); i++) {
-            if ((int)i == selected) { continue; }
-            Chip c;
-            c.screen = (int)i;
-            c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
-            chips.push_back(c);
-        }
-        irr::f32 cx = instrumentsLabel.LowerRightCorner.X + 6;
-        for (size_t c = 0; c < chips.size(); c++) {
-            const irr::f32 w = textWidth(textFont, chips[c].label) + 34;
-            if (c > 0 && cx + w > right) { chips.resize(c); break; } //no room for more
-            chips[c].area = irr::core::rect<irr::f32>(cx, chipTop, cx + w, chipBottom);
-            cx += w + 8;
+        if (!repeaterMode) {
+            Chip inView;
+            inView.screen = -1;
+            inView.label = french ? L"Dans la vue passerelle" : L"In the bridge view";
+            chips.push_back(inView);
+            for (size_t i = 0; i < screens.size(); i++) {
+                if ((int)i == selected) { continue; }
+                Chip c;
+                c.screen = (int)i;
+                c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
+                chips.push_back(c);
+            }
+            irr::f32 cx = instrumentsLabel.LowerRightCorner.X + 6;
+            for (size_t c = 0; c < chips.size(); c++) {
+                const irr::f32 w = textWidth(textFont, chips[c].label) + 34;
+                if (c > 0 && cx + w > right) { chips.resize(c); break; } //no room for more
+                chips[c].area = irr::core::rect<irr::f32>(cx, chipTop, cx + w, chipBottom);
+                cx += w + 8;
+            }
         }
 
-        //Desk drawn to scale in the space between the title and the instruments row.
+        //Desk drawn to scale in the space between the title and the instruments row (or the note below).
         const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, chipTop - 22);
         screenRects.clear();
         if (screens.empty()) { return; }
@@ -1057,6 +1125,8 @@ private:
     irr::gui::IGUIFont* textFont;
     irr::gui::IGUIFont* smallFont;
     LaunchFn launch;
+    RepeaterFn launchRepeater;
+    bool repeaterMode;     //choosing the gyro repeater's screen, not the simulator's
     std::vector<ScreenInfo> screens;
     std::vector<irr::core::rect<irr::f32> > screenRects;
     std::vector<Chip> chips;
@@ -1428,9 +1498,13 @@ std::string launcherScreensFile()
     return Utilities::getUserDir() + "launcherScreens.ini";
 }
 
-//Keeps the screen picker's choice for next time.
-bool saveLauncherScreens(int bridge, int console)
+//Keeps a screen picker choice for next time: Bridge, Instruments or Repeater (the others are kept).
+bool saveLauncherScreen(const std::string& key, int value)
 {
+    const char* keys[3] = { "Bridge", "Instruments", "Repeater" };
+    std::string values[3];
+    for (int k = 0; k < 3; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
+
     //User folder, as the settings editor creates it.
     const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
     for (int d = 0; d < 2; d++) {
@@ -1445,8 +1519,9 @@ bool saveLauncherScreens(int bridge, int console)
         }
     }
     std::ofstream out(launcherScreensFile().c_str(), std::ios::trunc);
-    out << "Bridge=" << bridge << "\n";
-    out << "Instruments=" << console << "\n";
+    for (int k = 0; k < 3; k++) {
+        if (!values[k].empty()) { out << keys[k] << "=" << values[k] << "\n"; }
+    }
     return out.good();
 }
 
@@ -1494,6 +1569,46 @@ void startSimulator()
     launchSimulator(0, 0);
 }
 
+std::wstring g_repeaterTitle; //the repeater card's title, for the toast once a screen has been picked
+
+//Starts the gyro repeater; screen (1..n) is passed on as "-monitor N" when one was picked.
+void launchRepeater(int screen)
+{
+    const std::string screenArg = std::to_string(screen);
+#ifdef _WIN32
+    const std::string params = "-monitor " + screenArg;
+    ShellExecute(NULL, NULL, "Simulator-rp.exe", screen > 0 ? params.c_str() : NULL, NULL, SW_SHOW);
+#else
+    const int pid = fork(); // posix only (GNU/Linux, MacOS)
+    if (pid != 0) { return; }
+#ifdef __APPLE__
+    if (screen > 0) { execl("../MacOS/rp.app/Contents/MacOS/rp", "rp", "-monitor", screenArg.c_str(), (char*)NULL); }
+    else { execl("../MacOS/rp.app/Contents/MacOS/rp", "rp", (char*)NULL); }
+#else
+    if (screen > 0) { execl("./Simulator-rp", "Simulator-rp", "-monitor", screenArg.c_str(), (char*)NULL); }
+    else { execl("./Simulator-rp", "Simulator-rp", (char*)NULL); }
+#endif
+    _exit(EXIT_FAILURE); //only reached if the repeater could not be started: never run a second launcher
+#endif
+}
+
+//Repeater card: on a desk with several screens (borderless full screen in repeater.ini), ask which one,
+//the last choice offered again (at first, the screen set in repeater.ini); otherwise start straight away.
+void startRepeater()
+{
+    const std::string ini = Utilities::pathExists(userFolder + "repeater.ini") ? userFolder + "repeater.ini" : std::string("repeater.ini");
+    const bool borderless = readIniNow(ini, "graphics_mode") == "3";
+    const std::vector<ScreenInfo> screens = listScreens();
+    if (g_screenPicker && borderless && screens.size() > 1) {
+        int last = atoi(readIniNow(launcherScreensFile(), "Repeater").c_str());
+        if (last <= 0) { last = atoi(readIniNow(ini, "monitor").c_str()); }
+        g_screenPicker->openForRepeater(screens, last);
+        return;
+    }
+    showLaunchToast(g_repeaterTitle);
+    launchRepeater(0);
+}
+
 //Event receiver: This does the actual launching
 class Receiver : public irr::IEventReceiver
 {
@@ -1523,6 +1638,13 @@ public:
                     return true;
                 }
 
+                //Gyro repeater: may first ask which screen to use (see startRepeater).
+                if (id == RP_BUTTON) {
+                    g_repeaterTitle = event.GUIEvent.Caller->getText();
+                    startRepeater();
+                    return true;
+                }
+
                 //Feedback while the application starts (it can take a few seconds).
                 if (id != DOC_BUTTON && id != USER_BUTTON && g_device) {
                     showLaunchToast(event.GUIEvent.Caller->getText());
@@ -1544,20 +1666,6 @@ public:
 #else
                     //Other (assumed posix)
                     execl("./Simulator-mc", "Simulator-mc", NULL);
-#endif
-#endif
-                }
-                if (id == RP_BUTTON) {
-#ifdef _WIN32
-                    ShellExecute(NULL, NULL, "Simulator-rp.exe", NULL, NULL, SW_SHOW);
-                    //_execl("./bridgecommand-rp.exe", "bridgecommand-rp.exe", NULL);
-#else
-#ifdef __APPLE__
-                    //APPLE
-                    execl("../MacOS/rp.app/Contents/MacOS/rp", "rp", NULL);
-#else
-                    //Other (assumed posix)
-                    execl("./Simulator-rp", "Simulator-rp", NULL);
 #endif
 #endif
                 }
@@ -1868,6 +1976,8 @@ int main(int argc, char** argv)
     std::vector<LauncherTile*> cards;
     cards.push_back(new LauncherTile(env, BC_BUTTON, T("startBC"),
         tr("startBCInfo", L"Lancer un exercice : passerelle, radar et instruments", L"Run an exercise: bridge view, radar and instruments"), Icon_Helm, Tile_Primary));
+    cards.push_back(new LauncherTile(env, RP_BUTTON, T("startRP"),
+        tr("startRPInfo", L"Cap du navire sur un \u00E9cran \u00E0 part (ou angle de barre)", L"Ship's heading on a screen of its own (or rudder angle)"), Icon_Compass, Tile_Card));
     cards.push_back(new LauncherTile(env, ED_BUTTON, T("startED"),
         tr("startEDInfo", L"Cr\u00E9er et modifier les exercices de navigation", L"Create and edit navigation exercises"), Icon_Route, Tile_Card));
     cards.push_back(new LauncherTile(env, FE_BUTTON, T("startFE"),
@@ -1902,25 +2012,51 @@ int main(int argc, char** argv)
     g_keySheet->drop();
     g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
         [](int screen, int consoleScreen) {
-            saveLauncherScreens(screen, consoleScreen);
+            saveLauncherScreen("Bridge", screen);
+            saveLauncherScreen("Instruments", consoleScreen);
             showLaunchToast(g_simulatorTitle);
             launchSimulator(screen, consoleScreen);
+        },
+        [](int screen) {
+            saveLauncherScreen("Repeater", screen);
+            showLaunchToast(g_repeaterTitle);
+            launchRepeater(screen);
         });
     g_screenPicker->drop();
+
+    //Card titles: the biggest of these that fits every card (a narrow window gets smaller lettering).
+    irr::gui::IGUIFont* cardTitleFonts[5] = { titleFont, loadFont(19), loadFont(18), loadFont(17), loadFont(16) };
 
     irr::s32 toastY = 0;
     irr::core::dimension2du laidOut(0, 0);
     auto layout = [&](const irr::core::dimension2du& scr) {
         const irr::s32 W = (irr::s32)scr.Width, H = (irr::s32)scr.Height;
-        const irr::s32 margin = irr::core::max_(28, (irr::s32)(W * 0.04f));
-        const irr::s32 gap = irr::core::max_(14, (irr::s32)(W * 0.016f));
-        const irr::s32 cardH = irr::core::clamp((irr::s32)(H * 0.23f), 150, 200);
+        const irr::s32 margin = irr::core::max_(28, (irr::s32)(W * 0.035f));
+        const irr::s32 gap = irr::core::max_(12, (irr::s32)(W * 0.013f));
         const irr::s32 chipH = (irr::s32)(42 * fontScale);
         const irr::s32 footerH = 34;
         const irr::s32 chipY = H - footerH - chipH - 14;
+        const irr::s32 cardCount = (irr::s32)cards.size();
+        const irr::s32 cardW = (W - 2 * margin - (cardCount - 1) * gap) / cardCount;
+        int pick = 4;
+        for (int f = 0; f < 5; f++) {
+            if (!cardTitleFonts[f]) { continue; }
+            irr::s32 widest = 0;
+            for (size_t i = 0; i < cards.size(); i++) {
+                widest = irr::core::max_(widest, (irr::s32)cardTitleFonts[f]->getDimension(cards[i]->getText()).Width);
+            }
+            if (widest <= cardW - 44) { pick = f; break; }
+        }
+        irr::gui::IGUIFont* cardTitle = cardTitleFonts[pick] ? cardTitleFonts[pick] : titleFont;
+        //Tall enough for every card's description (narrow cards wrap it onto more lines).
+        irr::s32 cardH = irr::core::clamp((irr::s32)(H * 0.23f), 150, 200);
+        for (irr::s32 i = 0; i < cardCount; i++) {
+            cards[i]->setFonts(cardTitle, pick <= 2 ? textFont : smallFont);
+            cardH = irr::core::max_(cardH, cards[i]->neededCardHeight(cardW));
+        }
+        cardH = irr::core::min_(cardH, 230);
         const irr::s32 cardY = chipY - 22 - cardH;
-        const irr::s32 cardW = (W - 2 * margin - 3 * gap) / 4;
-        for (int i = 0; i < 4; i++) {
+        for (irr::s32 i = 0; i < cardCount; i++) {
             const irr::s32 x = margin + i * (cardW + gap);
             cards[i]->setRelativePosition(irr::core::rect<irr::s32>(x, cardY, x + cardW, cardY + cardH));
         }

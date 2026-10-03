@@ -75,7 +75,7 @@ namespace detail {
         wchar_t title[128] = L"";
         GetWindowTextW(hwnd, title, 128);
         const wchar_t* simulator = scan->french ? L"Simulateur" : L"Simulator";
-        const wchar_t* repeater = scan->french ? L"R\u00E9p\u00E9titeur radar" : L"Radar repeater";
+        const wchar_t* repeater = scan->french ? L"R\u00E9p\u00E9titeur gyro" : L"Gyro repeater";
         std::wstring what;
         if (strcmp(windowClass, SimulatorWindowClass) == 0) { what = simulator; }
         else if (strcmp(windowClass, RepeaterWindowClass) == 0) { what = repeater; }

@@ -5,7 +5,7 @@ This file must be saved with default (ANSI) encoding on Windows, and UTF-8 encod
 
 startBC = "Start The Simulator          "
 startMC = "Map Controller          "
-startRP = "Heading/Compass Repeater          "
+startRP = "Gyro repeater          "
 startED = "Scenario Editor          "
 startMH = "Multiplayer Hub          "
 startFE = "Fire / SAR Scenario Editor          "

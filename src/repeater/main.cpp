@@ -241,7 +241,7 @@ int main(int argc, char** argv)
         if (requestedMonitor < 0 && Monitors.iMonitors.size() > 1) {
             const bool french = (modifier == "fr");
             const int chosen = ScreenChooser::ask(
-                french ? L"Sur quel \u00E9cran ouvrir le r\u00E9p\u00E9titeur radar ?" : L"Which screen should the radar repeater open on?",
+                french ? L"Sur quel \u00E9cran ouvrir le r\u00E9p\u00E9titeur gyro ?" : L"Which screen should the gyro repeater open on?",
                 french ? L"Cliquez sur un \u00E9cran puis sur Ouvrir. Les fen\u00EAtres d\u00E9j\u00E0 ouvertes sont indiqu\u00E9es."
                     : L"Click a screen, then Open. Windows already open are shown.",
                 french);
@@ -315,7 +315,7 @@ int main(int argc, char** argv)
         std::cerr << "Could not start - please check your graphics options." << std::endl;
         exit(EXIT_FAILURE); //Could not get file system
     }
-    device->setWindowCaption(L"NAUTITECH - R\u00E9p\u00E9titeur radar"); //also how the screen choosers recognise it
+    device->setWindowCaption(L"NAUTITECH - R\u00E9p\u00E9titeur gyro"); //also how the screen choosers recognise it
 
     irr::video::IVideoDriver* driver = device->getVideoDriver();
     //scene::ISceneManager* smgr = device->getSceneManager();
