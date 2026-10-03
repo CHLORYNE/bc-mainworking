@@ -24,6 +24,62 @@
 
 ////using namespace irr;
 
+namespace {
+    //Land surface reflectivity pattern, see landReflectivity().
+
+    //Value of a lattice point, 0..1, from a 64-bit integer hash (splitmix64 finaliser). Pure integer
+    //arithmetic, so a given patch of land gives the same echo on every machine and every run.
+    irr::f32 latticeValue(int64_t ix, int64_t iz, uint64_t seed)
+    {
+        uint64_t h = (uint64_t)ix * 0x9E3779B97F4A7C15ULL;
+        h ^= ((uint64_t)iz + seed) * 0xC2B2AE3D27D4EB4FULL;
+        h ^= h >> 30; h *= 0xBF58476D1CE4E5B9ULL;
+        h ^= h >> 27; h *= 0x94D049BB133111EBULL;
+        h ^= h >> 31;
+        return (irr::f32)(h >> 40) * (1.0f / 16777216.0f);
+    }
+
+    //Smoothly interpolated value noise, 0..1, with features about cellM metres across.
+    irr::f32 valueNoise(double x, double z, double cellM, uint64_t seed)
+    {
+        const double fx = x / cellM;
+        const double fz = z / cellM;
+        const double floorX = std::floor(fx);
+        const double floorZ = std::floor(fz);
+        const int64_t ix = (int64_t)floorX;
+        const int64_t iz = (int64_t)floorZ;
+        irr::f32 tx = (irr::f32)(fx - floorX);
+        irr::f32 tz = (irr::f32)(fz - floorZ);
+        tx = tx * tx * (3.0f - 2.0f * tx);
+        tz = tz * tz * (3.0f - 2.0f * tz);
+        const irr::f32 v00 = latticeValue(ix, iz, seed);
+        const irr::f32 v10 = latticeValue(ix + 1, iz, seed);
+        const irr::f32 v01 = latticeValue(ix, iz + 1, seed);
+        const irr::f32 v11 = latticeValue(ix + 1, iz + 1, seed);
+        const irr::f32 a = v00 + (v10 - v00) * tx;
+        const irr::f32 b = v01 + (v11 - v01) * tx;
+        return a + (b - a) * tz;
+    }
+
+    //Reflectivity of the ground surface at absolute world position (x, z) in metres, as a factor on
+    //the diffuse land return (1 = the old uniform value).
+    //Real ground cover is patchy - bare sand, scrub, rock, walls, buildings - so the return from land
+    //that does not face the radar varies by tens of dB from place to place. The heightmap has no such
+    //detail, so this stands in for it: three octaves of value noise (45 m grain, 170 m patches, 650 m
+    //areas), mapped to a log-normal-like spread. It is fixed to the geography, so the pattern stays on
+    //the land as the ship moves instead of crawling. Tuned so that at gain 50 the inside of a landmass
+    //is nearly solid within 1 Nm, mottled at 3-6 Nm and patchy at 12 Nm, as on a real X-band display.
+    irr::f32 landReflectivity(double x, double z)
+    {
+        const irr::f32 LAND_TEXTURE_CONTRAST = 33.3f; //natural-log spread per unit of noise (std of the noise is about 0.13)
+        const irr::f32 LAND_TEXTURE_BIAS = -3.26f;    //natural log of the median reflectivity
+        const irr::f32 n = 0.45f * valueNoise(x, z, 45.0, 0x51ED2701ULL)
+                         + 0.35f * valueNoise(x, z, 170.0, 0x7A3C9B15ULL)
+                         + 0.20f * valueNoise(x, z, 650.0, 0x2F6E4D83ULL);
+        return std::exp(LAND_TEXTURE_CONTRAST * (n - 0.5f) + LAND_TEXTURE_BIAS);
+    }
+}
+
 RadarCalculation::RadarCalculation() : rangeResolution(128), angularResolution(360)
 {
 
@@ -79,6 +135,8 @@ RadarCalculation::RadarCalculation() : rangeResolution(128), angularResolution(3
         piRanges.push_back(0.0);
     }
 
+    landTexture = true;
+
     radarScreenStale = true;
     radarRadiusPx = 10; //Set to an arbitrary value initially, will be set later.
 
@@ -112,6 +170,7 @@ void RadarCalculation::load(std::string radarConfigFile, irr::IrrlichtDevice* de
     if (angularResolution < 1) { angularResolution = 360; }
     if (rangeResolution_max > 0 && rangeResolution > rangeResolution_max) { rangeResolution = rangeResolution_max; }
     if (angularResolution_max > 0 && angularResolution > angularResolution_max) { angularResolution = angularResolution_max; }
+    landTexture = (IniFile::iniFileTou32(iniFilename, "RADAR_LandTexture", 1) != 0);
 
     // --- Radar ranges (Nm), formerly RadarRange(1..N) ---
     radarRangeNm.clear();
@@ -1192,6 +1251,7 @@ void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const T
 
             //Add land scan
            //Add land scan
+            irr::f32 landEcho = 0; //Land part of this cell's echo, to pick the display curve below
             //kyara: supersample the terrain inside this cell and keep the highest point found.
             //A single centre sample misses breakwaters, jetties, moles and low coastline whenever
             //the cell is larger than the feature.
@@ -1246,10 +1306,22 @@ void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const T
 
                 //Diffuse (surface roughness) component, so flat land returns an echo at grazing incidence
                 const irr::f32 LAND_DIFFUSE_FLOOR = 0.15f; //0.0 = original behaviour, 1.0 = wall everywhere
+                irr::f32 landDiffuse = LAND_DIFFUSE_FLOOR;
+                if (landTexture) {
+                    //Patchy ground cover (fixed to the geography) and a small scan-to-scan
+                    //fluctuation (sigma about 0.35 in natural log), so the inside of a landmass is mottled
+                    //and alive instead of one flat block. Coastlines and slopes facing the radar are not
+                    //affected: their gradient term below still takes them to full strength.
+                    const double worldX = (double)offsetPosition.X + (double)localX;
+                    const double worldZ = (double)offsetPosition.Z + (double)localZ;
+                    const irr::f32 fluctuation = std::exp(0.85f * ((irr::f32)rand() / RAND_MAX + (irr::f32)rand() / RAND_MAX - 1.0f));
+                    landDiffuse = std::min(1.0f, LAND_DIFFUSE_FLOOR * landReflectivity(worldX, worldZ) * fluctuation);
+                }
                 irr::f32 shapeFactor = std::atan(radarLocalGradient) * (2 / PI);
-                shapeFactor = LAND_DIFFUSE_FLOOR + (1.0f - LAND_DIFFUSE_FLOOR) * shapeFactor;
+                shapeFactor = landDiffuse + (1.0f - landDiffuse) * shapeFactor;
 
-                scanArray[currentScanLine][currentStep] += radarFactorLand * shapeFactor / std::pow(localRange / M_IN_NM, 3);
+                landEcho = radarFactorLand * shapeFactor / std::pow(localRange / M_IN_NM, 3);
+                scanArray[currentScanLine][currentStep] += landEcho;
             }
             //Add radar noise
             scanArray[currentScanLine][currentStep] += localNoise;
@@ -1279,6 +1351,17 @@ void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const T
             //take log (natural) of signal
             irr::f32 logSignal = log(filteredSignal * radarLocalGain);
             scanArrayAmplified[currentScanLine][currentStep] = std::max(0.0f, logSignal);
+
+            //Land shown with graded brightness. Displayed brightness is the log signal clipped at 1,
+            //so anything a few dB over the threshold is at full brightness and land was one flat block.
+            //For cells where land is most of the echo, use a soft knee instead: same threshold (land
+            //appears and disappears with gain, sea clutter and rain exactly as before), but weak land is
+            //dim and only strong returns - coastlines, slopes facing the radar - reach full brightness.
+            //Ships, buoys, noise and clutter keep the original curve.
+            if (landTexture && landEcho > 0.5f * scanArray[currentScanLine][currentStep]) {
+                const irr::f32 LAND_DISPLAY_KNEE = 2.5f; //log units; larger = dimmer, more graded land
+                scanArrayAmplified[currentScanLine][currentStep] = 1.0f - std::exp(-scanArrayAmplified[currentScanLine][currentStep] / LAND_DISPLAY_KNEE);
+            }
 
             //Generate a filtered version, based on the angles around. Lag behind by (for example) 3 steps, so we can filter on what's ahead, as well as what's behind
             irr::s32 filterAngle = (irr::s32)currentScanLine - 3;
@@ -2147,6 +2230,26 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
         }
     }
     // -----------------------------
+
+    //Keep the outermost rows and columns of the image in the surround colour. RadarScreen shows
+    //the scope with a small margin and clamps the texture at its edges, so whatever is in the edge
+    //pixels is stretched across that margin. The scope circle touches the top and left edges (at 000
+    //and 270), and an echo there was drawn as a block of echo outside the ring.
+    {
+        const irr::video::SColor surround = getRadarSurroundColour();
+        const irr::u32 w = radarImageOverlaid->getDimension().Width;
+        const irr::u32 h = radarImageOverlaid->getDimension().Height;
+        if (w > 0 && h > 0) {
+            for (irr::u32 x = 0; x < w; x++) {
+                radarImageOverlaid->setPixel(x, 0, surround);
+                radarImageOverlaid->setPixel(x, h - 1, surround);
+            }
+            for (irr::u32 y = 0; y < h; y++) {
+                radarImageOverlaid->setPixel(0, y, surround);
+                radarImageOverlaid->setPixel(w - 1, y, surround);
+            }
+        }
+    }
 }
 void RadarCalculation::drawSector(irr::video::IImage* radarImage, irr::f32 centreX, irr::f32 centreY, irr::f32 innerRadius, irr::f32 outerRadius, irr::f32 startAngle, irr::f32 endAngle, irr::u32 alpha, irr::u32 red, irr::u32 green, irr::u32 blue, irr::f32 ownShipHeading)
 //draw a bounded sector

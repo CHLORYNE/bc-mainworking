@@ -273,6 +273,7 @@ private:
     irr::f32 radarNoiseLevel;
     irr::f32 radarSeaClutter;
     irr::f32 radarRainClutter;
+    bool landTexture; //Patchy, graded land echoes (bc5.ini RADAR_LandTexture, 0 = old uniform land)
     //Parameters for parallel index
     std::vector<irr::f32> piBearings;
     std::vector<irr::f32> piRanges;
