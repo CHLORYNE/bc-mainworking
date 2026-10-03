@@ -23,13 +23,18 @@
 #include "../GUIPanelDraw.hpp"
 #include <string>
 #include <vector>
+#include <fstream>
+#include <functional>
 
 //headers for execl
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
+#include <direct.h> //_mkdir
 #else
 #include <unistd.h>
+#include <sys/stat.h> //mkdir
+#include <sys/wait.h> //waitpid
 #endif
 
 //Mac OS:
@@ -61,8 +66,6 @@ const irr::s32 USER_BUTTON = 11;
 const irr::s32 EXIT_BUTTON = 12;
 //KYARA TOUCHES: keyboard-shortcut sheet, in French or English
 const irr::s32 KEYS_BUTTON = 13;
-const irr::s32 KEYS_CLOSE_BUTTON = 14;
-const irr::s32 KEYS_LANG_BUTTON = 15;
 const irr::s32 FE_BUTTON = 16;   // SCENARIO INCENDIE: fire / SAR scenario editor
 
 std::string userFolder;
@@ -75,7 +78,6 @@ std::string userFolder;
 //side so that neither is forgotten when a shortcut changes.
 //=================================================================================================
 irr::IrrlichtDevice* g_device = 0;
-irr::gui::IGUIWindow* g_keysWindow = 0;
 bool g_keysFrench = true;
 
 struct KeyRow { const wchar_t* keys; const wchar_t* fr; const wchar_t* en; };
@@ -130,72 +132,6 @@ static const KeyRow KEY_ROWS[] = {
     { L"\u00C9chap ou F4", L"Quitter le simulateur",                        L"Quit the simulator" }
 };
 static const int KEY_ROW_COUNT = sizeof(KEY_ROWS) / sizeof(KEY_ROWS[0]);
-
-void showKeyHelp()
-{
-    if (!g_device) { return; }
-    irr::gui::IGUIEnvironment* env = g_device->getGUIEnvironment();
-
-    //Rebuilt from scratch each time, so switching language is one code path and not two.
-    if (g_keysWindow) { g_keysWindow->remove(); g_keysWindow = 0; }
-
-    const irr::s32 sw = (irr::s32)g_device->getVideoDriver()->getScreenSize().Width;
-    const irr::s32 sh = (irr::s32)g_device->getVideoDriver()->getScreenSize().Height;
-    const irr::s32 w = 880, h = 540;
-    const irr::s32 x = (sw - w) / 2, y = (sh - h) / 2;
-
-    g_keysWindow = env->addWindow(irr::core::rect<irr::s32>(x, y, x + w, y + h), true, //modal
-        g_keysFrench ? L"Raccourcis clavier du simulateur" : L"Simulator keyboard shortcuts");
-    if (g_keysWindow->getCloseButton()) {
-        g_keysWindow->getCloseButton()->setVisible(false); //one explicit close button is clearer
-    }
-
-    //The list scrolls by itself, so the sheet can grow later without the window changing.
-    irr::gui::IGUIListBox* list = env->addListBox(
-        irr::core::rect<irr::s32>(10, 34, w - 10, h - 52), g_keysWindow, -1, true);
-
-    //Key column width in pixels (the font is proportional, so pad by measured width, not characters).
-    irr::gui::IGUIFont* listFont = env->getSkin() ? env->getSkin()->getFont() : 0;
-    irr::u32 keyColumn = 0;
-    for (int i = 0; i < KEY_ROW_COUNT && listFont; i++) {
-        if (KEY_ROWS[i].keys) {
-            const irr::u32 w = listFont->getDimension(KEY_ROWS[i].keys).Width;
-            if (w > keyColumn) { keyColumn = w; }
-        }
-    }
-    keyColumn += 28;
-
-    for (int i = 0; i < KEY_ROW_COUNT; i++) {
-        irr::core::stringw line;
-        if (KEY_ROWS[i].keys == 0) {
-            //Section heading: a blank line above it separates the blocks with no styling needed.
-            if (i > 0) { list->addItem(L""); }
-            line = L"== ";
-            line += g_keysFrench ? KEY_ROWS[i].fr : KEY_ROWS[i].en;
-            line += L" ==";
-        }
-        else {
-            //Pad the key column so the descriptions line up down the list.
-            irr::core::stringw keys(KEY_ROWS[i].keys);
-            if (listFont) {
-                while (listFont->getDimension(keys.c_str()).Width < keyColumn) { keys += L" "; }
-            }
-            else {
-                while (keys.size() < 26) { keys += L" "; }
-            }
-            line = L"  ";
-            line += keys;
-            line += g_keysFrench ? KEY_ROWS[i].fr : KEY_ROWS[i].en;
-        }
-        list->addItem(line.c_str());
-    }
-
-    //The toggle always names the language it would switch TO.
-    env->addButton(irr::core::rect<irr::s32>(10, h - 44, 210, h - 12), g_keysWindow,
-        KEYS_LANG_BUTTON, g_keysFrench ? L"English" : L"Fran\u00E7ais");
-    env->addButton(irr::core::rect<irr::s32>(w - 210, h - 44, w - 10, h - 12), g_keysWindow,
-        KEYS_CLOSE_BUTTON, g_keysFrench ? L"Fermer" : L"Close");
-}
 
 //=================================================================================================
 //Launcher look: the background picture full-window, a dark gradient at the bottom, and custom-drawn
@@ -378,7 +314,7 @@ public:
     LauncherTile(irr::gui::IGUIEnvironment* env, irr::s32 id, const std::wstring& title, const std::wstring& subtitle,
         LauncherIcon icon, TileStyle style)
         : irr::gui::IGUIElement(irr::gui::EGUIET_BUTTON, env, env->getRootGUIElement(), id, irr::core::rect<irr::s32>(0, 0, 10, 10)),
-        title(title), subtitle(subtitle), icon(icon), style(style), hovered(false), pressed(false), hover(0), lastMs(0),
+        title(title), subtitle(subtitle), icon(icon), style(style), hovered(false), pressed(false), locked(false), hover(0), lastMs(0),
         titleFont(0), subFont(0)
     {
         setTabStop(true);
@@ -386,12 +322,14 @@ public:
     }
 
     void setFonts(irr::gui::IGUIFont* t, irr::gui::IGUIFont* s) { titleFont = t; subFont = s; }
+    //Padlock at the end of a chip: the tool it opens asks for the administrator password.
+    void setLocked(bool on) { locked = on; }
 
     //Width a chip needs for its label.
     irr::s32 preferredChipWidth() const
     {
         const irr::s32 tw = titleFont ? (irr::s32)titleFont->getDimension(title.c_str()).Width : 100;
-        return tw + 62;
+        return tw + 62 + (locked ? 20 : 0);
     }
 
     bool isAnimating() const { return (hovered && hover < 1.0f) || (!hovered && hover > 0.0f); }
@@ -482,6 +420,15 @@ public:
         if (chip) {
             iconCentre = irr::core::vector2df(r.UpperLeftCorner.X + 24, r.getCenter().Y);
             drawIcon(b, icon, iconCentre, 9.0f, iconCol);
+            if (locked) {
+                //Padlock: body and shackle.
+                const irr::core::vector2df c(r.LowerRightCorner.X - 26, r.getCenter().Y);
+                const irr::video::SColor lockCol = mixColour(irr::video::SColor(200, 150, 168, 190), irr::video::SColor(255, 255, 200, 110), k);
+                roundRect(b, irr::core::rect<irr::f32>(c.X - 6, c.Y - 2, c.X + 6, c.Y + 7), 2, lockCol, lockCol);
+                b.sector(irr::core::vector2df(c.X, c.Y - 3), 2.6f, 4.3f, -90, 90, lockCol, lockCol);
+                b.rect(irr::core::rect<irr::f32>(c.X - 4.3f, c.Y - 3, c.X - 2.6f, c.Y - 1), lockCol);
+                b.rect(irr::core::rect<irr::f32>(c.X + 2.6f, c.Y - 3, c.X + 4.3f, c.Y - 1), lockCol);
+            }
         }
         else {
             const irr::f32 badge = 23.0f;
@@ -548,7 +495,7 @@ private:
     std::wstring title, subtitle;
     LauncherIcon icon;
     TileStyle style;
-    bool hovered, pressed;
+    bool hovered, pressed, locked;
     irr::f32 hover;
     irr::u32 lastMs;
     irr::gui::IGUIFont* titleFont;
@@ -603,6 +550,866 @@ void drawToast(irr::video::IVideoDriver* driver, irr::gui::IGUIFont* font, const
         irr::video::SColor((irr::u32)(255 * alpha), 255, 255, 255), false, false);
 }
 
+//Toast for an application being started.
+void showLaunchToast(const std::wstring& title)
+{
+    if (!g_device) { return; }
+    g_toastText = std::wstring(L"Lancement : ") + title + L"...";
+    g_toastStartMs = g_device->getTimer()->getRealTime();
+}
+
+std::wstring g_simulatorTitle; //the simulator card's title, for the toast once a screen has been picked
+
+//=================================================================================================
+//Overlays drawn over the tiles: the keyboard-shortcut sheet and the screen picker. Each is a
+//full-window GUI element, custom drawn like the tiles, and modal: while open it holds the focus and
+//takes every mouse and key event. Escape, or a click outside its panel, closes it.
+//=================================================================================================
+
+namespace Overlay {
+    const irr::video::SColor dim(178, 2, 8, 18);
+    const irr::video::SColor panelTop(252, 17, 34, 60);
+    const irr::video::SColor panelBottom(252, 9, 20, 38);
+    const irr::video::SColor panelEdge(110, 90, 150, 220);
+    const irr::video::SColor rule(60, 140, 180, 230);
+    const irr::video::SColor hoverRow(34, 120, 180, 255);
+}
+
+irr::core::rect<irr::s32> toIntRect(const irr::core::rect<irr::f32>& r)
+{
+    return irr::core::rect<irr::s32>((irr::s32)r.UpperLeftCorner.X, (irr::s32)r.UpperLeftCorner.Y,
+        (irr::s32)r.LowerRightCorner.X, (irr::s32)r.LowerRightCorner.Y);
+}
+
+//Text in a box: horizontally left or centred, vertically centred.
+void drawTextIn(irr::gui::IGUIFont* font, const std::wstring& text, const irr::core::rect<irr::f32>& box, irr::video::SColor col,
+    bool centred, const irr::core::rect<irr::s32>* clip = 0)
+{
+    if (!font || text.empty()) { return; }
+    const irr::core::dimension2du d = font->getDimension(text.c_str());
+    const irr::s32 x = centred ? (irr::s32)(box.getCenter().X - d.Width * 0.5f) : (irr::s32)box.UpperLeftCorner.X;
+    const irr::s32 y = (irr::s32)(box.getCenter().Y - d.Height * 0.5f);
+    font->draw(text.c_str(), irr::core::rect<irr::s32>(x, y, x + (irr::s32)d.Width + 2, y + (irr::s32)d.Height), col, false, false, clip);
+}
+
+irr::f32 textWidth(irr::gui::IGUIFont* font, const std::wstring& text)
+{
+    return font ? (irr::f32)font->getDimension(text.c_str()).Width : 8.0f * text.size();
+}
+
+irr::f32 textHeight(irr::gui::IGUIFont* font)
+{
+    return font ? (irr::f32)font->getDimension(L"Ag").Height : 14.0f;
+}
+
+//Pill button: primary (blue gradient) or secondary (glass with an outline).
+void drawPillButton(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& r, bool primary, bool hovered, bool enabled = true)
+{
+    const irr::f32 rad = r.getHeight() * 0.5f;
+    if (primary) {
+        irr::video::SColor top = hovered ? irr::video::SColor(255, 66, 150, 240) : Theme::primaryTop;
+        irr::video::SColor bottom = hovered ? irr::video::SColor(255, 26, 98, 196) : Theme::primaryBottom;
+        if (!enabled) { top = irr::video::SColor(255, 44, 62, 86); bottom = irr::video::SColor(255, 34, 48, 68); }
+        roundRect(b, r, rad, top, bottom);
+        roundRectOutline(b, r, rad, 1.0f, irr::video::SColor(enabled ? 110 : 40, 190, 225, 255));
+    }
+    else {
+        roundRect(b, r, rad, hovered ? irr::video::SColor(220, 36, 58, 88) : irr::video::SColor(200, 24, 40, 64),
+            hovered ? irr::video::SColor(220, 28, 46, 72) : irr::video::SColor(200, 18, 30, 50));
+        roundRectOutline(b, r, rad, 1.0f, hovered ? irr::video::SColor(200, 120, 190, 255) : Theme::border);
+    }
+}
+
+class LauncherOverlay : public irr::gui::IGUIElement
+{
+public:
+    LauncherOverlay(irr::gui::IGUIEnvironment* env)
+        : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, env->getRootGUIElement(), -1, irr::core::rect<irr::s32>(0, 0, 10, 10)),
+        mouse(-1, -1)
+    {
+        setVisible(false);
+    }
+
+    void show()
+    {
+        fitWindow();
+        setVisible(true);
+        Parent->bringToFront(this);
+        Environment->setFocus(this);
+    }
+
+    void hide()
+    {
+        setVisible(false);
+        Environment->removeFocus(this);
+    }
+
+    virtual bool OnEvent(const irr::SEvent& event)
+    {
+        if (!IsVisible) { return IGUIElement::OnEvent(event); }
+        if (event.EventType == irr::EET_GUI_EVENT) {
+            //Keep the focus while open, so the tiles underneath get no keys.
+            return event.GUIEvent.EventType == irr::gui::EGET_ELEMENT_FOCUS_LOST && event.GUIEvent.Caller == this;
+        }
+        if (event.EventType == irr::EET_MOUSE_INPUT_EVENT) {
+            mouse = irr::core::position2di(event.MouseInput.X, event.MouseInput.Y);
+            onMouse(event.MouseInput);
+            return true;
+        }
+        if (event.EventType == irr::EET_KEY_INPUT_EVENT) {
+            onKey(event.KeyInput);
+            return true;
+        }
+        return true;
+    }
+
+protected:
+    virtual void onMouse(const irr::SEvent::SMouseInput& m) = 0;
+    virtual void onKey(const irr::SEvent::SKeyInput& k) = 0;
+
+    //Follows the window size; true if it changed.
+    bool fitWindow()
+    {
+        const irr::core::dimension2du s = Environment->getVideoDriver()->getScreenSize();
+        const irr::core::rect<irr::s32> full(0, 0, (irr::s32)s.Width, (irr::s32)s.Height);
+        if (RelativeRect == full) { return false; }
+        setRelativePosition(full);
+        return true;
+    }
+
+    bool over(const irr::core::rect<irr::f32>& r) const
+    {
+        return r.isPointInside(irr::core::vector2df((irr::f32)mouse.X, (irr::f32)mouse.Y));
+    }
+
+    //Dimmed launcher and the panel body with its shadow.
+    void drawPanel(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& panel)
+    {
+        b.rect(irr::core::rect<irr::f32>(0, 0, (irr::f32)AbsoluteRect.getWidth(), (irr::f32)AbsoluteRect.getHeight()), Overlay::dim);
+        irr::core::rect<irr::f32> s = panel;
+        s.UpperLeftCorner += irr::core::vector2df(-2, 10);
+        s.LowerRightCorner += irr::core::vector2df(2, 14);
+        roundRect(b, s, 20, irr::video::SColor(110, 0, 0, 0), irr::video::SColor(110, 0, 0, 0));
+        roundRect(b, panel, 18, Overlay::panelTop, Overlay::panelBottom);
+    }
+
+    irr::core::position2di mouse;
+};
+
+//-------------------------------------------------------------------------------------------------
+//Screen picker
+//-------------------------------------------------------------------------------------------------
+
+struct ScreenInfo {
+    irr::core::rect<irr::s32> area; //desktop coordinates
+    bool primary;
+    bool launcherHere;              //the launcher window is on this screen
+};
+
+#ifdef _WIN32
+struct ScreenListBuilder {
+    std::vector<ScreenInfo> screens;
+    std::vector<HMONITOR> handles;
+    static BOOL CALLBACK add(HMONITOR monitor, HDC, LPRECT, LPARAM data)
+    {
+        ScreenListBuilder* self = reinterpret_cast<ScreenListBuilder*>(data);
+        MONITORINFO mi;
+        mi.cbSize = sizeof(mi);
+        ScreenInfo s;
+        s.primary = false;
+        s.launcherHere = false;
+        if (GetMonitorInfo(monitor, &mi)) {
+            s.area = irr::core::rect<irr::s32>(mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom);
+            s.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        }
+        self->screens.push_back(s);
+        self->handles.push_back(monitor);
+        return TRUE;
+    }
+};
+#endif
+
+//The screens, in the order the simulator numbers them (both use EnumDisplayMonitors), so screen N
+//here is screen N for "-monitor N" and for bc5.ini monitor=N.
+std::vector<ScreenInfo> listScreens()
+{
+#ifdef _WIN32
+    ScreenListBuilder builder;
+    EnumDisplayMonitors(0, 0, ScreenListBuilder::add, (LPARAM)&builder);
+    if (g_device) {
+        HWND hwnd = reinterpret_cast<HWND>(g_device->getVideoDriver()->getExposedVideoData().OpenGLWin32.HWnd);
+        HMONITOR here = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        for (size_t i = 0; i < builder.handles.size(); i++) {
+            builder.screens[i].launcherHere = (builder.handles[i] == here);
+        }
+    }
+    return builder.screens;
+#else
+    std::vector<ScreenInfo> screens;
+#ifdef LAUNCHER_TEST_SCREENS
+    //Test builds only: a made-up desk (instructor screen and two large displays), so the picker can be
+    //checked on a machine without them.
+    ScreenInfo s;
+    s.area = irr::core::rect<irr::s32>(0, 0, 1920, 1080); s.primary = true; s.launcherHere = true; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(1920, -180, 5760, 1980); s.primary = false; s.launcherHere = false; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(-1280, 56, 0, 1080); screens.push_back(s);
+#endif
+    return screens;
+#endif
+}
+
+class ScreenPicker : public LauncherOverlay
+{
+public:
+    typedef std::function<void(int, bool)> LaunchFn; //screen number (1..n), remember the choice
+
+    ScreenPicker(irr::gui::IGUIEnvironment* env, bool french, irr::gui::IGUIFont* bigFont, irr::gui::IGUIFont* titleFont,
+        irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch)
+        : LauncherOverlay(env), french(french), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
+        launch(launch), selected(0), remember(false), lastClickMs(0), lastClickScreen(-1)
+    {
+    }
+
+    void open(const std::vector<ScreenInfo>& list)
+    {
+        screens = list;
+        //Most often the simulator goes on a screen other than the instructor's, where the launcher is.
+        selected = 0;
+        for (size_t i = 0; i < screens.size(); i++) {
+            if (!screens[i].launcherHere) { selected = (int)i; break; }
+        }
+        remember = false;
+        lastClickScreen = -1;
+        show();
+    }
+
+    virtual void draw()
+    {
+        if (!IsVisible) { return; }
+        fitWindow();
+        layout();
+        irr::video::IVideoDriver* driver = Environment->getVideoDriver();
+
+        irr::gui::PanelBatch b;
+        b.begin(driver);
+        drawPanel(b, panel);
+        //Screens
+        for (size_t i = 0; i < screens.size(); i++) {
+            const irr::core::rect<irr::f32>& r = screenRects[i];
+            const bool sel = ((int)i == selected);
+            const bool hov = over(r);
+            irr::core::rect<irr::f32> s = r;
+            s.UpperLeftCorner.Y += 5; s.LowerRightCorner.Y += 5;
+            roundRect(b, s, 10, irr::video::SColor(90, 0, 0, 0), irr::video::SColor(90, 0, 0, 0));
+            if (sel) {
+                irr::core::rect<irr::f32> glow = r;
+                glow.UpperLeftCorner -= irr::core::vector2df(4, 4);
+                glow.LowerRightCorner += irr::core::vector2df(4, 4);
+                roundRectOutline(b, glow, 14, 3.0f, irr::video::SColor(70, 120, 190, 255));
+                roundRect(b, r, 10, Theme::primaryTop, Theme::primaryBottom);
+                roundRectOutline(b, r, 10, 1.0f, irr::video::SColor(255, 200, 230, 255));
+            }
+            else {
+                roundRect(b, r, 10, hov ? irr::video::SColor(255, 46, 70, 104) : irr::video::SColor(255, 32, 50, 76),
+                    hov ? irr::video::SColor(255, 30, 48, 74) : irr::video::SColor(255, 21, 34, 54));
+                roundRectOutline(b, r, 10, 1.0f, hov ? irr::video::SColor(230, 120, 190, 255) : irr::video::SColor(90, 150, 190, 240));
+            }
+        }
+        //"Remember" check box
+        const bool hovRemember = over(rememberRow);
+        roundRect(b, checkBox, 5, remember ? Theme::primaryTop : irr::video::SColor(255, 20, 34, 56),
+            remember ? Theme::primaryBottom : irr::video::SColor(255, 16, 28, 46));
+        roundRectOutline(b, checkBox, 5, 1.0f, (remember || hovRemember) ? irr::video::SColor(230, 150, 205, 255) : irr::video::SColor(140, 150, 190, 240));
+        if (remember) {
+            const irr::core::vector2df c = checkBox.getCenter();
+            const irr::f32 s = checkBox.getWidth() * 0.5f;
+            b.line(irr::core::vector2df(c.X - s * 0.5f, c.Y + s * 0.02f), irr::core::vector2df(c.X - s * 0.12f, c.Y + s * 0.4f), 2.2f, irr::video::SColor(255, 255, 255, 255));
+            b.line(irr::core::vector2df(c.X - s * 0.12f, c.Y + s * 0.4f), irr::core::vector2df(c.X + s * 0.55f, c.Y - s * 0.38f), 2.2f, irr::video::SColor(255, 255, 255, 255));
+        }
+        drawPillButton(b, cancelButton, false, over(cancelButton));
+        drawPillButton(b, launchButton, true, over(launchButton));
+        b.flush();
+
+        //Text
+        const irr::f32 x = panel.UpperLeftCorner.X + 36;
+        drawTextIn(titleFont, french ? L"Choisir l'\u00E9cran du simulateur" : L"Choose the simulator screen",
+            irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 22, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 52), Theme::text, false);
+        drawTextIn(textFont, french ? L"Cliquez sur l'\u00E9cran o\u00F9 l'exercice doit s'afficher, puis sur Lancer."
+            : L"Click the screen the exercise should be shown on, then Launch.",
+            irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 54, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 78), Theme::textDim, false);
+
+        for (size_t i = 0; i < screens.size(); i++) {
+            const irr::core::rect<irr::f32>& r = screenRects[i];
+            const bool sel = ((int)i == selected);
+            const irr::video::SColor main = sel ? irr::video::SColor(255, 255, 255, 255) : Theme::text;
+            const irr::video::SColor sub = sel ? irr::video::SColor(255, 214, 232, 252) : Theme::textDim;
+            const irr::core::rect<irr::s32> clip = toIntRect(r);
+            //Number, resolution, then tags, centred as a block.
+            std::vector<std::pair<std::wstring, irr::gui::IGUIFont*> > lines;
+            lines.push_back(std::make_pair(std::to_wstring(i + 1), bigFont));
+            lines.push_back(std::make_pair(std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont));
+            std::wstring tags;
+            if (screens[i].primary) { tags += french ? L"Principal" : L"Primary"; }
+            if (screens[i].launcherHere) { tags += tags.empty() ? L"" : L"  \u00B7  "; tags += french ? L"Lanceur ici" : L"Launcher here"; }
+            if (!tags.empty()) { lines.push_back(std::make_pair(tags, smallFont)); }
+            irr::f32 total = 0;
+            for (size_t l = 0; l < lines.size(); l++) { total += textHeight(lines[l].second) + 2; }
+            if (total > r.getHeight() - 6) { lines.resize(1); total = textHeight(bigFont); } //small tile: number only
+            irr::f32 y = r.getCenter().Y - total * 0.5f;
+            for (size_t l = 0; l < lines.size(); l++) {
+                const irr::f32 h = textHeight(lines[l].second);
+                drawTextIn(lines[l].second, lines[l].first, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, y, r.LowerRightCorner.X, y + h),
+                    l == 0 ? main : sub, true, &clip);
+                y += h + 2;
+            }
+        }
+
+        drawTextIn(textFont, french ? L"Toujours utiliser cet \u00E9cran" : L"Always use this screen",
+            irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.UpperLeftCorner.Y - 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y - 2),
+            Theme::text, false);
+        drawTextIn(smallFont, french ? L"Le choix pourra \u00EAtre modifi\u00E9 dans les param\u00E8tres du simulateur (monitor)."
+            : L"The choice can be changed later in the simulator settings (monitor).",
+            irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.LowerRightCorner.Y + 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y + 22),
+            Theme::textDim, false);
+        drawTextIn(smallFont, french ? L"1 \u00E0 9 : choisir  \u00B7  Entr\u00E9e : lancer  \u00B7  \u00C9chap : annuler"
+            : L"1 to 9: choose  \u00B7  Enter: launch  \u00B7  Esc: cancel",
+            irr::core::rect<irr::f32>(x, launchButton.UpperLeftCorner.Y, cancelButton.UpperLeftCorner.X - 12, launchButton.LowerRightCorner.Y),
+            irr::video::SColor(170, 178, 192, 208), false);
+        drawTextIn(textFont, french ? L"Annuler" : L"Cancel", cancelButton, Theme::text, true);
+        drawTextIn(textFont, french ? L"Lancer le simulateur" : L"Launch the simulator", launchButton, irr::video::SColor(255, 255, 255, 255), true);
+    }
+
+protected:
+    virtual void onMouse(const irr::SEvent::SMouseInput& m)
+    {
+        if (m.Event != irr::EMIE_LMOUSE_LEFT_UP) { return; }
+        layout();
+        for (size_t i = 0; i < screenRects.size(); i++) {
+            if (over(screenRects[i])) {
+                //Double click on a screen launches at once.
+                const irr::u32 now = g_device ? g_device->getTimer()->getRealTime() : 0;
+                const bool doubleClick = (lastClickScreen == (int)i) && (now - lastClickMs < 450);
+                selected = (int)i;
+                lastClickScreen = (int)i;
+                lastClickMs = now;
+                if (doubleClick) { confirm(); }
+                return;
+            }
+        }
+        if (over(rememberRow)) { remember = !remember; return; }
+        if (over(launchButton)) { confirm(); return; }
+        if (over(cancelButton) || !over(panel)) { hide(); return; }
+    }
+
+    virtual void onKey(const irr::SEvent::SKeyInput& k)
+    {
+        if (k.PressedDown) { return; }
+        if (k.Key == irr::KEY_ESCAPE) { hide(); return; }
+        if (k.Key == irr::KEY_RETURN || k.Key == irr::KEY_SPACE) { confirm(); return; }
+        if (k.Key >= irr::KEY_KEY_1 && k.Key <= irr::KEY_KEY_9) {
+            const int n = (int)(k.Key - irr::KEY_KEY_1);
+            if (n < (int)screens.size()) { selected = n; }
+        }
+        if (k.Key >= irr::KEY_NUMPAD1 && k.Key <= irr::KEY_NUMPAD9) {
+            const int n = (int)(k.Key - irr::KEY_NUMPAD1);
+            if (n < (int)screens.size()) { selected = n; }
+        }
+        if (k.Key == irr::KEY_LEFT || k.Key == irr::KEY_UP) { selected = (selected + (int)screens.size() - 1) % irr::core::max_(1, (int)screens.size()); }
+        if (k.Key == irr::KEY_RIGHT || k.Key == irr::KEY_DOWN || k.Key == irr::KEY_TAB) { selected = (selected + 1) % irr::core::max_(1, (int)screens.size()); }
+    }
+
+private:
+    void confirm()
+    {
+        if (selected < 0 || selected >= (int)screens.size()) { return; }
+        hide();
+        if (launch) { launch(selected + 1, remember); }
+    }
+
+    void layout()
+    {
+        const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
+        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(560.0f, H - 48);
+        panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
+        const irr::f32 left = panel.UpperLeftCorner.X + 36, right = panel.LowerRightCorner.X - 36;
+        const irr::f32 bottom = panel.LowerRightCorner.Y;
+
+        launchButton = irr::core::rect<irr::f32>(right - 250, bottom - 70, right, bottom - 26);
+        cancelButton = irr::core::rect<irr::f32>(launchButton.UpperLeftCorner.X - 142, bottom - 70, launchButton.UpperLeftCorner.X - 12, bottom - 26);
+        checkBox = irr::core::rect<irr::f32>(left, bottom - 138, left + 22, bottom - 116);
+        rememberRow = irr::core::rect<irr::f32>(left - 4, bottom - 142, right, bottom - 94);
+
+        //Desk drawn to scale in the space between the title and the check box.
+        const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, bottom - 160);
+        screenRects.clear();
+        if (screens.empty()) { return; }
+        irr::core::rect<irr::s32> desk = screens[0].area;
+        for (size_t i = 1; i < screens.size(); i++) { desk.addInternalPoint(screens[i].area.UpperLeftCorner); desk.addInternalPoint(screens[i].area.LowerRightCorner); }
+        const irr::f32 dw = (irr::f32)irr::core::max_(1, desk.getWidth()), dh = (irr::f32)irr::core::max_(1, desk.getHeight());
+        const irr::f32 scale = irr::core::min_(area.getWidth() / dw, area.getHeight() / dh) * 0.94f;
+        const irr::f32 ox = area.getCenter().X - dw * scale * 0.5f, oy = area.getCenter().Y - dh * scale * 0.5f;
+        for (size_t i = 0; i < screens.size(); i++) {
+            const irr::core::rect<irr::s32>& a = screens[i].area;
+            irr::core::rect<irr::f32> r(ox + (a.UpperLeftCorner.X - desk.UpperLeftCorner.X) * scale, oy + (a.UpperLeftCorner.Y - desk.UpperLeftCorner.Y) * scale,
+                ox + (a.LowerRightCorner.X - desk.UpperLeftCorner.X) * scale, oy + (a.LowerRightCorner.Y - desk.UpperLeftCorner.Y) * scale);
+            r.UpperLeftCorner += irr::core::vector2df(5, 5); //gap between neighbouring screens
+            r.LowerRightCorner -= irr::core::vector2df(5, 5);
+            screenRects.push_back(r);
+        }
+    }
+
+    bool french;
+    irr::gui::IGUIFont* bigFont;
+    irr::gui::IGUIFont* titleFont;
+    irr::gui::IGUIFont* textFont;
+    irr::gui::IGUIFont* smallFont;
+    LaunchFn launch;
+    std::vector<ScreenInfo> screens;
+    std::vector<irr::core::rect<irr::f32> > screenRects;
+    irr::core::rect<irr::f32> panel, launchButton, cancelButton, checkBox, rememberRow;
+    int selected;
+    bool remember;
+    irr::u32 lastClickMs;
+    int lastClickScreen;
+};
+
+//-------------------------------------------------------------------------------------------------
+//Keyboard-shortcut sheet: the KEY_ROWS table as sections in columns, with drawn key caps.
+//-------------------------------------------------------------------------------------------------
+
+class KeySheet : public LauncherOverlay
+{
+public:
+    KeySheet(irr::gui::IGUIEnvironment* env, irr::gui::IGUIFont* titleFont, irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont)
+        : LauncherOverlay(env), titleFont(titleFont), textFont(textFont), smallFont(smallFont), columnWidth(0), keyColumn(0), scroll(0), maxScroll(0),
+        builtFrench(false), builtWidth(0), builtHeight(0)
+    {
+    }
+
+    void open()
+    {
+        scroll = 0;
+        builtWidth = 0; //rebuild
+        show();
+    }
+
+    virtual void draw()
+    {
+        if (!IsVisible) { return; }
+        fitWindow();
+        if (builtWidth != AbsoluteRect.getWidth() || builtHeight != AbsoluteRect.getHeight() || builtFrench != g_keysFrench) { build(); }
+        irr::video::IVideoDriver* driver = Environment->getVideoDriver();
+        const irr::core::rect<irr::s32> bodyClip = toIntRect(body);
+        const irr::f32 dy = body.UpperLeftCorner.Y - scroll;
+        const irr::f32 capH = textHeight(smallFont) + 10;
+
+        irr::gui::PanelBatch b;
+        b.begin(driver);
+        drawPanel(b, panel);
+        //Rows: hover band, then key caps.
+        for (size_t i = 0; i < rows.size(); i++) {
+            const Row& r = rows[i];
+            const irr::f32 y = r.y + dy;
+            if (y + r.h < body.UpperLeftCorner.Y || y > body.LowerRightCorner.Y) { continue; }
+            const irr::core::rect<irr::f32> band(r.x - 8, y - 3, r.x + columnWidth + 8, y + r.h - 5);
+            if (over(band) && over(body)) { roundRect(b, band, 8, Overlay::hoverRow, Overlay::hoverRow); }
+            irr::f32 cx = r.x, cy = y;
+            for (size_t c = 0; c < r.caps.size(); c++) {
+                const Cap& cap = r.caps[c];
+                if (cx + cap.w > r.x + keyColumn && cx > r.x) { cx = r.x; cy += capH + 6; } //wrap a long combination
+                if (cap.key) {
+                    const irr::core::rect<irr::f32> k(cx, cy, cx + cap.w, cy + capH);
+                    irr::core::rect<irr::f32> lip = k;
+                    lip.UpperLeftCorner.Y += 2; lip.LowerRightCorner.Y += 3;
+                    roundRect(b, lip, 6, irr::video::SColor(255, 6, 12, 22), irr::video::SColor(255, 6, 12, 22));
+                    roundRect(b, k, 6, irr::video::SColor(255, 64, 88, 122), irr::video::SColor(255, 38, 56, 82));
+                    roundRectOutline(b, k, 6, 1.0f, irr::video::SColor(120, 170, 205, 245));
+                }
+                cx += cap.w + 6;
+            }
+        }
+        //Section headings: accent bar and rule.
+        for (size_t i = 0; i < heads.size(); i++) {
+            const Head& h = heads[i];
+            const irr::f32 y = h.y + dy;
+            if (y + 30 < body.UpperLeftCorner.Y || y > body.LowerRightCorner.Y) { continue; }
+            b.rect(irr::core::rect<irr::f32>(h.x, y + 6, h.x + 4, y + 24), accent(h.section));
+            b.rect(irr::core::rect<irr::f32>(h.x, y + 32, h.x + columnWidth, y + 33), Overlay::rule);
+        }
+        //Header and footer bands over the scrolled content, then their controls.
+        roundRect(b, irr::core::rect<irr::f32>(panel.UpperLeftCorner.X, panel.UpperLeftCorner.Y, panel.LowerRightCorner.X, body.UpperLeftCorner.Y), 18,
+            Overlay::panelTop, irr::video::SColor(252, 15, 31, 56));
+        b.rect(irr::core::rect<irr::f32>(panel.UpperLeftCorner.X, body.UpperLeftCorner.Y - 18, panel.LowerRightCorner.X, body.UpperLeftCorner.Y), irr::video::SColor(252, 15, 31, 56));
+        b.rect(irr::core::rect<irr::f32>(panel.UpperLeftCorner.X + 28, body.UpperLeftCorner.Y - 1, panel.LowerRightCorner.X - 28, body.UpperLeftCorner.Y), Overlay::rule);
+        roundRect(b, irr::core::rect<irr::f32>(panel.UpperLeftCorner.X, body.LowerRightCorner.Y, panel.LowerRightCorner.X, panel.LowerRightCorner.Y), 18,
+            irr::video::SColor(252, 10, 21, 40), Overlay::panelBottom);
+        b.rect(irr::core::rect<irr::f32>(panel.UpperLeftCorner.X, body.LowerRightCorner.Y, panel.LowerRightCorner.X, body.LowerRightCorner.Y + 18), irr::video::SColor(252, 10, 21, 40));
+        b.rect(irr::core::rect<irr::f32>(panel.UpperLeftCorner.X + 28, body.LowerRightCorner.Y, panel.LowerRightCorner.X - 28, body.LowerRightCorner.Y + 1), Overlay::rule);
+        roundRectOutline(b, panel, 18, 1.0f, Overlay::panelEdge);
+        //Keyboard badge
+        b.disc(badgeCentre, 24, irr::video::SColor(70, 64, 156, 240), irr::video::SColor(70, 64, 156, 240));
+        drawIcon(b, Icon_Keys, badgeCentre, 14.0f, Theme::accentHi);
+        //Language switch: two segments, the active one filled.
+        roundRect(b, langSwitch, langSwitch.getHeight() * 0.5f, irr::video::SColor(255, 12, 24, 42), irr::video::SColor(255, 12, 24, 42));
+        const irr::core::rect<irr::f32> active = g_keysFrench ? langFr : langEn;
+        roundRect(b, active, active.getHeight() * 0.5f, Theme::primaryTop, Theme::primaryBottom);
+        roundRectOutline(b, langSwitch, langSwitch.getHeight() * 0.5f, 1.0f, Theme::border);
+        //Close cross
+        if (over(closeButton)) { b.disc(closeButton.getCenter(), closeButton.getWidth() * 0.5f, irr::video::SColor(90, 214, 72, 72), irr::video::SColor(90, 214, 72, 72)); }
+        {
+            const irr::core::vector2df c = closeButton.getCenter();
+            const irr::f32 s = 7;
+            b.line(irr::core::vector2df(c.X - s, c.Y - s), irr::core::vector2df(c.X + s, c.Y + s), 2.0f, Theme::text);
+            b.line(irr::core::vector2df(c.X - s, c.Y + s), irr::core::vector2df(c.X + s, c.Y - s), 2.0f, Theme::text);
+        }
+        drawPillButton(b, doneButton, true, over(doneButton));
+        //Scroll bar, when the content is taller than the body.
+        if (maxScroll > 0) {
+            const irr::f32 trackX = panel.LowerRightCorner.X - 14;
+            const irr::f32 th = body.getHeight() * body.getHeight() / (body.getHeight() + maxScroll);
+            const irr::f32 ty = body.UpperLeftCorner.Y + (body.getHeight() - th) * (scroll / maxScroll);
+            roundRect(b, irr::core::rect<irr::f32>(trackX, body.UpperLeftCorner.Y, trackX + 4, body.LowerRightCorner.Y), 2,
+                irr::video::SColor(50, 150, 190, 240), irr::video::SColor(50, 150, 190, 240));
+            roundRect(b, irr::core::rect<irr::f32>(trackX - 1, ty, trackX + 5, ty + th), 3, irr::video::SColor(200, 120, 180, 245), irr::video::SColor(200, 90, 150, 225));
+        }
+        b.flush();
+
+        //Text: rows and headings (clipped to the body), then the header and footer.
+        for (size_t i = 0; i < heads.size(); i++) {
+            const Head& h = heads[i];
+            const irr::f32 y = h.y + dy;
+            if (y + 30 < body.UpperLeftCorner.Y || y > body.LowerRightCorner.Y) { continue; }
+            drawTextIn(textFont, h.title, irr::core::rect<irr::f32>(h.x + 14, y + 2, h.x + columnWidth, y + 28), accent(h.section), false, &bodyClip);
+        }
+        const irr::f32 lineH = textHeight(textFont);
+        for (size_t i = 0; i < rows.size(); i++) {
+            const Row& r = rows[i];
+            const irr::f32 y = r.y + dy;
+            if (y + r.h < body.UpperLeftCorner.Y || y > body.LowerRightCorner.Y) { continue; }
+            irr::f32 cx = r.x, cy = y;
+            for (size_t c = 0; c < r.caps.size(); c++) {
+                const Cap& cap = r.caps[c];
+                if (cx + cap.w > r.x + keyColumn && cx > r.x) { cx = r.x; cy += capH + 6; }
+                drawTextIn(smallFont, cap.text, irr::core::rect<irr::f32>(cx, cy, cx + cap.w, cy + capH),
+                    cap.key ? irr::video::SColor(255, 236, 242, 250) : irr::video::SColor(255, 128, 150, 178), true, &bodyClip);
+                cx += cap.w + 6;
+            }
+            irr::f32 ty = y + (capH - lineH) * 0.5f;
+            for (size_t l = 0; l < r.desc.size(); l++) {
+                drawTextIn(textFont, r.desc[l], irr::core::rect<irr::f32>(r.x + keyColumn + 18, ty, r.x + columnWidth, ty + lineH), Theme::text, false, &bodyClip);
+                ty += lineH;
+            }
+        }
+        const bool fr = g_keysFrench;
+        drawTextIn(titleFont, fr ? L"Raccourcis clavier du simulateur" : L"Simulator keyboard shortcuts",
+            irr::core::rect<irr::f32>(badgeCentre.X + 38, panel.UpperLeftCorner.Y + 22, langSwitch.UpperLeftCorner.X - 12, panel.UpperLeftCorner.Y + 50), Theme::text, false);
+        drawTextIn(smallFont, fr ? L"Touches utilisables pendant un exercice, dans la vue passerelle" : L"Keys available during an exercise, in the bridge view",
+            irr::core::rect<irr::f32>(badgeCentre.X + 38, panel.UpperLeftCorner.Y + 50, langSwitch.UpperLeftCorner.X - 12, panel.UpperLeftCorner.Y + 72), Theme::textDim, false);
+        drawTextIn(smallFont, L"FR", langFr, fr ? irr::video::SColor(255, 255, 255, 255) : Theme::textDim, true);
+        drawTextIn(smallFont, L"EN", langEn, !fr ? irr::video::SColor(255, 255, 255, 255) : Theme::textDim, true);
+        drawTextIn(smallFont, fr ? L"Molette : faire d\u00E9filer  \u00B7  \u00C9chap : fermer" : L"Wheel: scroll  \u00B7  Esc: close",
+            irr::core::rect<irr::f32>(panel.UpperLeftCorner.X + 30, doneButton.UpperLeftCorner.Y, doneButton.UpperLeftCorner.X - 12, doneButton.LowerRightCorner.Y),
+            irr::video::SColor(170, 178, 192, 208), false);
+        drawTextIn(textFont, fr ? L"Fermer" : L"Close", doneButton, irr::video::SColor(255, 255, 255, 255), true);
+    }
+
+protected:
+    virtual void onMouse(const irr::SEvent::SMouseInput& m)
+    {
+        if (m.Event == irr::EMIE_MOUSE_WHEEL) {
+            scroll = irr::core::clamp(scroll - m.Wheel * 64.0f, 0.0f, maxScroll);
+            return;
+        }
+        if (m.Event != irr::EMIE_LMOUSE_LEFT_UP) { return; }
+        if (over(langFr)) { g_keysFrench = true; return; }
+        if (over(langEn)) { g_keysFrench = false; return; }
+        if (over(closeButton) || over(doneButton) || !over(panel)) { hide(); }
+    }
+
+    virtual void onKey(const irr::SEvent::SKeyInput& k)
+    {
+        if (!k.PressedDown) {
+            if (k.Key == irr::KEY_ESCAPE || k.Key == irr::KEY_RETURN) { hide(); }
+            return;
+        }
+        if (k.Key == irr::KEY_DOWN) { scroll += 40; }
+        if (k.Key == irr::KEY_UP) { scroll -= 40; }
+        if (k.Key == irr::KEY_NEXT) { scroll += body.getHeight() * 0.9f; }
+        if (k.Key == irr::KEY_PRIOR) { scroll -= body.getHeight() * 0.9f; }
+        if (k.Key == irr::KEY_HOME) { scroll = 0; }
+        if (k.Key == irr::KEY_END) { scroll = maxScroll; }
+        scroll = irr::core::clamp(scroll, 0.0f, maxScroll);
+    }
+
+private:
+    struct Cap { std::wstring text; bool key; irr::f32 w; };
+    struct Row { std::vector<Cap> caps; std::vector<std::wstring> desc; irr::f32 x, y, h; };
+    struct Head { std::wstring title; irr::f32 x, y; int section; };
+
+    static irr::video::SColor accent(int section)
+    {
+        static const irr::video::SColor colours[] = {
+            irr::video::SColor(255, 255, 182, 72),   //engines
+            irr::video::SColor(255, 255, 138, 84),   //azimuth drive
+            irr::video::SColor(255, 84, 204, 255),   //view
+            irr::video::SColor(255, 176, 150, 255),  //time
+            irr::video::SColor(255, 255, 222, 100),  //lighting
+            irr::video::SColor(255, 255, 112, 128),  //manoeuvres
+            irr::video::SColor(255, 160, 178, 206) };//quit
+        const int n = sizeof(colours) / sizeof(colours[0]);
+        return colours[section < 0 ? 0 : section % n];
+    }
+
+    //Key names in English for the English sheet (the table holds the French names).
+    static std::wstring keyName(const std::wstring& word, bool french)
+    {
+        if (french) { return word; }
+        static const wchar_t* map[][2] = {
+            { L"Maj", L"Shift" }, { L"Espace", L"Space" }, { L"Entr\u00E9e", L"Enter" }, { L"\u00C9chap", L"Esc" },
+            { L"Fl\u00E8ches", L"Arrows" }, { L"Haut", L"Up" }, { L"Bas", L"Down" }, { L"Gauche", L"Left" },
+            { L"Droite", L"Right" }, { L"ou", L"or" } };
+        for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+            if (word == map[i][0]) { return map[i][1]; }
+        }
+        return word;
+    }
+
+    //"Ctrl + Maj + Haut / Bas" -> caps Ctrl, Maj, Haut, Bas with "+" and "/" between them.
+    std::vector<Cap> parseKeys(const std::wstring& keys, bool french) const
+    {
+        std::vector<Cap> caps;
+        std::wstring word;
+        for (size_t i = 0; i <= keys.size(); i++) {
+            if (i == keys.size() || keys[i] == L' ') {
+                if (!word.empty()) {
+                    Cap c;
+                    c.key = !(word == L"+" || word == L"/" || word == L"ou");
+                    c.text = keyName(word, french);
+                    c.w = textWidth(smallFont, c.text) + (c.key ? 18.0f : 2.0f);
+                    if (c.key) { c.w = irr::core::max_(c.w, textHeight(smallFont) + 10); }
+                    caps.push_back(c);
+                }
+                word.clear();
+            }
+            else {
+                word += keys[i];
+            }
+        }
+        return caps;
+    }
+
+    static irr::f32 capsWidth(const std::vector<Cap>& caps)
+    {
+        irr::f32 w = 0;
+        for (size_t i = 0; i < caps.size(); i++) { w += caps[i].w + (i ? 6.0f : 0.0f); }
+        return w;
+    }
+
+    void build()
+    {
+        builtFrench = g_keysFrench;
+        builtWidth = AbsoluteRect.getWidth();
+        builtHeight = AbsoluteRect.getHeight();
+        const irr::f32 W = (irr::f32)builtWidth, H = (irr::f32)builtHeight;
+
+        const irr::f32 pw = irr::core::min_(1560.0f, W - 56), ph = H - 48;
+        panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
+        const irr::f32 headerH = 92, footerH = 66;
+        body = irr::core::rect<irr::f32>(panel.UpperLeftCorner.X + 30, panel.UpperLeftCorner.Y + headerH + 12,
+            panel.LowerRightCorner.X - 30, panel.LowerRightCorner.Y - footerH - 8);
+        badgeCentre = irr::core::vector2df(panel.UpperLeftCorner.X + 30 + 24, panel.UpperLeftCorner.Y + 46);
+        closeButton = irr::core::rect<irr::f32>(panel.LowerRightCorner.X - 58, panel.UpperLeftCorner.Y + 28, panel.LowerRightCorner.X - 26, panel.UpperLeftCorner.Y + 60);
+        langSwitch = irr::core::rect<irr::f32>(closeButton.UpperLeftCorner.X - 18 - 112, panel.UpperLeftCorner.Y + 29, closeButton.UpperLeftCorner.X - 18, panel.UpperLeftCorner.Y + 59);
+        langFr = irr::core::rect<irr::f32>(langSwitch.UpperLeftCorner.X + 3, langSwitch.UpperLeftCorner.Y + 3, langSwitch.getCenter().X, langSwitch.LowerRightCorner.Y - 3);
+        langEn = irr::core::rect<irr::f32>(langSwitch.getCenter().X, langSwitch.UpperLeftCorner.Y + 3, langSwitch.LowerRightCorner.X - 3, langSwitch.LowerRightCorner.Y - 3);
+        doneButton = irr::core::rect<irr::f32>(panel.LowerRightCorner.X - 30 - 160, panel.LowerRightCorner.Y - footerH + 10, panel.LowerRightCorner.X - 30, panel.LowerRightCorner.Y - 14);
+
+        //Columns: as many as fit at about 520 px each.
+        const irr::f32 gap = 40;
+        const int columns = irr::core::clamp((int)((body.getWidth() + gap) / (520 + gap)), 1, 3);
+        columnWidth = (body.getWidth() - gap * (columns - 1) - 14) / columns; //14: room for the scroll bar
+
+        //Key column: the widest combination, within reason.
+        rows.clear();
+        heads.clear();
+        irr::f32 widest = 0;
+        for (int i = 0; i < KEY_ROW_COUNT; i++) {
+            if (KEY_ROWS[i].keys) { widest = irr::core::max_(widest, capsWidth(parseKeys(KEY_ROWS[i].keys, builtFrench))); }
+        }
+        keyColumn = irr::core::min_(widest, columnWidth * 0.46f);
+
+        //Sections go, in order, into whichever column is shortest so far.
+        const irr::f32 capH = textHeight(smallFont) + 10, lineH = textHeight(textFont);
+        std::vector<irr::f32> columnY(columns, 0.0f);
+        int section = -1;
+        int column = 0;
+        for (int i = 0; i < KEY_ROW_COUNT; i++) {
+            if (KEY_ROWS[i].keys == 0) {
+                section++;
+                //Height of this section, to choose its column.
+                column = 0;
+                for (int c = 1; c < columns; c++) { if (columnY[c] < columnY[column] - 1) { column = c; } }
+                Head h;
+                h.title = builtFrench ? KEY_ROWS[i].fr : KEY_ROWS[i].en;
+                h.x = body.UpperLeftCorner.X + column * (columnWidth + gap);
+                h.y = columnY[column];
+                h.section = section;
+                heads.push_back(h);
+                columnY[column] += 44;
+                continue;
+            }
+            Row r;
+            r.caps = parseKeys(KEY_ROWS[i].keys, builtFrench);
+            r.x = body.UpperLeftCorner.X + column * (columnWidth + gap);
+            r.y = columnY[column];
+            r.desc = wrapText(textFont, builtFrench ? KEY_ROWS[i].fr : KEY_ROWS[i].en, (irr::s32)(columnWidth - keyColumn - 18));
+            //Caps may wrap onto a second line when a combination is wider than the key column.
+            irr::f32 capLines = 1, cx = 0;
+            for (size_t c = 0; c < r.caps.size(); c++) {
+                if (cx + r.caps[c].w > keyColumn && cx > 0) { capLines++; cx = 0; }
+                cx += r.caps[c].w + 6;
+            }
+            r.h = irr::core::max_(capLines * (capH + 6) - 6, r.desc.size() * lineH) + 12;
+            columnY[column] += r.h;
+            rows.push_back(r);
+            if (i + 1 < KEY_ROW_COUNT && KEY_ROWS[i + 1].keys == 0) { columnY[column] += 14; } //space after a section
+        }
+        irr::f32 contentH = 0;
+        for (int c = 0; c < columns; c++) { contentH = irr::core::max_(contentH, columnY[c]); }
+        maxScroll = irr::core::max_(0.0f, contentH - body.getHeight());
+        scroll = irr::core::clamp(scroll, 0.0f, maxScroll);
+    }
+
+    irr::gui::IGUIFont* titleFont;
+    irr::gui::IGUIFont* textFont;
+    irr::gui::IGUIFont* smallFont;
+    std::vector<Row> rows;
+    std::vector<Head> heads;
+    irr::core::rect<irr::f32> panel, body, closeButton, langSwitch, langFr, langEn, doneButton;
+    irr::core::vector2df badgeCentre;
+    irr::f32 columnWidth, keyColumn;
+    irr::f32 scroll, maxScroll;
+    bool builtFrench;
+    irr::s32 builtWidth, builtHeight;
+};
+
+KeySheet* g_keySheet = 0;
+ScreenPicker* g_screenPicker = 0;
+
+bool overlayOpen()
+{
+    return (g_keySheet && g_keySheet->isVisible()) || (g_screenPicker && g_screenPicker->isVisible());
+}
+
+//-------------------------------------------------------------------------------------------------
+//Starting the simulator, and the bc5.ini settings this needs.
+//-------------------------------------------------------------------------------------------------
+
+//The current value of a key in an ini file. Read from the file each time: IniFile caches what it has
+//read, and the settings editor may have changed the file since the launcher started.
+std::string readIniNow(const std::string& path, const std::string& key)
+{
+    std::ifstream in(path.c_str());
+    std::string line, wanted = key;
+    Utilities::to_lower(wanted);
+    while (std::getline(in, line)) {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) { continue; }
+        std::string name = Utilities::trim(line.substr(0, eq));
+        Utilities::to_lower(name);
+        if (name == wanted) { return Utilities::trim(Utilities::trim(line.substr(eq + 1)), "\""); }
+    }
+    return "";
+}
+
+//The bc5.ini in use: the user's copy if there is one, else the installed file.
+std::string currentBc5Ini()
+{
+    return Utilities::pathExists(userFolder + "bc5.ini") ? userFolder + "bc5.ini" : std::string("bc5.ini");
+}
+
+//Sets key="value" in the user's bc5.ini, making that copy from the installed file first if needed (as
+//the settings editor does). Every other line is kept as it is.
+bool setUserBc5Value(const std::string& key, const std::string& value)
+{
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(currentBc5Ini().c_str());
+        std::string line;
+        while (std::getline(in, line)) { lines.push_back(line); }
+    }
+    if (lines.empty()) { return false; }
+    std::string wanted = key;
+    Utilities::to_lower(wanted);
+    bool found = false;
+    for (size_t i = 0; i < lines.size() && !found; i++) {
+        const size_t eq = lines[i].find('=');
+        if (eq == std::string::npos) { continue; }
+        std::string name = Utilities::trim(lines[i].substr(0, eq));
+        Utilities::to_lower(name);
+        if (name == wanted) {
+            const bool cr = !lines[i].empty() && lines[i][lines[i].size() - 1] == '\r';
+            lines[i] = key + "=\"" + value + "\"" + (cr ? "\r" : "");
+            found = true;
+        }
+    }
+    if (!found) { lines.push_back(key + "=\"" + value + "\""); }
+
+    //User folder, as the settings editor creates it.
+    const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
+    for (int d = 0; d < 2; d++) {
+        std::string dir = dirs[d];
+        if (dir.size() > 1 && !Utilities::pathExists(dir)) {
+            dir.erase(dir.size() - 1); //no trailing slash
+#ifdef _WIN32
+            _mkdir(dir.c_str());
+#else
+            mkdir(dir.c_str(), 0755);
+#endif
+        }
+    }
+    std::ofstream out((userFolder + "bc5.ini").c_str(), std::ios::trunc);
+    for (size_t i = 0; i < lines.size(); i++) { out << lines[i] << "\n"; }
+    return out.good();
+}
+
+//Starts the simulator; screen (1..n) is passed on as "-monitor N" when one was picked.
+void launchSimulator(int screen)
+{
+    const std::string screenArg = std::to_string(screen);
+#ifdef _WIN32
+    const std::string params = "-monitor " + screenArg;
+    ShellExecute(NULL, NULL, "Simulator-nav.exe", screen > 0 ? params.c_str() : NULL, NULL, SW_SHOW);
+#else
+    const int pid = fork(); // posix only (GNU/Linux, MacOS)
+    if (pid != 0) { return; }
+#ifdef __APPLE__
+    if (screen > 0) { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-monitor", screenArg.c_str(), (char*)NULL); }
+    else { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", (char*)NULL); }
+#else
+    if (screen > 0) { execl("./Simulator-bc", "Simulator-bc", "-monitor", screenArg.c_str(), (char*)NULL); }
+    else { execl("./Simulator-bc", "Simulator-bc", (char*)NULL); }
+#endif
+    _exit(EXIT_FAILURE); //only reached if the simulator could not be started: never run a second launcher
+#endif
+}
+
+//Simulator card: ask which screen when that matters (borderless full screen on a desk with several
+//screens, and no screen fixed in bc5.ini), otherwise start straight away.
+void startSimulator()
+{
+    const std::string ini = currentBc5Ini();
+    const bool borderless = readIniNow(ini, "graphics_mode") == "3";
+    const bool screenFixed = atoi(readIniNow(ini, "monitor").c_str()) > 0;
+    const std::vector<ScreenInfo> screens = listScreens();
+    if (g_screenPicker && borderless && !screenFixed && screens.size() > 1) {
+        g_screenPicker->open(screens);
+        return;
+    }
+    showLaunchToast(g_simulatorTitle);
+    launchSimulator(0);
+}
+
 //Event receiver: This does the actual launching
 class Receiver : public irr::IEventReceiver
 {
@@ -619,26 +1426,22 @@ public:
                     exit(EXIT_SUCCESS);
                 }
 
-                //KYARA TOUCHES: handled here, ABOVE the fork() below - these three only open and
-                //close a window in this process, they launch nothing.
+                //KYARA TOUCHES: handled here, ABOVE the fork() below - this only opens the sheet.
                 if (id == KEYS_BUTTON) {
-                    showKeyHelp();
+                    if (g_keySheet) { g_keySheet->open(); }
                     return true;
                 }
-                if (id == KEYS_LANG_BUTTON) {
-                    g_keysFrench = !g_keysFrench;
-                    showKeyHelp();
-                    return true;
-                }
-                if (id == KEYS_CLOSE_BUTTON) {
-                    if (g_keysWindow) { g_keysWindow->remove(); g_keysWindow = 0; }
+
+                //Simulator: may first ask which screen to use (see startSimulator).
+                if (id == BC_BUTTON) {
+                    g_simulatorTitle = event.GUIEvent.Caller->getText();
+                    startSimulator();
                     return true;
                 }
 
                 //Feedback while the application starts (it can take a few seconds).
                 if (id != DOC_BUTTON && id != USER_BUTTON && g_device) {
-                    g_toastText = std::wstring(L"Lancement : ") + event.GUIEvent.Caller->getText() + L"...";
-                    g_toastStartMs = g_device->getTimer()->getRealTime();
+                    showLaunchToast(event.GUIEvent.Caller->getText());
                 }
 
 #ifndef _WIN32
@@ -646,20 +1449,6 @@ public:
                 if (pid > 0) return false;
 #endif
 
-                if (id == BC_BUTTON) {
-#ifdef _WIN32
-                    ShellExecute(NULL, NULL, "Simulator-nav.exe", NULL, NULL, SW_SHOW);
-                    //_execl("./bridgecommand-bc.exe", "bridgecommand-bc.exe", NULL);
-#else
-#ifdef __APPLE__
-                    //APPLE
-                    execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", NULL);
-#else
-                    //Other (assumed posix)
-                    execl("./Simulator-bc", "Simulator-bc", NULL);
-#endif
-#endif
-                }
                 if (id == MC_BUTTON) {
 #ifdef _WIN32
                     ShellExecute(NULL, NULL, "Simulator-mc.exe", NULL, NULL, SW_SHOW);
@@ -802,14 +1591,12 @@ public:
             }
         }
         if (event.EventType == irr::EET_KEY_INPUT_EVENT) {
+            //KYARA TOUCHES: while the sheet (or the screen picker) is open, escape is theirs: it closes
+            //them, and must not shut the launcher down by surprise.
+            if (overlayOpen()) {
+                return false;
+            }
             if (event.KeyInput.Key == irr::KEY_ESCAPE) {
-                //KYARA TOUCHES: escape closes the sheet first, so it cannot shut the launcher
-                //down by surprise while the sheet is open.
-                if (g_keysWindow) {
-                    g_keysWindow->remove();
-                    g_keysWindow = 0;
-                    return true;
-                }
                 exit(EXIT_SUCCESS);
             }
         }
@@ -942,6 +1729,7 @@ int main(int argc, char** argv)
     irr::gui::IGUIFont* titleFont = loadFont(20);
     irr::gui::IGUIFont* textFont = loadFont(15);
     irr::gui::IGUIFont* smallFont = loadFont(13);
+    irr::gui::IGUIFont* bigFont = loadFont(30);
 
     //Dark skin, for the keyboard-shortcut sheet.
     irr::gui::IGUISkin* skin = env->createSkin(irr::gui::EGST_WINDOWS_CLASSIC);
@@ -1017,7 +1805,23 @@ int main(int argc, char** argv)
     for (size_t i = 0; i < chips.size(); i++) { chips[i]->setFonts(textFont, 0); }
     exitTile->setFonts(textFont, 0);
     chips[3]->setToolTipText(french ? L"Liste des touches du simulateur (FR / EN)" : L"Simulator keys (FR / EN)");
+    //The three settings tools ask for the administrator password.
+    for (int i = 0; i < 3; i++) {
+        chips[i]->setLocked(true);
+        chips[i]->setToolTipText(french ? L"R\u00E9serv\u00E9 aux administrateurs : mot de passe demand\u00E9" : L"Administrators only: asks for the password");
+    }
     for (size_t i = 0; i < all.size(); i++) { all[i]->drop(); } //the GUI tree holds them
+
+    //Overlays, created after the tiles so that they lie on top of them.
+    g_keySheet = new KeySheet(env, titleFont, textFont, smallFont);
+    g_keySheet->drop();
+    g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
+        [](int screen, bool remember) {
+            if (remember) { setUserBc5Value("monitor", std::to_string(screen)); }
+            showLaunchToast(g_simulatorTitle);
+            launchSimulator(screen);
+        });
+    g_screenPicker->drop();
 
     irr::s32 toastY = 0;
     irr::core::dimension2du laidOut(0, 0);
@@ -1084,6 +1888,9 @@ int main(int argc, char** argv)
         bool animating = !g_toastText.empty();
         for (size_t i = 0; i < all.size() && !animating; i++) { animating = all[i]->isAnimating(); }
         device->sleep(animating ? 15 : 40);
+#ifndef _WIN32
+        while (waitpid(-1, 0, WNOHANG) > 0) {} //applications started and since closed
+#endif
     }
 
     return EXIT_SUCCESS;

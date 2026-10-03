@@ -97,7 +97,13 @@ void Network::connectToServer(std::string hostnames)
             }
         }
 
-        enet_address_set_host (& address, thisHostname.c_str());
+        //A name that cannot be resolved must not fall back on whatever address was left over (that
+        //connected a mistyped station to the previous one a second time).
+        if (enet_address_set_host (& address, thisHostname.c_str()) != 0) {
+            std::cout << "ENet connection failed to:" << thisHostname << " (name not found)" << std::endl;
+            unreachedNames.push_back(thisHostname);
+            continue;
+        }
 
         /* Initiate the connection, allocating the maximum number of channels. */
         peer = enet_host_connect (client, & address, ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT, 0);
@@ -113,12 +119,14 @@ void Network::connectToServer(std::string hostnames)
             //Store peer, and initialise the vector of latest strings received
             peers.push_back(peer);
             latestMessageFromPeer.push_back("");
+            peerNames.push_back(thisHostname);
         } else {
             /* Either the 1 second is up or a disconnect event was */
             /* received. Reset the peer in the event the 1 second */
             /* had run out without any significant event. */
             enet_peer_reset (peer);
             std::cout << "ENet connection failed to:" << thisHostname << std::endl;
+            unreachedNames.push_back(thisHostname);
         }
     }
 }
@@ -126,6 +134,11 @@ void Network::connectToServer(std::string hostnames)
 unsigned int Network::getNumberOfPeers()
 {
     return peers.size();
+}
+
+std::string Network::getPeerName(unsigned int peerNumber) const
+{
+    return peerNumber < peerNames.size() ? peerNames[peerNumber] : std::string();
 }
 
 void Network::sendString(std::string stringToSend, bool reliable, unsigned int peerNumber)

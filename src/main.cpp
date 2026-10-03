@@ -53,9 +53,10 @@
 
 using namespace irr;
 
-// This disables to console window showing, disable for debugging
+// No console window. What the simulator prints goes to log.txt in the user folder instead;
+// bc5.ini debug_console=1 opens a console window for it when debugging.
 #ifdef _MSC_VER
-//#pragma comment(linker, "/subsystem:windows /ENTRY:mainCRTStartup")
+#pragma comment(linker, "/subsystem:windows /ENTRY:mainCRTStartup")
 #endif
 
 #ifdef _WIN32
@@ -502,6 +503,24 @@ int main(int argc, char** argv)
         std::cout << "Using Ini file >" << iniFilename << "<" << std::endl;
     }
 
+#ifdef _WIN32
+    //Messages: a console window on request (debug_console=1), else the log file. (A console is only
+    //already there if this was built without the subsystem pragma above, and then it is kept.)
+    if (GetConsoleWindow() == NULL) {
+        FILE* stream = 0;
+        if (IniFile::iniFileTou32(iniFilename, "debug_console") == 1 && AllocConsole()) {
+            freopen_s(&stream, "CONOUT$", "w", stdout);
+            freopen_s(&stream, "CONOUT$", "w", stderr);
+        }
+        else {
+            const std::string logPath = userFolder + "log.txt";
+            std::ofstream(logPath.c_str(), std::ios::trunc).close(); //a fresh log for each run
+            freopen_s(&stream, logPath.c_str(), "a", stdout);
+            freopen_s(&stream, logPath.c_str(), "a", stderr);
+        }
+    }
+#endif
+
     std::string scriptToExe = IniFile::iniFileToString(iniFilename, "script_start_BC");
     if (!scriptToExe.empty()) {
         std::string scriptPath;
@@ -726,6 +745,12 @@ int main(int argc, char** argv)
     if (fakeFullScreen) {
 
         int requestedMonitor = IniFile::iniFileTou32(iniFilename, "monitor") - 1; //0 indexed, -1 will indicate default
+        //The launcher's screen picker passes its choice as -monitor N (1 indexed); it overrides the ini.
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-monitor") == 0) {
+                requestedMonitor = atoi(argv[arg + 1]) - 1;
+            }
+        }
 
         DWORD style = WS_VISIBLE | WS_POPUP;
         wcex.cbSize = sizeof(WNDCLASSEX);
@@ -762,15 +787,8 @@ int main(int argc, char** argv)
 
         }
         else {
-            //Get user to move a dialog, so their mouse is positioned on the monitor they want
-            if (GetSystemMetrics(SM_CMONITORS) > 1) {
-                irr::core::stringw locationMessageW = language.translate("moveMessage");
-
-                std::wstring wlocationMessage = std::wstring(locationMessageW.c_str());
-                std::string slocationMessage(wlocationMessage.begin(), wlocationMessage.end());
-
-                MessageBoxA(nullptr, slocationMessage.c_str(), "Multi monitor", MB_OK);
-            }
+            //No screen chosen: use the one under the mouse pointer, which is where the program was just
+            //started from. (This used to ask, in a message box, to drag that box onto the wanted screen.)
 
             //Find location of mouse cursor
             POINT p;

@@ -25,7 +25,8 @@
 class ScenarioChoice
 {
 public:
-    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language);
+    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language, bool french);
+    void setFonts(irr::gui::IGUIFont* title, irr::gui::IGUIFont* text, irr::gui::IGUIFont* small);
     void chooseScenario(std::string& scenarioName, std::string& hostname, std::string scenarioPath);
 
 private:
@@ -33,6 +34,8 @@ private:
     irr::IrrlichtDevice* device;
     irr::gui::IGUIEnvironment* gui;
     Lang* language;
+    bool french;
+    std::vector<irr::gui::IGUIFont*> fontSizes; //title, text, small
 
     enum GUI_ELEMENTS// Define some values that we'll use to identify individual GUI controls.
     {

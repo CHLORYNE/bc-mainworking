@@ -29,6 +29,8 @@ public:
     ~Network();
     void connectToServer(std::string hostnames);
     unsigned int getNumberOfPeers();
+    std::string getPeerName(unsigned int peerNumber) const; //station name as typed, for connected peer N
+    const std::vector<std::string>& getUnreachedNames() const { return unreachedNames; } //stations that did not answer
 
     void sendString(std::string stringToSend, bool reliable, unsigned int peerNumber);
     void listenForMessages();
@@ -42,6 +44,8 @@ private:
     ENetEvent event;
     std::vector<ENetPeer*> peers;
     std::vector<std::string> latestMessageFromPeer;
+    std::vector<std::string> peerNames;
+    std::vector<std::string> unreachedNames;
 
 };
 

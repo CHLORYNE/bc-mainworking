@@ -248,15 +248,8 @@ int main(int argc, char** argv)
 
         }
         else {
-            //Get user to move a dialog, so their mouse is positioned on the monitor they want
-            if (GetSystemMetrics(SM_CMONITORS) > 1) {
-                irr::core::stringw locationMessageW = language.translate("moveMessage");
-
-                std::wstring wlocationMessage = std::wstring(locationMessageW.c_str());
-                std::string slocationMessage(wlocationMessage.begin(), wlocationMessage.end());
-
-                MessageBoxA(nullptr, slocationMessage.c_str(), "Multi monitor", MB_OK);
-            }
+            //No screen chosen: use the one under the mouse pointer, which is where the program was just
+            //started from. (This used to ask, in a message box, to drag that box onto the wanted screen.)
 
             //Find location of mouse cursor
             POINT p;

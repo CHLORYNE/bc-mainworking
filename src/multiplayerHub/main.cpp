@@ -31,6 +31,7 @@
 #include "ShipPositions.hpp"
 #include "LinesData.hpp"
 #include "EventReceiver.hpp"
+#include "../UiTheme.hpp"
 
 #include <fstream> //To save to log
 
@@ -72,6 +73,164 @@ std::string makeTimeString(uint64_t absoluteTime, uint64_t offsetTime, irr::f32 
     timeString.append(Utilities::lexical_cast<std::string>(accelerator));
     return timeString;
 }
+
+//Live view while the exercise runs: the exercise clock and state, and each station's ship.
+class HubDashboard : public irr::gui::IGUIElement
+{
+public:
+    struct Station {
+        std::wstring host, ship;
+        irr::f32 speedKts, heading;
+    };
+
+    HubDashboard(irr::gui::IGUIEnvironment* env, bool french, const std::wstring& exercise, irr::gui::IGUIFont* bigFont,
+        irr::gui::IGUIFont* titleFont, irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont)
+        : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, env->getRootGUIElement(), -1,
+            irr::core::rect<irr::s32>(irr::core::position2di(0, 0), env->getVideoDriver()->getScreenSize())),
+        french(french), exercise(exercise), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
+        running(false), accelerator(0), lines(0)
+    {
+        const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
+        const irr::f32 split = irr::core::clamp(W * 0.34f, 300.0f, 420.0f);
+        clockCard = irr::core::rect<irr::f32>(28, 112, split, H - 64);
+        stationCard = irr::core::rect<irr::f32>(split + 20, 112, W - 28, H - 64);
+        const irr::f32 bx0 = clockCard.UpperLeftCorner.X + 22, bx1 = clockCard.LowerRightCorner.X - 22;
+        const irr::f32 bh = 46;
+        run = irr::core::rect<irr::f32>(bx0, clockCard.LowerRightCorner.Y - 22 - 2 * bh - 12, bx1, clockCard.LowerRightCorner.Y - 22 - bh - 12);
+        pause = irr::core::rect<irr::f32>(bx0, clockCard.LowerRightCorner.Y - 22 - bh, bx1, clockCard.LowerRightCorner.Y - 22);
+    }
+
+    void setUnreached(const std::vector<std::wstring>& names) { unreached = names; }
+
+    irr::core::rect<irr::s32> runRect() const { return Ui::toI(run); }
+    irr::core::rect<irr::s32> pauseRect() const { return Ui::toI(pause); }
+
+    void update(const std::wstring& clockText, const std::wstring& dateText, irr::f32 acceleratorNow, const std::vector<Station>& stationsNow, irr::u32 linesNow)
+    {
+        clock = clockText;
+        date = dateText;
+        accelerator = acceleratorNow;
+        running = acceleratorNow > 0;
+        stations = stationsNow;
+        lines = linesNow;
+    }
+
+    virtual void draw()
+    {
+        if (!IsVisible) { return; }
+        irr::video::IVideoDriver* driver = Environment->getVideoDriver();
+        const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
+        driver->draw2DRectangle(irr::core::rect<irr::s32>(0, 0, (irr::s32)W, (irr::s32)H), irr::video::SColor(255, 16, 32, 58),
+            irr::video::SColor(255, 16, 32, 58), Ui::backgroundDeep, Ui::backgroundDeep);
+
+        //State pill, at the right of the header.
+        const std::wstring state = running ? (french ? L"EN COURS" : L"RUNNING") : (french ? L"EN PAUSE" : L"PAUSED");
+        const irr::video::SColor stateCol = running ? Ui::success : Ui::warning;
+        const irr::f32 pw = Ui::textWidth(smallFont, state) + 44;
+        const irr::core::rect<irr::f32> pill(W - 28 - pw, 34, W - 28, 66);
+
+        const irr::f32 rowH = Ui::textHeight(textFont) + 18;
+        const irr::f32 colStation = stationCard.UpperLeftCorner.X + 24;
+        const irr::f32 colShip = stationCard.UpperLeftCorner.X + stationCard.getWidth() * 0.36f;
+        const irr::f32 colSpeed = stationCard.UpperLeftCorner.X + stationCard.getWidth() * 0.70f;
+        const irr::f32 colHeading = stationCard.LowerRightCorner.X - 24;
+        const irr::f32 tableTop = stationCard.UpperLeftCorner.Y + 62;
+
+        irr::gui::PanelBatch b;
+        b.begin(driver);
+        b.disc(irr::core::vector2df(56, 56), 26, irr::video::SColor(70, 64, 156, 240), irr::video::SColor(70, 64, 156, 240));
+        Ui::networkIcon(b, irr::core::vector2df(56, 56), 14, Ui::accentHi);
+        b.rect(irr::core::rect<irr::f32>(28, 96, W - 28, 97), Ui::rule);
+        Ui::roundRect(b, pill, 16, Ui::alpha(stateCol, 40), Ui::alpha(stateCol, 40));
+        Ui::roundRectOutline(b, pill, 16, 1.0f, Ui::alpha(stateCol, 160));
+        b.disc(irr::core::vector2df(pill.UpperLeftCorner.X + 18, pill.getCenter().Y), 5, stateCol, stateCol);
+        Ui::card(b, clockCard, 14);
+        Ui::card(b, stationCard, 14);
+        //Table: header rule and alternate row bands.
+        b.rect(irr::core::rect<irr::f32>(stationCard.UpperLeftCorner.X + 20, tableTop + rowH - 6, stationCard.LowerRightCorner.X - 20, tableTop + rowH - 5), Ui::rule);
+        for (size_t i = 0; i < stations.size(); i++) {
+            const irr::f32 y = tableTop + rowH * (i + 1);
+            if (y + rowH > stationCard.LowerRightCorner.Y - 16) { break; }
+            if (i % 2 == 0) {
+                Ui::roundRect(b, irr::core::rect<irr::f32>(stationCard.UpperLeftCorner.X + 16, y, stationCard.LowerRightCorner.X - 16, y + rowH - 4), 8,
+                    irr::video::SColor(255, 16, 30, 52), irr::video::SColor(255, 14, 27, 47));
+            }
+        }
+        b.flush();
+
+        Ui::drawText(titleFont, french ? L"Exercice en cours" : L"Exercise in progress", irr::core::rect<irr::f32>(96, 26, pill.UpperLeftCorner.X - 20, 56), Ui::text);
+        Ui::drawText(smallFont, exercise, irr::core::rect<irr::f32>(96, 58, pill.UpperLeftCorner.X - 20, 80), Ui::textDim);
+        Ui::drawText(smallFont, state, irr::core::rect<irr::f32>(pill.UpperLeftCorner.X + 30, pill.UpperLeftCorner.Y, pill.LowerRightCorner.X - 12, pill.LowerRightCorner.Y), stateCol);
+
+        //Clock card
+        const irr::f32 cx0 = clockCard.UpperLeftCorner.X + 24, cx1 = clockCard.LowerRightCorner.X - 24;
+        Ui::drawText(textFont, french ? L"Heure de l'exercice" : L"Exercise time", irr::core::rect<irr::f32>(cx0, clockCard.UpperLeftCorner.Y + 16, cx1, clockCard.UpperLeftCorner.Y + 44), Ui::textDim);
+        Ui::drawText(bigFont, clock, irr::core::rect<irr::f32>(cx0, clockCard.UpperLeftCorner.Y + 52, cx1, clockCard.UpperLeftCorner.Y + 110), Ui::text);
+        Ui::drawText(textFont, date, irr::core::rect<irr::f32>(cx0, clockCard.UpperLeftCorner.Y + 112, cx1, clockCard.UpperLeftCorner.Y + 138), Ui::textDim);
+        wchar_t speed[64];
+        swprintf(speed, 64, french ? L"Acc\u00E9l\u00E9ration : x%g" : L"Time acceleration: x%g", accelerator);
+        Ui::drawText(smallFont, speed, irr::core::rect<irr::f32>(cx0, clockCard.UpperLeftCorner.Y + 148, cx1, clockCard.UpperLeftCorner.Y + 170), Ui::textFaint);
+
+        //Stations card
+        Ui::drawText(textFont, french ? L"Postes connect\u00E9s" : L"Connected stations", irr::core::rect<irr::f32>(colStation, stationCard.UpperLeftCorner.Y + 16, colHeading, stationCard.UpperLeftCorner.Y + 44), Ui::text);
+        Ui::drawText(smallFont, std::to_wstring(stations.size()), irr::core::rect<irr::f32>(colStation, stationCard.UpperLeftCorner.Y + 16, colHeading, stationCard.UpperLeftCorner.Y + 44), Ui::textDim, Ui::Right);
+        const irr::core::rect<irr::f32> head(0, tableTop, 0, tableTop + rowH - 8);
+        Ui::drawText(smallFont, french ? L"POSTE" : L"STATION", irr::core::rect<irr::f32>(colStation, head.UpperLeftCorner.Y, colShip - 8, head.LowerRightCorner.Y), Ui::textFaint);
+        Ui::drawText(smallFont, french ? L"NAVIRE" : L"SHIP", irr::core::rect<irr::f32>(colShip, head.UpperLeftCorner.Y, colSpeed - 8, head.LowerRightCorner.Y), Ui::textFaint);
+        Ui::drawText(smallFont, french ? L"VITESSE" : L"SPEED", irr::core::rect<irr::f32>(colSpeed, head.UpperLeftCorner.Y, colSpeed + 120, head.LowerRightCorner.Y), Ui::textFaint);
+        Ui::drawText(smallFont, french ? L"CAP" : L"HEADING", irr::core::rect<irr::f32>(colSpeed, head.UpperLeftCorner.Y, colHeading, head.LowerRightCorner.Y), Ui::textFaint, Ui::Right);
+        for (size_t i = 0; i < stations.size(); i++) {
+            const irr::f32 y = tableTop + rowH * (i + 1);
+            if (y + rowH > stationCard.LowerRightCorner.Y - 16) { break; }
+            const irr::core::rect<irr::f32> row(0, y, 0, y + rowH - 4);
+            const irr::core::rect<irr::s32> shipClip = Ui::toI(irr::core::rect<irr::f32>(colShip, y, colSpeed - 12, y + rowH));
+            const irr::core::rect<irr::s32> stationClip = Ui::toI(irr::core::rect<irr::f32>(colStation, y, colShip - 12, y + rowH));
+            const std::wstring who = std::to_wstring(i + 1) + L"  " + stations[i].host;
+            Ui::drawText(textFont, who, irr::core::rect<irr::f32>(colStation, row.UpperLeftCorner.Y, colShip - 12, row.LowerRightCorner.Y), Ui::text, Ui::Left, &stationClip);
+            Ui::drawText(textFont, stations[i].ship, irr::core::rect<irr::f32>(colShip, row.UpperLeftCorner.Y, colSpeed - 12, row.LowerRightCorner.Y), Ui::accentHi, Ui::Left, &shipClip);
+            wchar_t v[32], h[32];
+            swprintf(v, 32, L"%.1f %ls", stations[i].speedKts, french ? L"nds" : L"kn");
+            swprintf(h, 32, L"%03.0f\u00B0", stations[i].heading);
+            Ui::drawText(textFont, v, irr::core::rect<irr::f32>(colSpeed, row.UpperLeftCorner.Y, colSpeed + 140, row.LowerRightCorner.Y), Ui::text);
+            Ui::drawText(textFont, h, irr::core::rect<irr::f32>(colSpeed, row.UpperLeftCorner.Y, colHeading, row.LowerRightCorner.Y), Ui::text, Ui::Right);
+        }
+
+        //Stations typed in but not answering when the exercise started.
+        if (!unreached.empty()) {
+            std::wstring names;
+            for (size_t i = 0; i < unreached.size(); i++) { names += (i ? L", " : L"") + unreached[i]; }
+            const irr::f32 y = stationCard.LowerRightCorner.Y - 46;
+            Ui::drawText(smallFont, (french ? L"Postes non joints (simulateur non d\u00E9marr\u00E9 ou nom inconnu) : " : L"Stations not reached (simulator not started or unknown name): ") + names,
+                irr::core::rect<irr::f32>(colStation, y, colHeading, y + 26), irr::video::SColor(255, 255, 128, 128));
+        }
+        if (stations.empty()) {
+            Ui::drawText(textFont, french ? L"Aucun poste connect\u00E9." : L"No station connected.",
+                irr::core::rect<irr::f32>(colStation, tableTop + rowH, colHeading, tableTop + 2 * rowH), Ui::textDim);
+        }
+
+        //Footer
+        std::wstring footer = (french ? L"Amarres actives : " : L"Active mooring lines: ") + std::to_wstring(lines);
+        footer += french ? L"     \u00B7     Clavier : 0 = pause, Entr\u00E9e = reprendre" : L"     \u00B7     Keys: 0 = pause, Enter = resume";
+        Ui::drawText(smallFont, footer, irr::core::rect<irr::f32>(32, H - 50, W - 28, H - 20), Ui::textFaint);
+
+        IGUIElement::draw(); //buttons
+    }
+
+private:
+    bool french;
+    std::wstring exercise;
+    irr::gui::IGUIFont* bigFont;
+    irr::gui::IGUIFont* titleFont;
+    irr::gui::IGUIFont* textFont;
+    irr::gui::IGUIFont* smallFont;
+    irr::core::rect<irr::f32> clockCard, stationCard, run, pause;
+    std::wstring clock, date;
+    bool running;
+    irr::f32 accelerator;
+    std::vector<Station> stations;
+    std::vector<std::wstring> unreached;
+    irr::u32 lines;
+};
 
 int main()
 {
@@ -171,15 +330,16 @@ int main()
     deskres = nulldevice->getVideoModeList()->getDesktopResolution();
     nulldevice->drop();
     #endif
+    //(The desktop size can read as 0 x 0 when it cannot be found; then keep the default size.)
     if (graphicsWidth==0) {
         graphicsWidth = 1200 * fontScale;
-        if (graphicsWidth > deskres.Width*0.90) {
+        if (deskres.Width > 0 && graphicsWidth > deskres.Width*0.90) {
             graphicsWidth = deskres.Width*0.90;
         }
     }
     if (graphicsHeight==0) {
         graphicsHeight = 900 * fontScale;
-        if (graphicsHeight > deskres.Height*0.90) {
+        if (deskres.Height > 0 && graphicsHeight > deskres.Height*0.90) {
             graphicsHeight = deskres.Height*0.90;
         }
     }
@@ -197,36 +357,8 @@ int main()
     irr::gui::IGUIEnvironment* guienv = device->getGUIEnvironment();
     irr::gui::IGUISkin* skin = guienv->getSkin();
 
-    // palette 
-    irr::video::SColor deepBlue(255, 28, 111, 167);
-    irr::video::SColor shadowBlue(255, 0, 0, 0);
-    irr::video::SColor black(255, 0, 0, 0);
-    irr::video::SColor white(255, 255, 255, 255);
-    irr::video::SColor yellow(255, 255, 255, 0);
-
-    //   borders shadows
-    skin->setColor(irr::gui::EGDC_3D_SHADOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, deepBlue);
-
-    // Background  windows, buttons,edit boxes
-    skin->setColor(irr::gui::EGDC_WINDOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_FACE, white);
-    skin->setColor(irr::gui::EGDC_EDITABLE, deepBlue);
-    skin->setColor(irr::gui::EGDC_FOCUSED_EDITABLE, shadowBlue);
-    skin->setColor(irr::gui::EGDC_GRAY_EDITABLE, deepBlue);
-
-    //  Normal text
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, black);
-    skin->setColor(irr::gui::EGDC_GRAY_TEXT, white);
-
-
-    //  Selection colours
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT, black);  // selected-item background
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, yellow); // selected-item text
-
-    //  tooltips frames etc.
-    skin->setColor(irr::gui::EGDC_TOOLTIP, deepBlue);
+    //Dark navy look, as the launcher.
+    Ui::applySkin(skin);
     const irr::s32 SCENARIO_BOX_ID = 101;
     const irr::s32 WORLD_BOX_ID = 102;
     const irr::s32 OK_SCENARIO_BUTTON_ID = 103;
@@ -234,12 +366,8 @@ int main()
     const irr::s32 IMPORT_SCENARIO_BUTTON_ID = 105;
     const irr::s32 EXPORT_SCENARIO_BUTTON_ID = 106;
     const irr::s32 IMPORT_EXPORT_OK_BUTTON_ID = 107;
-    device->setWindowCaption(L"Multiplayer Hub"); //Fixme - odd conversion from char* to wchar*!
-
- 
-
-
-    device->setWindowCaption(L"Multiplayer Hub"); //Fixme - odd conversion from char* to wchar*!
+    const bool french = (modifier == "fr");
+    device->setWindowCaption(french ? L"NAUTITECH - Hub multijoueur" : L"NAUTITECH - Multiplayer hub");
     irr::video::IVideoDriver* driver = device->getVideoDriver();
     irr::scene::ISceneManager* smgr = device->getSceneManager();
 
@@ -273,7 +401,21 @@ int main()
         hostnames=IniFile::iniFileToString(userFolder + "/hostname-mh.txt","hostname");
     }
     
-    ScenarioChoice scenarioChoice(device,&language);
+    //Fonts in the sizes the screens use.
+    const std::string uiFontName = fontName.empty() ? std::string("noto-sans") : fontName;
+    auto uiFont = [&](int size) -> irr::gui::IGUIFont* {
+        size = (int)(size * fontScale + 0.5f);
+        if (size > 36) { size = 36; }
+        irr::gui::IGUIFont* f = device->getGUIEnvironment()->getFont(("media/fonts/" + uiFontName + "/" + uiFontName + "-" + std::to_string(size) + ".xml").c_str());
+        return f ? f : device->getGUIEnvironment()->getSkin()->getFont();
+    };
+    irr::gui::IGUIFont* bigFont = uiFont(36);
+    irr::gui::IGUIFont* titleFont = uiFont(20);
+    irr::gui::IGUIFont* textFont = uiFont(15);
+    irr::gui::IGUIFont* smallFont = uiFont(13);
+
+    ScenarioChoice scenarioChoice(device,&language,french);
+    scenarioChoice.setFonts(titleFont, textFont, smallFont);
     scenarioChoice.chooseScenario(scenarioName,hostnames,scenarioPath);
 
     //Save hostname in user directory (hostname.txt). Check first that the location exists
@@ -341,15 +483,27 @@ int main()
 
     //Add some simple information to the GUI, so the user knows it's running
     //Add text, which will list connected peers, and current time.
-    irr::u32 su = driver->getScreenSize().Width;
-    irr::u32 sh = driver->getScreenSize().Height;
-    irr::gui::IGUIStaticText* text = device->getGUIEnvironment()->addStaticText(L"",irr::core::rect<irr::s32>(0.01*su,0.01*sh,0.99*su,0.74*sh),true);
+    std::string exerciseName = scenarioName;
+    if (exerciseName.size() > 3) { exerciseName = exerciseName.substr(0, exerciseName.size() - 3); } //without _mp
+    HubDashboard* dashboard = new HubDashboard(device->getGUIEnvironment(), french, std::wstring(exerciseName.begin(), exerciseName.end()),
+        bigFont, titleFont, textFont, smallFont);
+    std::vector<std::wstring> unreached;
+    for (size_t i = 0; i < network.getUnreachedNames().size(); i++) {
+        unreached.push_back(std::wstring(network.getUnreachedNames()[i].begin(), network.getUnreachedNames()[i].end()));
+    }
+    dashboard->setUnreached(unreached);
 
     // Add run and pause buttons
     irr::s32 runButtonID = 101;
     irr::s32 pauseButtonID = 102;
-    irr::gui::IGUIButton* runButton = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.01*su,0.76*sh,0.49*su,0.99*sh), 0, runButtonID, language.translate("run").c_str());
-    irr::gui::IGUIButton* pauseButton = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.51*su,0.76*sh,0.99*su,0.99*sh), 0, pauseButtonID, language.translate("pause").c_str());
+    Ui::Button* runButton = new Ui::Button(device->getGUIEnvironment(), dashboard, runButtonID, dashboard->runRect(),
+        french ? L"D\u00E9marrer / reprendre" : L"Run / resume", Ui::Button::Primary);
+    Ui::Button* pauseButton = new Ui::Button(device->getGUIEnvironment(), dashboard, pauseButtonID, dashboard->pauseRect(),
+        french ? L"Pause" : L"Pause", Ui::Button::Secondary);
+    runButton->setFont(textFont);
+    pauseButton->setFont(textFont);
+    runButton->drop();
+    pauseButton->drop();
 
     // Setup event receiver
     EventReceiver eventReceiver(pauseButtonID, runButtonID, accelerator);
@@ -398,7 +552,7 @@ int main()
     while(device->run())
     {
 
-        driver->beginScene(true, true, irr::video::SColor(0,128,128,128));
+        driver->beginScene(true, true, Ui::background);
 
         // Pause, so we don't flood clients with data
         device->sleep(sleepTime);
@@ -612,13 +766,8 @@ int main()
         } //End of loop for each peer
 
 
-        //TODO:
-        //Update gui time here, using Utilities::timestampToString(absoluteTime)
-        std::string displayTime = Utilities::timestampToString(absoluteTime);
-        irr::core::stringw displayText = language.translate("time");
-        displayText.append(L" ");
-        displayText.append(irr::core::stringw(displayTime.c_str()));
-        displayText.append(L"\n\n");
+        //Update the live view: clock, and each station's ship as last reported.
+        std::vector<HubDashboard::Station> stations;
         for(unsigned int i = 0; i<numberOfPeers; i++ ) {
             irr::f32 thisOtherShipX = 0;
             irr::f32 thisOtherShipZ = 0;
@@ -627,31 +776,19 @@ int main()
             irr::f32 thisOtherShipRateOfTurn = 0;
 
             shipPositionData.getShipPosition(i,scenarioTime,thisOtherShipX,thisOtherShipZ,thisOtherShipSpeed,thisOtherShipBearing,thisOtherShipRateOfTurn);
-            std::string thisShipNumber = Utilities::lexical_cast<std::string>(i+1);
-            std::string stringSpeed = Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS); //Should be in knots
-            std::string stringHeading = Utilities::lexical_cast<std::string>(thisOtherShipBearing);
-            irr::core::stringw thisShipInfo = language.translate("ship");
-            thisShipInfo.append(L": ");
-            thisShipInfo.append(irr::core::stringw(thisShipNumber.c_str()));
-            thisShipInfo.append(L"\n");
-            thisShipInfo.append(language.translate("speed"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(irr::core::stringw(stringSpeed.c_str()));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(language.translate("knots"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(language.translate("heading"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(irr::core::stringw(stringHeading.c_str()));
-            thisShipInfo.append(L"\n");
-
-            displayText.append(thisShipInfo);
+            HubDashboard::Station station;
+            const std::string host = network.getPeerName(i);
+            const std::string ship = i < peerScenarioData.size() ? peerScenarioData[i].ownShipData.ownShipName : std::string();
+            station.host = std::wstring(host.begin(), host.end());
+            station.ship = std::wstring(ship.begin(), ship.end());
+            station.speedKts = thisOtherShipSpeed*MPS_TO_KTS;
+            station.heading = thisOtherShipBearing;
+            stations.push_back(station);
         }
-        displayText.append(L"\n");
-        displayText.append(irr::core::stringw(linesData.getNumberOfLines()));
-
-
-        text->setText(displayText.c_str());
+        const std::string clockText = Utilities::timestampToString(absoluteTime, "%H:%M:%S");
+        const std::string dateText = Utilities::timestampToString(absoluteTime, "%d/%m/%Y");
+        dashboard->update(std::wstring(clockText.begin(), clockText.end()), std::wstring(dateText.begin(), dateText.end()),
+            accelerator, stations, linesData.getNumberOfLines());
 
         smgr->drawAll();
         device->getGUIEnvironment()->drawAll();
