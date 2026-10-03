@@ -26,6 +26,9 @@ public:
     ~ChartView();
 
     bool load(irr::IrrlichtDevice* device, const std::string& worldName, std::string& error);
+    // Previews (the simulator's scenario screen): load in this style, and never change the style the
+    // editors remember. Call before load().
+    void setPreviewStyle(int s) { previewStyle = s; }
     // Chart bounds from terrain.ini without loading anything else (false if they cannot be read).
     static bool worldBounds(const std::string& worldName, double& south, double& west, double& latExtent, double& longExtent);
 
@@ -92,6 +95,7 @@ private:
     std::vector<float> heights;                 // primary terrain, heights[z * hCols + x], z = 0 is the south edge
     int hCols, hRows;
     int style;
+    int previewStyle;   // >= 0: preview, see setPreviewStyle
     irr::u32 baseW;  // width of the whole-chart texture, pixels
     // Close-up: when zoomed in past the whole-chart texture's resolution, the visible area is
     // re-rendered at screen resolution once the view has settled, so coastlines stay sharp.

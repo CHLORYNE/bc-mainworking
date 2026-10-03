@@ -19,34 +19,29 @@
 
 #include "irrlicht.h"
 
+//The scenario screen's keyboard: what it does with a key, before the GUI gets it.
+class StartupScreen
+{
+public:
+    virtual ~StartupScreen() {}
+    //True when the key has been used (the focused control does not get it).
+    virtual bool onKey(const irr::SEvent::SKeyInput& key) = 0;
+    //Mouse input over the screen's own areas (the list, the chart), whichever control has the focus;
+    //true when used.
+    virtual bool onMouse(const irr::SEvent::SMouseInput& mouse) = 0;
+};
+
+//Device-level receiver while the scenario is chosen: keys and mouse go to the screen first (list moves,
+//Enter to start, Escape to quit, wheel and drag on the list and chart), everything else to the GUI.
 class StartupEventReceiver : public irr::IEventReceiver
 {
 public:
-
-    StartupEventReceiver(irr::gui::IGUIListBox* scenarioListBox, irr::gui::IGUIStaticText* scenarioText, irr::gui::IGUIStaticText* hostnameText, irr::gui::IGUIEditBox* hostnameBox, irr::gui::IGUICheckBox* secondaryBox, irr::gui::IGUICheckBox* multiplayerBox, irr::gui::IGUIStaticText* portText, irr::gui::IGUIEditBox* portBox, irr::gui::IGUIStaticText* description, irr::s32 listBoxID, irr::s32 okButtonID, irr::s32 secondaryBoxID, irr::s32 multiplayerBoxID, irr::IrrlichtDevice* dev);
+    StartupEventReceiver(StartupScreen* screen, irr::IrrlichtDevice* dev);
     bool OnEvent(const irr::SEvent& event);
 
-    irr::s32 getScenarioSelected() const;
-
 private:
-
+    StartupScreen* screen;
     irr::IrrlichtDevice* device;
-    irr::gui::IGUIStaticText* description;
-    irr::gui::IGUIListBox* scenarioListBox;
-    irr::gui::IGUIStaticText* hostnameText;
-    irr::gui::IGUIStaticText* portText;
-    irr::gui::IGUIStaticText* scenarioText;
-    irr::gui::IGUIEditBox* hostnameBox;
-    irr::gui::IGUIEditBox* portBox;
-    irr::gui::IGUICheckBox* secondaryBox;
-    irr::gui::IGUICheckBox* multiplayerBox;
-    irr::s32 listBoxID;
-    irr::s32 okButtonID;
-    irr::s32 secondaryBoxID;
-    irr::s32 multiplayerBoxID;
-    irr::s32 scenarioSelected;
-
 };
 
 #endif
-

@@ -189,10 +189,13 @@ void roundRectOutline(irr::gui::PanelBatch& b, const irr::core::rect<irr::f32>& 
     b.rect(irr::core::rect<irr::f32>(x0 + rad, y1 - w, x1 - rad, y1), col);
     b.rect(irr::core::rect<irr::f32>(x0, y0 + rad, x0 + w, y1 - rad), col);
     b.rect(irr::core::rect<irr::f32>(x1 - w, y0 + rad, x1, y1 - rad), col);
-    b.sector(vector2df(x0 + rad, y0 + rad), rad - w, rad, 270, 360, col, col);
-    b.sector(vector2df(x1 - rad, y0 + rad), rad - w, rad, 0, 90, col, col);
-    b.sector(vector2df(x1 - rad, y1 - rad), rad - w, rad, 90, 180, col, col);
-    b.sector(vector2df(x0 + rad, y1 - rad), rad - w, rad, 180, 270, col, col);
+    //Corners: the arcs get a soft 1px edge on each side, so their solid core is thinner and centred on the
+    //straight edges' line, for the same weight all round.
+    const irr::f32 core = irr::core::max_(0.2f, w - 1.1f), mid = rad - w * 0.5f, a = mid - core * 0.5f, z = mid + core * 0.5f;
+    b.sector(vector2df(x0 + rad, y0 + rad), a, z, 270, 360, col, col);
+    b.sector(vector2df(x1 - rad, y0 + rad), a, z, 0, 90, col, col);
+    b.sector(vector2df(x1 - rad, y1 - rad), a, z, 90, 180, col, col);
+    b.sector(vector2df(x0 + rad, y1 - rad), a, z, 180, 270, col, col);
 }
 
 enum LauncherIcon { Icon_Helm, Icon_Route, Icon_Flame, Icon_Network, Icon_Gear, Icon_Keys, Icon_Power, Icon_Compass };

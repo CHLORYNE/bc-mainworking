@@ -103,6 +103,8 @@ set(BC_SOURCES
     ShipLights.cpp
     LoadingScreen.cpp
     IncidentConfig.cpp
+    chartView/ChartView.cpp
+    chartView/ChartDraw.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     ConsoleWindow.cpp

@@ -17,6 +17,8 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <set>
+#include <map>
 
 namespace Ui {
 
@@ -93,10 +95,13 @@ namespace Ui {
         b.rect(irr::core::rect<irr::f32>(x0 + rad, y1 - w, x1 - rad, y1), col);
         b.rect(irr::core::rect<irr::f32>(x0, y0 + rad, x0 + w, y1 - rad), col);
         b.rect(irr::core::rect<irr::f32>(x1 - w, y0 + rad, x1, y1 - rad), col);
-        b.sector(vector2df(x0 + rad, y0 + rad), rad - w, rad, 270, 360, col, col);
-        b.sector(vector2df(x1 - rad, y0 + rad), rad - w, rad, 0, 90, col, col);
-        b.sector(vector2df(x1 - rad, y1 - rad), rad - w, rad, 90, 180, col, col);
-        b.sector(vector2df(x0 + rad, y1 - rad), rad - w, rad, 180, 270, col, col);
+        //Corners: the arcs get a soft 1px edge on each side, so their solid core is thinner and centred on the
+        //straight edges' line, for the same weight all round.
+        const irr::f32 core = irr::core::max_(0.2f, w - 1.1f), mid = rad - w * 0.5f, a = mid - core * 0.5f, z = mid + core * 0.5f;
+        b.sector(vector2df(x0 + rad, y0 + rad), a, z, 270, 360, col, col);
+        b.sector(vector2df(x1 - rad, y0 + rad), a, z, 0, 90, col, col);
+        b.sector(vector2df(x1 - rad, y1 - rad), a, z, 90, 180, col, col);
+        b.sector(vector2df(x0 + rad, y1 - rad), a, z, 180, 270, col, col);
     }
 
     //Card: soft shadow, gradient body, fine outline.
@@ -143,6 +148,99 @@ namespace Ui {
     inline irr::f32 textHeight(irr::gui::IGUIFont* font)
     {
         return font ? (irr::f32)font->getDimension(L"Ag").Height : 14.0f;
+    }
+
+    //Bitmap font atlases pack the glyphs tightly: an overhang (the tail of J, j, y...) can reach into the
+    //neighbouring glyph's rectangle and show as a stray dot under it. Removes from each glyph's rectangle
+    //the ink that belongs to another glyph (connected to more of it in another rectangle). That ink is
+    //never drawn with its own glyph, which only shows its own rectangle. Once per font.
+    inline void cleanFontAtlas(irr::gui::IGUIFont* font)
+    {
+        static std::set<irr::gui::IGUIFont*> done;
+        if (!font || font->getType() != irr::gui::EGFT_BITMAP || done.count(font)) { return; }
+        done.insert(font);
+        irr::gui::IGUISpriteBank* bank = static_cast<irr::gui::IGUIFontBitmap*>(font)->getSpriteBank();
+        if (!bank || bank->getTextureCount() != 1) { return; }
+        irr::video::ITexture* tex = bank->getTexture(0);
+        if (!tex || tex->getColorFormat() != irr::video::ECF_A8R8G8B8) { return; }
+        const irr::core::array<irr::core::rect<irr::s32> >& rects = bank->getPositions();
+        const irr::s32 W = (irr::s32)tex->getSize().Width;
+        irr::s32 H = 0;
+        for (irr::u32 i = 0; i < rects.size(); i++) { H = irr::core::max_(H, rects[i].LowerRightCorner.Y); }
+        H = irr::core::min_(H, (irr::s32)tex->getSize().Height);
+        if (W <= 0 || H <= 0) { return; }
+        irr::u32* pixels = static_cast<irr::u32*>(tex->lock(irr::video::ETLM_READ_WRITE));
+        if (!pixels) { return; }
+        const irr::s32 pitch = (irr::s32)(tex->getPitch() / 4);
+        std::vector<irr::s32> owner((size_t)W * H, -1);
+        for (irr::u32 i = 0; i < rects.size(); i++) {
+            for (irr::s32 y = irr::core::max_(0, rects[i].UpperLeftCorner.Y); y < irr::core::min_(H, rects[i].LowerRightCorner.Y); y++) {
+                for (irr::s32 x = irr::core::max_(0, rects[i].UpperLeftCorner.X); x < irr::core::min_(W, rects[i].LowerRightCorner.X); x++) {
+                    owner[(size_t)y * W + x] = (irr::s32)i;
+                }
+            }
+        }
+        //Connected ink (4-neighbours; faint edge pixels left out, so that touching glyphs do not join), each
+        //blob given to the rectangle holding most of it. A piece of it in another rectangle is erased only if
+        //it is a small part of that rectangle's ink - an intrusion, never a glyph's own body.
+        const irr::u32 inkAlpha = 64;
+        std::vector<irr::s32> blob((size_t)W * H, -1);
+        std::vector<std::map<irr::s32, irr::s32> > blobCounts;
+        std::vector<irr::s32> rectInk(rects.size(), 0);
+        std::vector<irr::s32> stack;
+        for (irr::s32 start = 0; start < W * H; start++) {
+            if (blob[start] >= 0 || (pixels[(start / W) * pitch + start % W] >> 24) < inkAlpha) { continue; }
+            const irr::s32 id = (irr::s32)blobCounts.size();
+            blobCounts.push_back(std::map<irr::s32, irr::s32>());
+            stack.push_back(start);
+            blob[start] = id;
+            while (!stack.empty()) {
+                const irr::s32 p = stack.back();
+                stack.pop_back();
+                blobCounts[id][owner[p]]++;
+                if (owner[p] >= 0) { rectInk[owner[p]]++; }
+                const irr::s32 px = p % W, py = p / W;
+                const irr::s32 next[4][2] = { { px - 1, py }, { px + 1, py }, { px, py - 1 }, { px, py + 1 } };
+                for (int k = 0; k < 4; k++) {
+                    const irr::s32 nx = next[k][0], ny = next[k][1];
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) { continue; }
+                    const irr::s32 q = ny * W + nx;
+                    if (blob[q] >= 0 || (pixels[ny * pitch + nx] >> 24) < inkAlpha) { continue; }
+                    blob[q] = id;
+                    stack.push_back(q);
+                }
+            }
+        }
+        std::vector<irr::s32> best(blobCounts.size(), -1);
+        for (size_t i = 0; i < blobCounts.size(); i++) {
+            irr::s32 most = -1;
+            for (std::map<irr::s32, irr::s32>::iterator it = blobCounts[i].begin(); it != blobCounts[i].end(); ++it) {
+                if (it->first >= 0 && it->second > most) { best[i] = it->first; most = it->second; }
+            }
+        }
+        std::vector<char> erased((size_t)W * H, 0);
+        for (irr::s32 p = 0; p < W * H; p++) {
+            const irr::s32 id = blob[p], r = owner[p];
+            if (id < 0 || r < 0 || r == best[id]) { continue; }
+            if (blobCounts[id][r] * 4 < rectInk[r]) {
+                pixels[(p / W) * pitch + p % W] = 0;
+                erased[p] = 1;
+            }
+        }
+        //The faint edge of an erased piece goes with it.
+        for (irr::s32 p = 0; p < W * H; p++) {
+            if (blob[p] >= 0 || owner[p] < 0 || erased[p]) { continue; }
+            const irr::s32 px = p % W, py = p / W;
+            bool next = false;
+            for (irr::s32 dy = -1; dy <= 1 && !next; dy++) {
+                for (irr::s32 dx = -1; dx <= 1 && !next; dx++) {
+                    const irr::s32 nx = px + dx, ny = py + dy;
+                    if (nx >= 0 && ny >= 0 && nx < W && ny < H && erased[ny * W + nx] && owner[ny * W + nx] == owner[p]) { next = true; }
+                }
+            }
+            if (next) { pixels[py * pitch + px] = 0; }
+        }
+        tex->unlock();
     }
 
     enum Align { Left, Centre, Right };

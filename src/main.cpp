@@ -1199,7 +1199,7 @@ int main(int argc, char** argv)
     }
 
     if (mode == OperatingMode::Normal) {
-        ScenarioChoice scenarioChoice(device, &language);
+        ScenarioChoice scenarioChoice(device, &language, fontName, modifier == "fr");
         scenarioChoice.chooseScenario(scenarioName, hostname, udpPort, mode, scenarioPath);
     }
 

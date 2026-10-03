@@ -104,7 +104,7 @@ std::string stylePath()
 ChartView::ChartView()
     : south(0), west(0), latExtent(1), longExtent(1), widthM(1), heightM(1),
     driver(0), timer(0), originalTexture(0), dayTexture(0), nightTexture(0), hdTexture(0),
-    hCols(0), hRows(0), style(Style_Day), baseW(0),
+    hCols(0), hRows(0), style(Style_Day), previewStyle(-1), baseW(0),
     detailTexture(0), detailX0(0), detailZ0(0), detailX1(0), detailZ1(0), detailMpp(0), detailStyle(-1),
     lastCx(0), lastCz(0), lastMpp(0), lastViewChange(0), cx(0), cz(0), mpp(10)
 {
@@ -211,7 +211,7 @@ bool ChartView::load(irr::IrrlichtDevice* device, const std::string& world, std:
         error = "Ni image de carte ni carte des hauteurs utilisable pour " + world;
         return false;
     }
-    int wanted = recalledStyle();
+    int wanted = (previewStyle >= 0) ? previewStyle : recalledStyle();
     if (wanted == Style_HD && !hdTexture) { wanted = Style_Day; }
     setStyle(wanted);
     return true;
@@ -520,7 +520,7 @@ void ChartView::setStyle(int s)
         s = dayTexture ? Style_Day : Style_Original;
     }
     style = s;
-    rememberStyle();
+    if (previewStyle < 0) { rememberStyle(); }
 }
 
 void ChartView::nextStyle()
