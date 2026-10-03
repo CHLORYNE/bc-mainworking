@@ -94,6 +94,7 @@
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />
     <ClInclude Include="..\launcher\main.h" />
+    <ClInclude Include="..\ScreenChooser.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
   </ItemGroup>
   <ItemGroup>

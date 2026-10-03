@@ -43,6 +43,7 @@
 #endif // _WIN32
 
 #include "VRInterface.hpp"
+#include "ScreenChooser.hpp"
 
 #include "profile.hpp"
 
@@ -919,7 +920,7 @@ int main(int argc, char** argv)
     HWND hWnd = 0;
     HINSTANCE hInstance = 0;
     // create dialog
-    const char* Win32ClassName = "CIrrlichtWindowsTestDialog";
+    const char* Win32ClassName = ScreenChooser::SimulatorWindowClass; //lets the screen choosers see which screens are taken
     const DWORD style = WS_VISIBLE | WS_POPUP;
     int windowX = 0, windowY = 0; //borderless window: top left of its screen (the window is opened below)
 
@@ -951,6 +952,22 @@ int main(int argc, char** argv)
 
         cMonitorsVec Monitors; //The constructor for this initialises it with a list of the monitors
 
+        //Started directly (the launcher always says which screen) on a desk with several screens, and no
+        //screen set in bc5.ini: ask which one.
+        if (requestedMonitor < 0 && Monitors.iMonitors.size() > 1) {
+            const bool french = (modifier == "fr");
+            const int chosen = ScreenChooser::ask(
+                french ? L"Sur quel \u00E9cran ouvrir le simulateur ?" : L"Which screen should the simulator open on?",
+                french ? L"Cliquez sur un \u00E9cran puis sur Ouvrir. Les fen\u00EAtres d\u00E9j\u00E0 ouvertes sont indiqu\u00E9es."
+                    : L"Click a screen, then Open. Windows already open are shown.",
+                french);
+            if (chosen == ScreenChooser::Cancelled) {
+                std::cout << "Screen choice cancelled: not starting." << std::endl;
+                return EXIT_SUCCESS;
+            }
+            requestedMonitor = chosen;
+        }
+
         if (requestedMonitor > -1 && (int)Monitors.iMonitors.size() > requestedMonitor) {
             //The user has requested a specific monitor
 
@@ -963,8 +980,7 @@ int main(int argc, char** argv)
                 << " at " << windowX << ", " << windowY << std::endl;
         }
         else {
-            //No screen chosen: use the one under the mouse pointer, which is where the program was just
-            //started from. (This used to ask, in a message box, to drag that box onto the wanted screen.)
+            //One screen only, or a screen asked for that is not connected: the one under the mouse pointer.
             if (requestedMonitor > -1) {
                 std::cerr << "Screen " << requestedMonitor + 1 << " requested, but " << Monitors.iMonitors.size() << " screen(s) connected: using the screen under the mouse pointer." << std::endl;
             }

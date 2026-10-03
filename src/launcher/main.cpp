@@ -42,6 +42,8 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include "../ScreenChooser.hpp" //screens of the desk, and which already show the simulator
+
 // Irrlicht Namespaces
 //using namespace irr;
 
@@ -704,87 +706,89 @@ struct ScreenInfo {
     irr::core::rect<irr::s32> area; //desktop coordinates
     bool primary;
     bool launcherHere;              //the launcher window is on this screen
+    std::wstring inUse;             //the simulator's windows already open there (simulator, instruments, repeater)
+    bool simulatorOpen;             //a simulator among them
 };
 
-#ifdef _WIN32
-struct ScreenListBuilder {
-    std::vector<ScreenInfo> screens;
-    std::vector<HMONITOR> handles;
-    static BOOL CALLBACK add(HMONITOR monitor, HDC, LPRECT, LPARAM data)
-    {
-        ScreenListBuilder* self = reinterpret_cast<ScreenListBuilder*>(data);
-        MONITORINFO mi;
-        mi.cbSize = sizeof(mi);
-        ScreenInfo s;
-        s.primary = false;
-        s.launcherHere = false;
-        if (GetMonitorInfo(monitor, &mi)) {
-            s.area = irr::core::rect<irr::s32>(mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom);
-            s.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
-        }
-        self->screens.push_back(s);
-        self->handles.push_back(monitor);
-        return TRUE;
-    }
-};
-#endif
+bool g_french = true; //launcher language
 
 //The screens, in the order the simulator numbers them (both use EnumDisplayMonitors), so screen N
 //here is screen N for "-monitor N" and for bc5.ini monitor=N.
 std::vector<ScreenInfo> listScreens()
 {
+    std::vector<ScreenInfo> screens;
 #ifdef _WIN32
-    ScreenListBuilder builder;
-    EnumDisplayMonitors(0, 0, ScreenListBuilder::add, (LPARAM)&builder);
+    const std::vector<ScreenChooser::Screen> found = ScreenChooser::listScreens(g_french);
+    RECT launcherScreen = { 0, 0, 0, 0 };
     if (g_device) {
         HWND hwnd = reinterpret_cast<HWND>(g_device->getVideoDriver()->getExposedVideoData().OpenGLWin32.HWnd);
-        HMONITOR here = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        for (size_t i = 0; i < builder.handles.size(); i++) {
-            builder.screens[i].launcherHere = (builder.handles[i] == here);
-        }
+        MONITORINFO mi;
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) { launcherScreen = mi.rcMonitor; }
     }
-    return builder.screens;
+    for (size_t i = 0; i < found.size(); i++) {
+        ScreenInfo s;
+        s.area = irr::core::rect<irr::s32>(found[i].left, found[i].top, found[i].right, found[i].bottom);
+        s.primary = found[i].primary;
+        s.launcherHere = (found[i].left == launcherScreen.left && found[i].top == launcherScreen.top
+            && found[i].right == launcherScreen.right && found[i].bottom == launcherScreen.bottom);
+        s.inUse = found[i].inUse;
+        s.simulatorOpen = (s.inUse.find(L"Simulat") != std::wstring::npos);
+        screens.push_back(s);
+    }
 #else
-    std::vector<ScreenInfo> screens;
 #ifdef LAUNCHER_TEST_SCREENS
-    //Test builds only: a made-up desk (instructor screen and two large displays), so the picker can be
-    //checked on a machine without them.
+    //Test builds only: a made-up desk (instructor screen and two large displays, a simulator already
+    //open on the second), so the picker can be checked on a machine without them.
     ScreenInfo s;
-    s.area = irr::core::rect<irr::s32>(0, 0, 1920, 1080); s.primary = true; s.launcherHere = true; screens.push_back(s);
-    s.area = irr::core::rect<irr::s32>(1920, -180, 5760, 1980); s.primary = false; s.launcherHere = false; screens.push_back(s);
-    s.area = irr::core::rect<irr::s32>(-1280, 56, 0, 1080); screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(0, 0, 1920, 1080); s.primary = true; s.launcherHere = true; s.simulatorOpen = false; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(1920, -180, 5760, 1980); s.primary = false; s.launcherHere = false;
+    s.inUse = L"Simulateur, Instruments"; s.simulatorOpen = true; screens.push_back(s);
+    s.area = irr::core::rect<irr::s32>(-1280, 56, 0, 1080); s.inUse = L""; s.simulatorOpen = false; screens.push_back(s);
+#endif
 #endif
     return screens;
-#endif
 }
 
 class ScreenPicker : public LauncherOverlay
 {
 public:
-    //Bridge view screen (1..n); instrument console screen (1..n, or 0: in the bridge view); remember the choice.
-    typedef std::function<void(int, int, bool)> LaunchFn;
+    //Bridge view screen (1..n); instrument console screen (1..n, or 0: in the bridge view).
+    typedef std::function<void(int, int)> LaunchFn;
 
     ScreenPicker(irr::gui::IGUIEnvironment* env, bool french, irr::gui::IGUIFont* bigFont, irr::gui::IGUIFont* titleFont,
         irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch)
         : LauncherOverlay(env), french(french), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
-        launch(launch), selected(0), consoleScreen(-1), chosenBefore(false), remember(false), lastClickMs(0), lastClickScreen(-1)
+        launch(launch), selected(0), consoleScreen(-1), lastClickMs(0), lastClickScreen(-1)
     {
     }
 
-    void open(const std::vector<ScreenInfo>& list)
+    //lastBridge, lastConsole: the last choice (1..n, 0 for none), offered again if it fits this desk.
+    void open(const std::vector<ScreenInfo>& list, int lastBridge, int lastConsole)
     {
-        const bool sameDesk = chosenBefore && list.size() == screens.size();
         screens = list;
-        if (!sameDesk || selected >= (int)screens.size()) {
+        const int n = (int)screens.size();
+        selected = (lastBridge >= 1 && lastBridge <= n) ? lastBridge - 1 : -1;
+        consoleScreen = (lastConsole >= 1 && lastConsole <= n) ? lastConsole - 1 : -1;
+        if (selected < 0) {
             //Most often the simulator goes on a screen other than the instructor's, where the launcher is.
             selected = 0;
-            for (size_t i = 0; i < screens.size(); i++) {
-                if (!screens[i].launcherHere) { selected = (int)i; break; }
+            for (int i = 0; i < n; i++) {
+                if (!screens[i].launcherHere) { selected = i; break; }
             }
-            consoleScreen = -1;
         }
-        if (consoleScreen >= (int)screens.size() || consoleScreen == selected) { consoleScreen = -1; }
-        remember = false;
+        //Another copy (a second view, say): a simulator is already open there, so offer a free screen.
+        if (n > 0 && screens[selected].simulatorOpen) {
+            int freeScreen = -1;
+            for (int i = 0; i < n && freeScreen < 0; i++) {
+                if (screens[i].inUse.empty() && !screens[i].launcherHere) { freeScreen = i; }
+            }
+            for (int i = 0; i < n && freeScreen < 0; i++) {
+                if (screens[i].inUse.empty()) { freeScreen = i; }
+            }
+            if (freeScreen >= 0) { selected = freeScreen; }
+        }
+        if (consoleScreen == selected || (consoleScreen >= 0 && !screens[consoleScreen].inUse.empty())) { consoleScreen = -1; }
         lastClickScreen = -1;
         show();
     }
@@ -839,17 +843,6 @@ public:
                 roundRectOutline(b, chips[c].area, rad, 1.0f, hov ? irr::video::SColor(220, 140, 230, 215) : Theme::border);
             }
         }
-        //"Remember" check box
-        const bool hovRemember = over(rememberRow);
-        roundRect(b, checkBox, 5, remember ? Theme::primaryTop : irr::video::SColor(255, 20, 34, 56),
-            remember ? Theme::primaryBottom : irr::video::SColor(255, 16, 28, 46));
-        roundRectOutline(b, checkBox, 5, 1.0f, (remember || hovRemember) ? irr::video::SColor(230, 150, 205, 255) : irr::video::SColor(140, 150, 190, 240));
-        if (remember) {
-            const irr::core::vector2df c = checkBox.getCenter();
-            const irr::f32 s = checkBox.getWidth() * 0.5f;
-            b.line(irr::core::vector2df(c.X - s * 0.5f, c.Y + s * 0.02f), irr::core::vector2df(c.X - s * 0.12f, c.Y + s * 0.4f), 2.2f, irr::video::SColor(255, 255, 255, 255));
-            b.line(irr::core::vector2df(c.X - s * 0.12f, c.Y + s * 0.4f), irr::core::vector2df(c.X + s * 0.55f, c.Y - s * 0.38f), 2.2f, irr::video::SColor(255, 255, 255, 255));
-        }
         drawPillButton(b, cancelButton, false, over(cancelButton));
         drawPillButton(b, launchButton, true, over(launchButton));
         b.flush();
@@ -870,27 +863,35 @@ public:
             const irr::video::SColor sub = bridge ? irr::video::SColor(255, 214, 232, 252)
                 : (instruments ? irr::video::SColor(255, 206, 246, 238) : Theme::textDim);
             const irr::core::rect<irr::s32> clip = toIntRect(r);
-            //Number, role or resolution, then tags, centred as a block.
-            std::vector<std::pair<std::wstring, irr::gui::IGUIFont*> > lines;
-            lines.push_back(std::make_pair(std::to_wstring(i + 1), bigFont));
-            if (bridge) { lines.push_back(std::make_pair(std::wstring(french ? L"Vue passerelle" : L"Bridge view"), textFont)); }
-            if (instruments) { lines.push_back(std::make_pair(std::wstring(L"Instruments"), textFont)); }
-            lines.push_back(std::make_pair(std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont));
+            //Number, role, resolution, tags, then what is already open there, centred as a block.
+            struct Line { std::wstring text; irr::gui::IGUIFont* font; irr::video::SColor colour; };
+            std::vector<Line> lines;
+            Line number = { std::to_wstring(i + 1), bigFont, main };
+            lines.push_back(number);
+            if (bridge) { Line role = { french ? L"Vue passerelle" : L"Bridge view", textFont, sub }; lines.push_back(role); }
+            if (instruments) { Line role = { L"Instruments", textFont, sub }; lines.push_back(role); }
+            Line size = { std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont, sub };
+            lines.push_back(size);
             std::wstring tags;
             if (screens[i].primary) { tags += french ? L"Principal" : L"Primary"; }
             if (screens[i].launcherHere) { tags += tags.empty() ? L"" : L"  \u00B7  "; tags += french ? L"Lanceur ici" : L"Launcher here"; }
-            if (!tags.empty()) { lines.push_back(std::make_pair(tags, smallFont)); }
+            if (!tags.empty()) { Line tagLine = { tags, smallFont, sub }; lines.push_back(tagLine); }
+            if (!screens[i].inUse.empty()) {
+                Line used = { (french ? L"Ouvert : " : L"Open: ") + screens[i].inUse, smallFont, inUseColour };
+                lines.push_back(used);
+            }
             irr::f32 total = 0;
-            for (size_t l = 0; l < lines.size(); l++) { total += textHeight(lines[l].second) + 2; }
-            while (lines.size() > 1 && total > r.getHeight() - 6) { //small tile: drop the last lines
-                total -= textHeight(lines.back().second) + 2;
-                lines.pop_back();
+            for (size_t l = 0; l < lines.size(); l++) { total += textHeight(lines[l].font) + 2; }
+            while (lines.size() > 1 && total > r.getHeight() - 6) { //small tile: what is open there matters more than the tags
+                const size_t drop = (lines.size() > 2 && !screens[i].inUse.empty()) ? lines.size() - 2 : lines.size() - 1;
+                total -= textHeight(lines[drop].font) + 2;
+                lines.erase(lines.begin() + drop);
             }
             irr::f32 y = r.getCenter().Y - total * 0.5f;
             for (size_t l = 0; l < lines.size(); l++) {
-                const irr::f32 h = textHeight(lines[l].second);
-                drawTextIn(lines[l].second, lines[l].first, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, y, r.LowerRightCorner.X, y + h),
-                    l == 0 ? main : sub, true, &clip);
+                const irr::f32 h = textHeight(lines[l].font);
+                drawTextIn(lines[l].font, lines[l].text, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, y, r.LowerRightCorner.X, y + h),
+                    lines[l].colour, true, &clip);
                 y += h + 2;
             }
         }
@@ -900,15 +901,10 @@ public:
             const bool on = (chips[c].screen == consoleScreen);
             drawTextIn(textFont, chips[c].label, chips[c].area, on ? irr::video::SColor(255, 255, 255, 255) : Theme::text, true);
         }
+        drawTextIn(smallFont, french ? L"Le choix est propos\u00E9 \u00E0 nouveau au prochain lancement. Les fen\u00EAtres d\u00E9j\u00E0 ouvertes sont indiqu\u00E9es sur les \u00E9crans."
+            : L"The choice is offered again next time. Windows already open are shown on the screens.",
+            infoRow, Theme::textDim, false);
 
-        drawTextIn(textFont, consoleScreen >= 0 ? (french ? L"Toujours utiliser ces \u00E9crans" : L"Always use these screens")
-            : (french ? L"Toujours utiliser cet \u00E9cran" : L"Always use this screen"),
-            irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.UpperLeftCorner.Y - 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y - 2),
-            Theme::text, false);
-        drawTextIn(smallFont, french ? L"Le choix pourra \u00EAtre modifi\u00E9 dans les param\u00E8tres du simulateur (monitor, console_monitor)."
-            : L"The choice can be changed later in the simulator settings (monitor, console_monitor).",
-            irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.LowerRightCorner.Y + 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y + 22),
-            Theme::textDim, false);
         //Key hints: as many as fit before the buttons.
         const wchar_t* hintsFr[4] = { L"1 \u00E0 9 : vue passerelle", L"I : instruments", L"Entr\u00E9e : lancer", L"\u00C9chap : annuler" };
         const wchar_t* hintsEn[4] = { L"1 to 9: bridge view", L"I: instruments", L"Enter: launch", L"Esc: cancel" };
@@ -952,7 +948,6 @@ protected:
         for (size_t c = 0; c < chips.size(); c++) {
             if (over(chips[c].area)) { consoleScreen = chips[c].screen; return; }
         }
-        if (over(rememberRow)) { remember = !remember; return; }
         if (over(launchButton)) { confirm(); return; }
         if (over(cancelButton) || !over(panel)) { hide(); return; }
     }
@@ -994,26 +989,24 @@ private:
     void confirm()
     {
         if (selected < 0 || selected >= (int)screens.size()) { return; }
-        chosenBefore = true;
         hide();
-        if (launch) { launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0, remember); }
+        if (launch) { launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0); }
     }
 
     void layout()
     {
         const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
-        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(600.0f, H - 48);
+        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(580.0f, H - 48);
         panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
         const irr::f32 left = panel.UpperLeftCorner.X + 36, right = panel.LowerRightCorner.X - 36;
         const irr::f32 bottom = panel.LowerRightCorner.Y;
 
         launchButton = irr::core::rect<irr::f32>(right - 250, bottom - 70, right, bottom - 26);
         cancelButton = irr::core::rect<irr::f32>(launchButton.UpperLeftCorner.X - 142, bottom - 70, launchButton.UpperLeftCorner.X - 12, bottom - 26);
-        checkBox = irr::core::rect<irr::f32>(left, bottom - 138, left + 22, bottom - 116);
-        rememberRow = irr::core::rect<irr::f32>(left - 4, bottom - 142, right, bottom - 94);
+        infoRow = irr::core::rect<irr::f32>(left, bottom - 116, right, bottom - 94);
 
         //Instruments row: a chip for "in the bridge view", then one per other screen.
-        const irr::f32 chipTop = bottom - 204, chipBottom = bottom - 170;
+        const irr::f32 chipTop = bottom - 168, chipBottom = bottom - 134;
         instrumentsLabel = irr::core::rect<irr::f32>(left, chipTop, left + textWidth(textFont, french ? L"Instruments :" : L"Instruments:") + 8, chipBottom);
         chips.clear();
         Chip inView;
@@ -1056,6 +1049,7 @@ private:
 
     const irr::video::SColor consoleTop = irr::video::SColor(255, 26, 132, 128);
     const irr::video::SColor consoleBottom = irr::video::SColor(255, 12, 88, 90);
+    const irr::video::SColor inUseColour = irr::video::SColor(255, 255, 200, 100);
 
     bool french;
     irr::gui::IGUIFont* bigFont;
@@ -1066,11 +1060,9 @@ private:
     std::vector<ScreenInfo> screens;
     std::vector<irr::core::rect<irr::f32> > screenRects;
     std::vector<Chip> chips;
-    irr::core::rect<irr::f32> panel, launchButton, cancelButton, checkBox, rememberRow, instrumentsLabel;
+    irr::core::rect<irr::f32> panel, launchButton, cancelButton, infoRow, instrumentsLabel;
     int selected;          //bridge view screen (index)
     int consoleScreen;     //instruments screen (index), -1: in the bridge view
-    bool chosenBefore;     //keep the last choice when opened again
-    bool remember;
     irr::u32 lastClickMs;
     int lastClickScreen;
 };
@@ -1430,33 +1422,15 @@ std::string currentBc5Ini()
     return Utilities::pathExists(userFolder + "bc5.ini") ? userFolder + "bc5.ini" : std::string("bc5.ini");
 }
 
-//Sets key="value" in the user's bc5.ini, making that copy from the installed file first if needed (as
-//the settings editor does). Every other line is kept as it is.
-bool setUserBc5Value(const std::string& key, const std::string& value)
+//Where the screen picker's last choice is kept (offered again next time).
+std::string launcherScreensFile()
 {
-    std::vector<std::string> lines;
-    {
-        std::ifstream in(currentBc5Ini().c_str());
-        std::string line;
-        while (std::getline(in, line)) { lines.push_back(line); }
-    }
-    if (lines.empty()) { return false; }
-    std::string wanted = key;
-    Utilities::to_lower(wanted);
-    bool found = false;
-    for (size_t i = 0; i < lines.size() && !found; i++) {
-        const size_t eq = lines[i].find('=');
-        if (eq == std::string::npos) { continue; }
-        std::string name = Utilities::trim(lines[i].substr(0, eq));
-        Utilities::to_lower(name);
-        if (name == wanted) {
-            const bool cr = !lines[i].empty() && lines[i][lines[i].size() - 1] == '\r';
-            lines[i] = key + "=\"" + value + "\"" + (cr ? "\r" : "");
-            found = true;
-        }
-    }
-    if (!found) { lines.push_back(key + "=\"" + value + "\""); }
+    return Utilities::getUserDir() + "launcherScreens.ini";
+}
 
+//Keeps the screen picker's choice for next time.
+bool saveLauncherScreens(int bridge, int console)
+{
     //User folder, as the settings editor creates it.
     const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
     for (int d = 0; d < 2; d++) {
@@ -1470,8 +1444,9 @@ bool setUserBc5Value(const std::string& key, const std::string& value)
 #endif
         }
     }
-    std::ofstream out((userFolder + "bc5.ini").c_str(), std::ios::trunc);
-    for (size_t i = 0; i < lines.size(); i++) { out << lines[i] << "\n"; }
+    std::ofstream out(launcherScreensFile().c_str(), std::ios::trunc);
+    out << "Bridge=" << bridge << "\n";
+    out << "Instruments=" << console << "\n";
     return out.good();
 }
 
@@ -1498,16 +1473,21 @@ void launchSimulator(int screen, int consoleScreen)
 #endif
 }
 
-//Simulator card: ask which screen when that matters (borderless full screen on a desk with several
-//screens, and no screen fixed in bc5.ini), otherwise start straight away.
+//Simulator card: on a desk with several screens (borderless full screen), always ask which ones, the
+//last choice offered again (at first, the screens set in bc5.ini); otherwise start straight away.
 void startSimulator()
 {
     const std::string ini = currentBc5Ini();
     const bool borderless = readIniNow(ini, "graphics_mode") == "3";
-    const bool screenFixed = atoi(readIniNow(ini, "monitor").c_str()) > 0;
     const std::vector<ScreenInfo> screens = listScreens();
-    if (g_screenPicker && borderless && !screenFixed && screens.size() > 1) {
-        g_screenPicker->open(screens);
+    if (g_screenPicker && borderless && screens.size() > 1) {
+        int bridge = atoi(readIniNow(launcherScreensFile(), "Bridge").c_str());
+        int console = atoi(readIniNow(launcherScreensFile(), "Instruments").c_str());
+        if (bridge <= 0) {
+            bridge = atoi(readIniNow(ini, "monitor").c_str());
+            console = atoi(readIniNow(ini, "console_monitor").c_str());
+        }
+        g_screenPicker->open(screens, bridge, console);
         return;
     }
     showLaunchToast(g_simulatorTitle);
@@ -1763,6 +1743,7 @@ int main(int argc, char** argv)
 
     Lang language(languageFile);
     const bool french = (modifier == "fr");
+    g_french = french;
 
     float fontScale = IniFile::iniFileTof32(iniFilename, "font_scale");
     if (fontScale < 1) {
@@ -1920,11 +1901,8 @@ int main(int argc, char** argv)
     g_keySheet = new KeySheet(env, titleFont, textFont, smallFont);
     g_keySheet->drop();
     g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
-        [](int screen, int consoleScreen, bool remember) {
-            if (remember) {
-                setUserBc5Value("monitor", std::to_string(screen));
-                setUserBc5Value("console_monitor", std::to_string(consoleScreen));
-            }
+        [](int screen, int consoleScreen) {
+            saveLauncherScreens(screen, consoleScreen);
             showLaunchToast(g_simulatorTitle);
             launchSimulator(screen, consoleScreen);
         });

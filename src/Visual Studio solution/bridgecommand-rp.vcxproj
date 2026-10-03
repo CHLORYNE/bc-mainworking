@@ -107,6 +107,7 @@
     <ClInclude Include="..\GUIInstrumentPanel.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />
+    <ClInclude Include="..\ScreenChooser.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
     <ClInclude Include="..\repeater\EventReceiver.hpp" />
     <ClInclude Include="..\repeater\GUI.hpp" />

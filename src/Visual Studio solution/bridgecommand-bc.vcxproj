@@ -244,6 +244,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\Swell.hpp" />
     <ClInclude Include="..\Terrain.hpp" />
     <ClInclude Include="..\Tide.hpp" />
+    <ClInclude Include="..\ScreenChooser.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
     <ClInclude Include="..\ExitMessage.hpp" />
     <ClInclude Include="..\VRInterface.hpp" />
