@@ -92,6 +92,15 @@
 			<Option target="Windows64" />
 		</Unit>
 		<Unit filename="main.cpp" />
+		<Unit filename="HudMenu.cpp" />
+		<Unit filename="HudMenu.hpp" />
+		<Unit filename="HudText.cpp" />
+		<Unit filename="HudText.hpp" />
+		<Unit filename="LauncherDraw.hpp" />
+		<Unit filename="UiSound.cpp" />
+		<Unit filename="UiSound.hpp" />
+		<Unit filename="VideoClip.cpp" />
+		<Unit filename="VideoClip.hpp" />
 		<Extensions />
 	</Project>
 </CodeBlocks_project_file>

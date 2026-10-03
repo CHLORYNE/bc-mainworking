@@ -86,6 +86,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\launcher\main.cpp" />
+    <ClCompile Include="..\launcher\HudMenu.cpp" />
+    <ClCompile Include="..\launcher\HudText.cpp" />
+    <ClCompile Include="..\launcher\UiSound.cpp" />
+    <ClCompile Include="..\launcher\VideoClip.cpp" />
     <ClCompile Include="..\IniFile.cpp" />
     <ClCompile Include="..\Lang.cpp" />
     <ClCompile Include="..\Utilities.cpp" />
@@ -94,6 +98,12 @@
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />
     <ClInclude Include="..\launcher\main.h" />
+    <ClInclude Include="..\launcher\HudMenu.hpp" />
+    <ClInclude Include="..\launcher\HudText.hpp" />
+    <ClInclude Include="..\launcher\LauncherDraw.hpp" />
+    <ClInclude Include="..\launcher\UiSound.hpp" />
+    <ClInclude Include="..\launcher\VideoClip.hpp" />
+    <ClInclude Include="..\libs\stb\stb_truetype.h" />
     <ClInclude Include="..\ScreenChooser.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
   </ItemGroup>
