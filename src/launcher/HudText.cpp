@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iterator>
 #include <memory>
 
 //stb_truetype (public domain / MIT): its own warnings are not ours to fix.

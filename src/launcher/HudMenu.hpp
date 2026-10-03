@@ -90,7 +90,7 @@ private:
     };
     struct Fonts {
         HudFont* brand; HudFont* sub; HudFont* heading; HudFont* menu; HudFont* index; HudFont* title;
-        HudFont* text; HudFont* small; HudFont* tiny; HudFont* quit;
+        HudFont* text; HudFont* caption; HudFont* tiny; HudFont* quit;
     };
 
     void layout(const irr::core::dimension2du& size);

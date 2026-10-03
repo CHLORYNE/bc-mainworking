@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 
 #ifdef _WIN32
 #ifndef NOMINMAX

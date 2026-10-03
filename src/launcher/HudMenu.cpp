@@ -288,7 +288,7 @@ void HudMenu::layout(const irr::core::dimension2du& size)
     fonts.index = new HudFont(driver, medium, 22 * k, fallback);
     fonts.title = new HudFont(driver, bold, 72 * k, fallback);
     fonts.text = new HudFont(driver, medium, 30 * k, fallback);
-    fonts.small = new HudFont(driver, medium, 24 * k, fallback);
+    fonts.caption = new HudFont(driver, medium, 24 * k, fallback);
     fonts.tiny = new HudFont(driver, semi, 19 * k, fallback);
     fonts.quit = new HudFont(driver, bold, 56 * k, fallback);
 
@@ -718,8 +718,8 @@ void HudMenu::drawHeader(irr::video::IVideoDriver* driver, irr::f32 r)
     if (!station.empty()) {
         const irr::f32 right = windowControls ? minimiseButton.UpperLeftCorner.X - 22 * k : W - mx;
         const std::wstring label = french ? L"POSTE" : L"STATION";
-        const irr::f32 nameW = fonts.small->width(station, 1.5f * k);
-        fonts.small->draw(station, right - nameW, 75 * k - fonts.small->capHeight() * 0.5f, fade(cText, a), 1.5f * k);
+        const irr::f32 nameW = fonts.caption->width(station, 1.5f * k);
+        fonts.caption->draw(station, right - nameW, 75 * k - fonts.caption->capHeight() * 0.5f, fade(cText, a), 1.5f * k);
         const irr::f32 labelW = fonts.tiny->width(label, 3 * k);
         fonts.tiny->draw(label, right - nameW - 16 * k - labelW, 75 * k - fonts.tiny->capHeight() * 0.5f, fade(cAccentSoft, a), 3 * k);
     }
@@ -920,7 +920,7 @@ void HudMenu::drawDetails(irr::video::IVideoDriver* driver, irr::f32 t, irr::f32
         if (y + 30 * k > y1 - 70 * k) { break; }
         const irr::f32 lw = fonts.tiny->width(it->facts[i].first, 2.5f * k);
         fonts.tiny->draw(it->facts[i].first, left, y + 4 * k, fade(cFaint, a), 2.5f * k, &clip);
-        fonts.small->draw(it->facts[i].second, left + std::max(lw + 16 * k, 190 * k), y + 4 * k + fonts.tiny->capHeight() - fonts.small->capHeight(),
+        fonts.caption->draw(it->facts[i].second, left + std::max(lw + 16 * k, 190 * k), y + 4 * k + fonts.tiny->capHeight() - fonts.caption->capHeight(),
             fade(cText, a), 0.5f * k, &clip);
         y += 36 * k;
     }
@@ -1034,7 +1034,7 @@ void HudMenu::drawToast(irr::video::IVideoDriver* driver, irr::f32 t)
     const irr::f32 a = age < 0.25f ? age / 0.25f : (age > 2.7f ? (3.2f - age) / 0.5f : 1.0f);
     const irr::f32 W = (irr::f32)laidOut.Width;
     const std::wstring name = hudUpper(toastText);
-    const irr::f32 w = std::max(fonts.small->width(name, 2 * k) + 110 * k, 440 * k), h = 78 * k;
+    const irr::f32 w = std::max(fonts.caption->width(name, 2 * k) + 110 * k, 440 * k), h = 78 * k;
     const irr::f32 x = (W - w) * 0.5f, y = footerY - 40 * k - h;
     const irr::core::rect<irr::f32> box(x, y, x + w, y + h);
     irr::gui::PanelBatch b;
@@ -1050,7 +1050,7 @@ void HudMenu::drawToast(irr::video::IVideoDriver* driver, irr::f32 t)
     }
     b.flush();
     fonts.tiny->draw(french ? L"LANCEMENT" : L"STARTING", x + 28 * k, y + 16 * k, fade(cAccentSoft, a), 3.5f * k);
-    fonts.small->draw(name, x + 28 * k, y + h - 22 * k - fonts.small->capHeight(), fade(cWhite, a), 2 * k);
+    fonts.caption->draw(name, x + 28 * k, y + h - 22 * k - fonts.caption->capHeight(), fade(cWhite, a), 2 * k);
 }
 
 void HudMenu::drawQuitPrompt(irr::video::IVideoDriver* driver, irr::f32 t)
@@ -1081,6 +1081,6 @@ void HudMenu::drawQuitPrompt(irr::video::IVideoDriver* driver, irr::f32 t)
     fonts.text->drawIn(french ? L"Le lanceur va se fermer." : L"The launcher will close.", irr::core::rect<irr::f32>(p.UpperLeftCorner.X, p.UpperLeftCorner.Y + 108 * k,
         p.LowerRightCorner.X, p.UpperLeftCorner.Y + 148 * k), fade(cDim, a), HudFont::Centre);
     for (int i = 0; i < 2; i++) {
-        fonts.small->drawIn(labels[i], quitButtons[i], fade(cWhite, a), HudFont::Centre, 3 * k);
+        fonts.caption->drawIn(labels[i], quitButtons[i], fade(cWhite, a), HudFont::Centre, 3 * k);
     }
 }
