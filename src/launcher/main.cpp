@@ -761,23 +761,29 @@ std::vector<ScreenInfo> listScreens()
 class ScreenPicker : public LauncherOverlay
 {
 public:
-    typedef std::function<void(int, bool)> LaunchFn; //screen number (1..n), remember the choice
+    //Bridge view screen (1..n); instrument console screen (1..n, or 0: in the bridge view); remember the choice.
+    typedef std::function<void(int, int, bool)> LaunchFn;
 
     ScreenPicker(irr::gui::IGUIEnvironment* env, bool french, irr::gui::IGUIFont* bigFont, irr::gui::IGUIFont* titleFont,
         irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch)
         : LauncherOverlay(env), french(french), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
-        launch(launch), selected(0), remember(false), lastClickMs(0), lastClickScreen(-1)
+        launch(launch), selected(0), consoleScreen(-1), chosenBefore(false), remember(false), lastClickMs(0), lastClickScreen(-1)
     {
     }
 
     void open(const std::vector<ScreenInfo>& list)
     {
+        const bool sameDesk = chosenBefore && list.size() == screens.size();
         screens = list;
-        //Most often the simulator goes on a screen other than the instructor's, where the launcher is.
-        selected = 0;
-        for (size_t i = 0; i < screens.size(); i++) {
-            if (!screens[i].launcherHere) { selected = (int)i; break; }
+        if (!sameDesk || selected >= (int)screens.size()) {
+            //Most often the simulator goes on a screen other than the instructor's, where the launcher is.
+            selected = 0;
+            for (size_t i = 0; i < screens.size(); i++) {
+                if (!screens[i].launcherHere) { selected = (int)i; break; }
+            }
+            consoleScreen = -1;
         }
+        if (consoleScreen >= (int)screens.size() || consoleScreen == selected) { consoleScreen = -1; }
         remember = false;
         lastClickScreen = -1;
         show();
@@ -793,26 +799,44 @@ public:
         irr::gui::PanelBatch b;
         b.begin(driver);
         drawPanel(b, panel);
-        //Screens
+        //Screens: bridge view in blue, instruments in teal.
         for (size_t i = 0; i < screens.size(); i++) {
             const irr::core::rect<irr::f32>& r = screenRects[i];
-            const bool sel = ((int)i == selected);
+            const bool bridge = ((int)i == selected);
+            const bool instruments = ((int)i == consoleScreen);
             const bool hov = over(r);
             irr::core::rect<irr::f32> s = r;
             s.UpperLeftCorner.Y += 5; s.LowerRightCorner.Y += 5;
             roundRect(b, s, 10, irr::video::SColor(90, 0, 0, 0), irr::video::SColor(90, 0, 0, 0));
-            if (sel) {
+            if (bridge || instruments) {
+                const irr::video::SColor glowCol = bridge ? irr::video::SColor(70, 120, 190, 255) : irr::video::SColor(70, 90, 220, 200);
                 irr::core::rect<irr::f32> glow = r;
                 glow.UpperLeftCorner -= irr::core::vector2df(4, 4);
                 glow.LowerRightCorner += irr::core::vector2df(4, 4);
-                roundRectOutline(b, glow, 14, 3.0f, irr::video::SColor(70, 120, 190, 255));
-                roundRect(b, r, 10, Theme::primaryTop, Theme::primaryBottom);
-                roundRectOutline(b, r, 10, 1.0f, irr::video::SColor(255, 200, 230, 255));
+                roundRectOutline(b, glow, 14, 3.0f, glowCol);
+                if (bridge) { roundRect(b, r, 10, Theme::primaryTop, Theme::primaryBottom); }
+                else { roundRect(b, r, 10, consoleTop, consoleBottom); }
+                roundRectOutline(b, r, 10, 1.0f, bridge ? irr::video::SColor(255, 200, 230, 255) : irr::video::SColor(255, 170, 245, 232));
             }
             else {
                 roundRect(b, r, 10, hov ? irr::video::SColor(255, 46, 70, 104) : irr::video::SColor(255, 32, 50, 76),
                     hov ? irr::video::SColor(255, 30, 48, 74) : irr::video::SColor(255, 21, 34, 54));
                 roundRectOutline(b, r, 10, 1.0f, hov ? irr::video::SColor(230, 120, 190, 255) : irr::video::SColor(90, 150, 190, 240));
+            }
+        }
+        //Instruments: in the bridge view, or on one of the other screens.
+        for (size_t c = 0; c < chips.size(); c++) {
+            const bool on = (chips[c].screen == consoleScreen);
+            const bool hov = over(chips[c].area);
+            const irr::f32 rad = chips[c].area.getHeight() * 0.5f;
+            if (on) {
+                roundRect(b, chips[c].area, rad, consoleTop, consoleBottom);
+                roundRectOutline(b, chips[c].area, rad, 1.0f, irr::video::SColor(255, 170, 245, 232));
+            }
+            else {
+                roundRect(b, chips[c].area, rad, hov ? irr::video::SColor(220, 36, 58, 88) : irr::video::SColor(200, 20, 34, 56),
+                    hov ? irr::video::SColor(220, 28, 46, 72) : irr::video::SColor(200, 16, 28, 46));
+                roundRectOutline(b, chips[c].area, rad, 1.0f, hov ? irr::video::SColor(220, 140, 230, 215) : Theme::border);
             }
         }
         //"Remember" check box
@@ -832,21 +856,25 @@ public:
 
         //Text
         const irr::f32 x = panel.UpperLeftCorner.X + 36;
-        drawTextIn(titleFont, french ? L"Choisir l'\u00E9cran du simulateur" : L"Choose the simulator screen",
+        drawTextIn(titleFont, french ? L"Choisir les \u00E9crans du simulateur" : L"Choose the simulator screens",
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 22, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 52), Theme::text, false);
-        drawTextIn(textFont, french ? L"Cliquez sur l'\u00E9cran o\u00F9 l'exercice doit s'afficher, puis sur Lancer."
-            : L"Click the screen the exercise should be shown on, then Launch.",
+        drawTextIn(textFont, french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Les instruments peuvent aller sur un autre \u00E9cran."
+            : L"Click the screen for the bridge view. The instruments can go on another screen.",
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 54, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 78), Theme::textDim, false);
 
         for (size_t i = 0; i < screens.size(); i++) {
             const irr::core::rect<irr::f32>& r = screenRects[i];
-            const bool sel = ((int)i == selected);
-            const irr::video::SColor main = sel ? irr::video::SColor(255, 255, 255, 255) : Theme::text;
-            const irr::video::SColor sub = sel ? irr::video::SColor(255, 214, 232, 252) : Theme::textDim;
+            const bool bridge = ((int)i == selected);
+            const bool instruments = ((int)i == consoleScreen);
+            const irr::video::SColor main = (bridge || instruments) ? irr::video::SColor(255, 255, 255, 255) : Theme::text;
+            const irr::video::SColor sub = bridge ? irr::video::SColor(255, 214, 232, 252)
+                : (instruments ? irr::video::SColor(255, 206, 246, 238) : Theme::textDim);
             const irr::core::rect<irr::s32> clip = toIntRect(r);
-            //Number, resolution, then tags, centred as a block.
+            //Number, role or resolution, then tags, centred as a block.
             std::vector<std::pair<std::wstring, irr::gui::IGUIFont*> > lines;
             lines.push_back(std::make_pair(std::to_wstring(i + 1), bigFont));
+            if (bridge) { lines.push_back(std::make_pair(std::wstring(french ? L"Vue passerelle" : L"Bridge view"), textFont)); }
+            if (instruments) { lines.push_back(std::make_pair(std::wstring(L"Instruments"), textFont)); }
             lines.push_back(std::make_pair(std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont));
             std::wstring tags;
             if (screens[i].primary) { tags += french ? L"Principal" : L"Primary"; }
@@ -854,7 +882,10 @@ public:
             if (!tags.empty()) { lines.push_back(std::make_pair(tags, smallFont)); }
             irr::f32 total = 0;
             for (size_t l = 0; l < lines.size(); l++) { total += textHeight(lines[l].second) + 2; }
-            if (total > r.getHeight() - 6) { lines.resize(1); total = textHeight(bigFont); } //small tile: number only
+            while (lines.size() > 1 && total > r.getHeight() - 6) { //small tile: drop the last lines
+                total -= textHeight(lines.back().second) + 2;
+                lines.pop_back();
+            }
             irr::f32 y = r.getCenter().Y - total * 0.5f;
             for (size_t l = 0; l < lines.size(); l++) {
                 const irr::f32 h = textHeight(lines[l].second);
@@ -864,16 +895,31 @@ public:
             }
         }
 
-        drawTextIn(textFont, french ? L"Toujours utiliser cet \u00E9cran" : L"Always use this screen",
+        drawTextIn(textFont, french ? L"Instruments :" : L"Instruments:", instrumentsLabel, Theme::text, false);
+        for (size_t c = 0; c < chips.size(); c++) {
+            const bool on = (chips[c].screen == consoleScreen);
+            drawTextIn(textFont, chips[c].label, chips[c].area, on ? irr::video::SColor(255, 255, 255, 255) : Theme::text, true);
+        }
+
+        drawTextIn(textFont, consoleScreen >= 0 ? (french ? L"Toujours utiliser ces \u00E9crans" : L"Always use these screens")
+            : (french ? L"Toujours utiliser cet \u00E9cran" : L"Always use this screen"),
             irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.UpperLeftCorner.Y - 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y - 2),
             Theme::text, false);
-        drawTextIn(smallFont, french ? L"Le choix pourra \u00EAtre modifi\u00E9 dans les param\u00E8tres du simulateur (monitor)."
-            : L"The choice can be changed later in the simulator settings (monitor).",
+        drawTextIn(smallFont, french ? L"Le choix pourra \u00EAtre modifi\u00E9 dans les param\u00E8tres du simulateur (monitor, console_monitor)."
+            : L"The choice can be changed later in the simulator settings (monitor, console_monitor).",
             irr::core::rect<irr::f32>(checkBox.LowerRightCorner.X + 12, checkBox.LowerRightCorner.Y + 2, panel.LowerRightCorner.X, checkBox.LowerRightCorner.Y + 22),
             Theme::textDim, false);
-        drawTextIn(smallFont, french ? L"1 \u00E0 9 : choisir  \u00B7  Entr\u00E9e : lancer  \u00B7  \u00C9chap : annuler"
-            : L"1 to 9: choose  \u00B7  Enter: launch  \u00B7  Esc: cancel",
-            irr::core::rect<irr::f32>(x, launchButton.UpperLeftCorner.Y, cancelButton.UpperLeftCorner.X - 12, launchButton.LowerRightCorner.Y),
+        //Key hints: as many as fit before the buttons.
+        const wchar_t* hintsFr[4] = { L"1 \u00E0 9 : vue passerelle", L"I : instruments", L"Entr\u00E9e : lancer", L"\u00C9chap : annuler" };
+        const wchar_t* hintsEn[4] = { L"1 to 9: bridge view", L"I: instruments", L"Enter: launch", L"Esc: cancel" };
+        std::wstring hints;
+        for (int h = 0; h < 4; h++) {
+            const std::wstring part = french ? hintsFr[h] : hintsEn[h];
+            const std::wstring longer = hints.empty() ? part : hints + L"  \u00B7  " + part;
+            if (textWidth(smallFont, longer) > cancelButton.UpperLeftCorner.X - 16 - x) { break; }
+            hints = longer;
+        }
+        drawTextIn(smallFont, hints, irr::core::rect<irr::f32>(x, launchButton.UpperLeftCorner.Y, cancelButton.UpperLeftCorner.X - 12, launchButton.LowerRightCorner.Y),
             irr::video::SColor(170, 178, 192, 208), false);
         drawTextIn(textFont, french ? L"Annuler" : L"Cancel", cancelButton, Theme::text, true);
         drawTextIn(textFont, french ? L"Lancer le simulateur" : L"Launch the simulator", launchButton, irr::video::SColor(255, 255, 255, 255), true);
@@ -882,19 +928,29 @@ public:
 protected:
     virtual void onMouse(const irr::SEvent::SMouseInput& m)
     {
-        if (m.Event != irr::EMIE_LMOUSE_LEFT_UP) { return; }
+        const bool left = (m.Event == irr::EMIE_LMOUSE_LEFT_UP);
+        const bool right = (m.Event == irr::EMIE_RMOUSE_LEFT_UP);
+        if (!left && !right) { return; }
         layout();
         for (size_t i = 0; i < screenRects.size(); i++) {
             if (over(screenRects[i])) {
+                if (right) { //right click: instruments on this screen (or back in the view)
+                    if ((int)i != selected) { consoleScreen = (consoleScreen == (int)i) ? -1 : (int)i; }
+                    return;
+                }
                 //Double click on a screen launches at once.
                 const irr::u32 now = g_device ? g_device->getTimer()->getRealTime() : 0;
                 const bool doubleClick = (lastClickScreen == (int)i) && (now - lastClickMs < 450);
-                selected = (int)i;
+                selectBridge((int)i);
                 lastClickScreen = (int)i;
                 lastClickMs = now;
                 if (doubleClick) { confirm(); }
                 return;
             }
+        }
+        if (!left) { return; }
+        for (size_t c = 0; c < chips.size(); c++) {
+            if (over(chips[c].area)) { consoleScreen = chips[c].screen; return; }
         }
         if (over(rememberRow)) { remember = !remember; return; }
         if (over(launchButton)) { confirm(); return; }
@@ -906,30 +962,47 @@ protected:
         if (k.PressedDown) { return; }
         if (k.Key == irr::KEY_ESCAPE) { hide(); return; }
         if (k.Key == irr::KEY_RETURN || k.Key == irr::KEY_SPACE) { confirm(); return; }
-        if (k.Key >= irr::KEY_KEY_1 && k.Key <= irr::KEY_KEY_9) {
-            const int n = (int)(k.Key - irr::KEY_KEY_1);
-            if (n < (int)screens.size()) { selected = n; }
+        const int n = (int)screens.size();
+        if (k.Key >= irr::KEY_KEY_1 && k.Key <= irr::KEY_KEY_9 && (int)(k.Key - irr::KEY_KEY_1) < n) { selectBridge((int)(k.Key - irr::KEY_KEY_1)); }
+        if (k.Key >= irr::KEY_NUMPAD1 && k.Key <= irr::KEY_NUMPAD9 && (int)(k.Key - irr::KEY_NUMPAD1) < n) { selectBridge((int)(k.Key - irr::KEY_NUMPAD1)); }
+        if (n < 1) { return; }
+        if (k.Key == irr::KEY_LEFT || k.Key == irr::KEY_UP) { selectBridge((selected + n - 1) % n); }
+        if (k.Key == irr::KEY_RIGHT || k.Key == irr::KEY_DOWN || k.Key == irr::KEY_TAB) { selectBridge((selected + 1) % n); }
+        if (k.Key == irr::KEY_KEY_I) { //next choice for the instruments
+            layout();
+            for (size_t c = 0; c < chips.size(); c++) {
+                if (chips[c].screen == consoleScreen) { consoleScreen = chips[(c + 1) % chips.size()].screen; break; }
+            }
         }
-        if (k.Key >= irr::KEY_NUMPAD1 && k.Key <= irr::KEY_NUMPAD9) {
-            const int n = (int)(k.Key - irr::KEY_NUMPAD1);
-            if (n < (int)screens.size()) { selected = n; }
-        }
-        if (k.Key == irr::KEY_LEFT || k.Key == irr::KEY_UP) { selected = (selected + (int)screens.size() - 1) % irr::core::max_(1, (int)screens.size()); }
-        if (k.Key == irr::KEY_RIGHT || k.Key == irr::KEY_DOWN || k.Key == irr::KEY_TAB) { selected = (selected + 1) % irr::core::max_(1, (int)screens.size()); }
     }
 
 private:
+    struct Chip {
+        int screen; //-1: in the bridge view
+        std::wstring label;
+        irr::core::rect<irr::f32> area;
+    };
+
+    //The bridge view goes on screen i; if the instruments were there, they take the bridge view's old screen.
+    void selectBridge(int i)
+    {
+        if (i == selected) { return; }
+        if (i == consoleScreen) { consoleScreen = selected; }
+        selected = i;
+    }
+
     void confirm()
     {
         if (selected < 0 || selected >= (int)screens.size()) { return; }
+        chosenBefore = true;
         hide();
-        if (launch) { launch(selected + 1, remember); }
+        if (launch) { launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0, remember); }
     }
 
     void layout()
     {
         const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
-        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(560.0f, H - 48);
+        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(600.0f, H - 48);
         panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
         const irr::f32 left = panel.UpperLeftCorner.X + 36, right = panel.LowerRightCorner.X - 36;
         const irr::f32 bottom = panel.LowerRightCorner.Y;
@@ -939,8 +1012,31 @@ private:
         checkBox = irr::core::rect<irr::f32>(left, bottom - 138, left + 22, bottom - 116);
         rememberRow = irr::core::rect<irr::f32>(left - 4, bottom - 142, right, bottom - 94);
 
-        //Desk drawn to scale in the space between the title and the check box.
-        const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, bottom - 160);
+        //Instruments row: a chip for "in the bridge view", then one per other screen.
+        const irr::f32 chipTop = bottom - 204, chipBottom = bottom - 170;
+        instrumentsLabel = irr::core::rect<irr::f32>(left, chipTop, left + textWidth(textFont, french ? L"Instruments :" : L"Instruments:") + 8, chipBottom);
+        chips.clear();
+        Chip inView;
+        inView.screen = -1;
+        inView.label = french ? L"Dans la vue passerelle" : L"In the bridge view";
+        chips.push_back(inView);
+        for (size_t i = 0; i < screens.size(); i++) {
+            if ((int)i == selected) { continue; }
+            Chip c;
+            c.screen = (int)i;
+            c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
+            chips.push_back(c);
+        }
+        irr::f32 cx = instrumentsLabel.LowerRightCorner.X + 6;
+        for (size_t c = 0; c < chips.size(); c++) {
+            const irr::f32 w = textWidth(textFont, chips[c].label) + 34;
+            if (c > 0 && cx + w > right) { chips.resize(c); break; } //no room for more
+            chips[c].area = irr::core::rect<irr::f32>(cx, chipTop, cx + w, chipBottom);
+            cx += w + 8;
+        }
+
+        //Desk drawn to scale in the space between the title and the instruments row.
+        const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, chipTop - 22);
         screenRects.clear();
         if (screens.empty()) { return; }
         irr::core::rect<irr::s32> desk = screens[0].area;
@@ -958,6 +1054,9 @@ private:
         }
     }
 
+    const irr::video::SColor consoleTop = irr::video::SColor(255, 26, 132, 128);
+    const irr::video::SColor consoleBottom = irr::video::SColor(255, 12, 88, 90);
+
     bool french;
     irr::gui::IGUIFont* bigFont;
     irr::gui::IGUIFont* titleFont;
@@ -966,8 +1065,11 @@ private:
     LaunchFn launch;
     std::vector<ScreenInfo> screens;
     std::vector<irr::core::rect<irr::f32> > screenRects;
-    irr::core::rect<irr::f32> panel, launchButton, cancelButton, checkBox, rememberRow;
-    int selected;
+    std::vector<Chip> chips;
+    irr::core::rect<irr::f32> panel, launchButton, cancelButton, checkBox, rememberRow, instrumentsLabel;
+    int selected;          //bridge view screen (index)
+    int consoleScreen;     //instruments screen (index), -1: in the bridge view
+    bool chosenBefore;     //keep the last choice when opened again
     bool remember;
     irr::u32 lastClickMs;
     int lastClickScreen;
@@ -1373,21 +1475,23 @@ bool setUserBc5Value(const std::string& key, const std::string& value)
     return out.good();
 }
 
-//Starts the simulator; screen (1..n) is passed on as "-monitor N" when one was picked.
-void launchSimulator(int screen)
+//Starts the simulator. When screens were picked: the bridge view's (1..n) as "-monitor N", and the
+//instrument console's as "-console M" (0: in the bridge view).
+void launchSimulator(int screen, int consoleScreen)
 {
     const std::string screenArg = std::to_string(screen);
+    const std::string consoleArg = std::to_string(consoleScreen);
 #ifdef _WIN32
-    const std::string params = "-monitor " + screenArg;
+    const std::string params = "-monitor " + screenArg + " -console " + consoleArg;
     ShellExecute(NULL, NULL, "Simulator-nav.exe", screen > 0 ? params.c_str() : NULL, NULL, SW_SHOW);
 #else
     const int pid = fork(); // posix only (GNU/Linux, MacOS)
     if (pid != 0) { return; }
 #ifdef __APPLE__
-    if (screen > 0) { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-monitor", screenArg.c_str(), (char*)NULL); }
+    if (screen > 0) { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), (char*)NULL); }
     else { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", (char*)NULL); }
 #else
-    if (screen > 0) { execl("./Simulator-bc", "Simulator-bc", "-monitor", screenArg.c_str(), (char*)NULL); }
+    if (screen > 0) { execl("./Simulator-bc", "Simulator-bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), (char*)NULL); }
     else { execl("./Simulator-bc", "Simulator-bc", (char*)NULL); }
 #endif
     _exit(EXIT_FAILURE); //only reached if the simulator could not be started: never run a second launcher
@@ -1407,7 +1511,7 @@ void startSimulator()
         return;
     }
     showLaunchToast(g_simulatorTitle);
-    launchSimulator(0);
+    launchSimulator(0, 0);
 }
 
 //Event receiver: This does the actual launching
@@ -1816,10 +1920,13 @@ int main(int argc, char** argv)
     g_keySheet = new KeySheet(env, titleFont, textFont, smallFont);
     g_keySheet->drop();
     g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
-        [](int screen, bool remember) {
-            if (remember) { setUserBc5Value("monitor", std::to_string(screen)); }
+        [](int screen, int consoleScreen, bool remember) {
+            if (remember) {
+                setUserBc5Value("monitor", std::to_string(screen));
+                setUserBc5Value("console_monitor", std::to_string(consoleScreen));
+            }
             showLaunchToast(g_simulatorTitle);
-            launchSimulator(screen);
+            launchSimulator(screen, consoleScreen);
         });
     g_screenPicker->drop();
 

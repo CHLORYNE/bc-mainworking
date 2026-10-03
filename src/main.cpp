@@ -37,6 +37,7 @@
 #include <windows.h> // For GetSystemMetrics
 #include <direct.h> //for windows _mkdir
 #include <shellapi.h>
+#include <dbghelp.h> //crash report (MiniDumpWriteDump, loaded at run time)
 #else
 #include <sys/stat.h>
 #endif // _WIN32
@@ -85,6 +86,141 @@ struct cMonitorsVec
         EnumDisplayMonitors(0, 0, MonitorEnum, (LPARAM)this);
     }
 };
+
+//Unexpected stop: what happened and where (module and offset, then the calls that led there) goes to
+//the log, a minidump (crash.dmp, which Visual Studio opens with the program's .pdb) is written next
+//to it, and the user is told where both are.
+namespace CrashReport {
+    std::string logPath;  //where stderr goes, if redirected
+    std::string dumpPath;
+
+    void describeAddress(const void* address, char* out, size_t size)
+    {
+        HMODULE module = 0;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)address, &module) && module) {
+            char path[MAX_PATH] = "";
+            GetModuleFileNameA(module, path, MAX_PATH);
+            const char* name = strrchr(path, '\\');
+            snprintf(out, size, "%s+0x%llx", name ? name + 1 : path, (unsigned long long)((const char*)address - (const char*)module));
+        }
+        else {
+            snprintf(out, size, "0x%llx", (unsigned long long)(size_t)address);
+        }
+    }
+
+    //The calls that led to the crash, unwound from the crash's own registers. (No C++ objects in here,
+    //so that MSVC can guard it: a damaged stack must not stop the rest of the report.)
+    void writeCallStack(const CONTEXT* crashContext)
+    {
+#ifdef _MSC_VER
+        __try {
+#endif
+#if defined(_M_X64) || defined(__x86_64__)
+            CONTEXT context = *crashContext;
+            for (int i = 0; i < 40 && context.Rip != 0; i++) {
+                char where[MAX_PATH + 32];
+                describeAddress((const void*)context.Rip, where, sizeof(where));
+                fprintf(stderr, "    %2d  %s\n", i, where);
+                DWORD64 imageBase = 0;
+                PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(context.Rip, &imageBase, NULL);
+                if (function) {
+                    PVOID handlerData = 0;
+                    DWORD64 establisherFrame = 0;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function, &context, &handlerData, &establisherFrame, NULL);
+                }
+                else { //leaf function: the return address is on top of the stack
+                    context.Rip = *(DWORD64*)context.Rsp;
+                    context.Rsp += 8;
+                }
+            }
+#else
+            (void)crashContext;
+            void* frames[40];
+            const USHORT count = RtlCaptureStackBackTrace(0, 40, frames, NULL);
+            for (USHORT i = 0; i < count; i++) {
+                char where[MAX_PATH + 32];
+                describeAddress(frames[i], where, sizeof(where));
+                fprintf(stderr, "    %2d  %s\n", (int)i, where);
+            }
+#endif
+#ifdef _MSC_VER
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            fprintf(stderr, "    (rest of the call stack unreadable)\n");
+        }
+#endif
+    }
+
+    //For showing a path to the user: Windows separators, no doubled ones.
+    std::string tidyPath(const std::string& path)
+    {
+        std::string out;
+        for (size_t i = 0; i < path.size(); i++) {
+            const char c = (path[i] == '/') ? '\\' : path[i];
+            if (c == '\\' && i > 1 && !out.empty() && out[out.size() - 1] == '\\') { continue; }
+            out += c;
+        }
+        return out;
+    }
+
+    std::wstring widen(const std::string& text)
+    {
+        if (text.empty()) { return std::wstring(); }
+        const int n = MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, NULL, 0);
+        if (n <= 1) { return std::wstring(); }
+        std::wstring out(n - 1, L' ');
+        MultiByteToWideChar(CP_ACP, 0, text.c_str(), -1, &out[0], n);
+        return out;
+    }
+
+    LONG WINAPI onCrash(EXCEPTION_POINTERS* info)
+    {
+        static volatile LONG entered = 0;
+        if (InterlockedExchange(&entered, 1) != 0) { return EXCEPTION_EXECUTE_HANDLER; } //a crash while reporting one
+
+        const EXCEPTION_RECORD* record = info->ExceptionRecord;
+        char where[MAX_PATH + 32];
+        describeAddress(record->ExceptionAddress, where, sizeof(where));
+        fprintf(stderr, "\n*** Unexpected stop: exception 0x%08lX at %s\n", (unsigned long)record->ExceptionCode, where);
+        if (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && record->NumberParameters >= 2) {
+            const ULONG_PTR kind = record->ExceptionInformation[0];
+            fprintf(stderr, "    %s address 0x%llx\n", kind == 0 ? "reading" : (kind == 1 ? "writing" : "executing"),
+                (unsigned long long)record->ExceptionInformation[1]);
+        }
+        fflush(stderr);
+
+        bool dumped = false;
+        typedef BOOL(WINAPI* WriteDumpFn)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
+            PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
+        HMODULE dbghelp = LoadLibraryA("dbghelp.dll");
+        WriteDumpFn writeDump = dbghelp ? (WriteDumpFn)(void*)GetProcAddress(dbghelp, "MiniDumpWriteDump") : 0;
+        if (writeDump && !dumpPath.empty()) {
+            HANDLE file = CreateFileA(dumpPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (file != INVALID_HANDLE_VALUE) {
+                MINIDUMP_EXCEPTION_INFORMATION exceptionInfo;
+                exceptionInfo.ThreadId = GetCurrentThreadId();
+                exceptionInfo.ExceptionPointers = info;
+                exceptionInfo.ClientPointers = FALSE;
+                dumped = writeDump(GetCurrentProcess(), GetCurrentProcessId(), file, MiniDumpNormal, &exceptionInfo, NULL, NULL) != FALSE;
+                CloseHandle(file);
+            }
+        }
+        fprintf(stderr, "    Calls:\n");
+        writeCallStack(info->ContextRecord);
+        if (dumped) { fprintf(stderr, "    Minidump: %s\n", dumpPath.c_str()); }
+        fflush(stderr);
+
+        std::wstring message = L"Le simulateur s'est arr\u00EAt\u00E9 de fa\u00E7on inattendue.";
+        if (!logPath.empty() || dumped) {
+            message += L"\n\nUn rapport a \u00E9t\u00E9 enregistr\u00E9 :\n";
+            if (!logPath.empty()) { message += widen(tidyPath(logPath)) + L"\n"; }
+            if (dumped) { message += widen(tidyPath(dumpPath)) + L"\n"; }
+            message += L"\nMerci de transmettre ces fichiers au support NAUTITECH.";
+        }
+        MessageBoxW(NULL, message.c_str(), L"NAUTITECH - Simulateur", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+}
 #endif // _WIN32
 
 
@@ -503,6 +639,36 @@ int main(int argc, char** argv)
         std::cout << "Using Ini file >" << iniFilename << "<" << std::endl;
     }
 
+    //The user folder (settings, log): made now if this is the first run on this PC.
+    const std::string userFolders[2] = { Utilities::getUserDirBase(), userFolder };
+    for (int i = 0; i < 2; i++) {
+        if (userFolders[i].size() > 1 && !Utilities::pathExists(userFolders[i])) {
+            const std::string pathToMake = userFolders[i].substr(0, userFolders[i].size() - 1); //no trailing slash
+#ifdef _WIN32
+            _mkdir(pathToMake.c_str());
+#else
+            mkdir(pathToMake.c_str(), 0755);
+#endif // _WIN32
+        }
+    }
+
+    //Several copies can run on one PC (one per screen, say): each has a number, 1 for the first, and
+    //keeps its own log (log.txt, then log-2.txt...) and console window placement.
+    irr::u32 instanceNumber = 1;
+#ifdef _WIN32
+    for (irr::u32 n = 1; n <= 16; n++) {
+        const std::string mutexName = "NautitechSimulator-" + std::to_string(n);
+        HANDLE mutex = CreateMutexA(NULL, FALSE, mutexName.c_str());
+        if (mutex && GetLastError() != ERROR_ALREADY_EXISTS) {
+            instanceNumber = n; //the mutex stays held until this copy ends
+            break;
+        }
+        if (mutex) { CloseHandle(mutex); }
+    }
+#endif
+    const std::string logName = (instanceNumber == 1) ? std::string("log.txt") : "log-" + std::to_string(instanceNumber) + ".txt";
+    bool logRedirected = false; //stdout and stderr go to the log file
+
 #ifdef _WIN32
     //Messages: a console window on request (debug_console=1), else the log file. (A console is only
     //already there if this was built without the subsystem pragma above, and then it is kept.)
@@ -513,12 +679,27 @@ int main(int argc, char** argv)
             freopen_s(&stream, "CONOUT$", "w", stderr);
         }
         else {
-            const std::string logPath = userFolder + "log.txt";
+            const std::string logPath = userFolder + logName;
             std::ofstream(logPath.c_str(), std::ios::trunc).close(); //a fresh log for each run
-            freopen_s(&stream, logPath.c_str(), "a", stdout);
-            freopen_s(&stream, logPath.c_str(), "a", stderr);
+            //freopen, not freopen_s: freopen_s locks the file, so stderr could not share it with stdout
+            //(its messages were lost), nor could the messages saved at the end be added.
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+            const bool outOk = freopen(logPath.c_str(), "a", stdout) != NULL;
+            const bool errOk = freopen(logPath.c_str(), "a", stderr) != NULL;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+            if (outOk) { setvbuf(stdout, NULL, _IONBF, 0); } //in the file at once, even if the program stops
+            if (errOk) { CrashReport::logPath = logPath; }
+            logRedirected = outOk;
         }
     }
+    CrashReport::dumpPath = userFolder + ((instanceNumber == 1) ? std::string("crash.dmp") : "crash-" + std::to_string(instanceNumber) + ".dmp");
+    SetUnhandledExceptionFilter(CrashReport::onCrash);
+    std::cout << "Simulator copy " << instanceNumber << " on this PC" << std::endl;
 #endif
 
     std::string scriptToExe = IniFile::iniFileToString(iniFilename, "script_start_BC");
@@ -735,10 +916,12 @@ int main(int argc, char** argv)
     deviceParameters.DriverMultithreaded = true;*/
 #ifdef _WIN32
 
-    HWND hWnd;
+    HWND hWnd = 0;
     HINSTANCE hInstance = 0;
     // create dialog
     const char* Win32ClassName = "CIrrlichtWindowsTestDialog";
+    const DWORD style = WS_VISIBLE | WS_POPUP;
+    int windowX = 0, windowY = 0; //borderless window: top left of its screen (the window is opened below)
 
     WNDCLASSEX wcex;
 
@@ -752,7 +935,6 @@ int main(int argc, char** argv)
             }
         }
 
-        DWORD style = WS_VISIBLE | WS_POPUP;
         wcex.cbSize = sizeof(WNDCLASSEX);
         wcex.style = CS_HREDRAW | CS_VREDRAW;
         wcex.lpfnWndProc = (WNDPROC)CustomWndProc;
@@ -769,31 +951,26 @@ int main(int argc, char** argv)
 
         cMonitorsVec Monitors; //The constructor for this initialises it with a list of the monitors
 
-        if (requestedMonitor > -1 && Monitors.iMonitors.size() > requestedMonitor) {
+        if (requestedMonitor > -1 && (int)Monitors.iMonitors.size() > requestedMonitor) {
             //The user has requested a specific monitor
 
             //Set to fill requested monitor
-            int x = Monitors.rcMonitors[requestedMonitor].left;
-            int y = Monitors.rcMonitors[requestedMonitor].top;
+            windowX = Monitors.rcMonitors[requestedMonitor].left;
+            windowY = Monitors.rcMonitors[requestedMonitor].top;
             graphicsWidth = Monitors.rcMonitors[requestedMonitor].right - Monitors.rcMonitors[requestedMonitor].left;
             graphicsHeight = Monitors.rcMonitors[requestedMonitor].bottom - Monitors.rcMonitors[requestedMonitor].top;
-
-            hWnd = CreateWindowA(Win32ClassName, "Simulateur de Navigation Maritime",
-                style, x, y, graphicsWidth, graphicsHeight,
-                NULL, NULL, hInstance, NULL);
-
-            deviceParameters.WindowId = hWnd; //Tell irrlicht about the window to use
-
-
+            std::cout << "Screen " << requestedMonitor + 1 << " of " << Monitors.iMonitors.size() << ": " << graphicsWidth << " x " << graphicsHeight
+                << " at " << windowX << ", " << windowY << std::endl;
         }
         else {
             //No screen chosen: use the one under the mouse pointer, which is where the program was just
             //started from. (This used to ask, in a message box, to drag that box onto the wanted screen.)
+            if (requestedMonitor > -1) {
+                std::cerr << "Screen " << requestedMonitor + 1 << " requested, but " << Monitors.iMonitors.size() << " screen(s) connected: using the screen under the mouse pointer." << std::endl;
+            }
 
             //Find location of mouse cursor
             POINT p;
-            int x = 0;
-            int y = 0;
             if (GetCursorPos(&p))
             {
                 //Find monitor this is on
@@ -806,17 +983,11 @@ int main(int argc, char** argv)
                 rc = mi.rcMonitor;
 
                 //Set to fill current monitor
-                x = rc.left;
-                y = rc.top;
+                windowX = rc.left;
+                windowY = rc.top;
                 graphicsWidth = rc.right - rc.left;
                 graphicsHeight = rc.bottom - rc.top;
             }
-
-            hWnd = CreateWindowA(Win32ClassName, "Simulateur de Navigation Maritime",
-                style, x, y, graphicsWidth, graphicsHeight,
-                NULL, NULL, hInstance, NULL);
-
-            deviceParameters.WindowId = hWnd; //Tell irrlicht about the window to use
         }
 
     }
@@ -850,13 +1021,46 @@ int main(int argc, char** argv)
     deviceParameters.Fullscreen = fullScreen;
     deviceParameters.AntiAlias = antiAlias;
 
-    irr::IrrlichtDevice* device = irr::createDeviceEx(deviceParameters);
-    device->getCursorControl()->setVisible(true);
-    //Start paused initially
-    device->getTimer()->setSpeed(0.0);
+    //Start the 3D display. If that fails: on Windows, with the borderless window on another screen than
+    //the main one, start it on the main screen and move the window there afterwards (OpenGL does not
+    //always start in a window on a screen driven by another graphics output); and if the graphics
+    //driver refuses the anti-aliasing asked for, the same again without it.
+    irr::IrrlichtDevice* device = 0;
+    for (int attempt = 0; attempt < 4 && !device; attempt++) {
+        const bool startOnMainScreen = (attempt % 2) == 1;
+        const bool withoutAntiAlias = attempt >= 2;
+        if (withoutAntiAlias && antiAlias <= 1) { break; } //0 or 1: anti-aliasing already off
+#ifdef _WIN32
+        const bool movable = fakeFullScreen && (windowX != 0 || windowY != 0); //the main screen is at 0, 0
+#else
+        const bool movable = false;
+#endif
+        if (startOnMainScreen && !movable) { continue; }
+        if (attempt > 0) {
+            std::cerr << "The 3D display did not start. Trying again" << (startOnMainScreen ? ", on the main screen first" : "")
+                << (withoutAntiAlias ? ", without anti-aliasing" : "") << "." << std::endl;
+        }
+        deviceParameters.AntiAlias = withoutAntiAlias ? 0 : antiAlias;
+#ifdef _WIN32
+        if (fakeFullScreen) {
+            if (hWnd) { DestroyWindow(hWnd); } //a window keeps the pixel format of a failed start: a new one each time
+            hWnd = CreateWindowA(Win32ClassName, "Simulateur de Navigation Maritime",
+                style, startOnMainScreen ? 0 : windowX, startOnMainScreen ? 0 : windowY, graphicsWidth, graphicsHeight,
+                NULL, NULL, hInstance, NULL);
+            deviceParameters.WindowId = hWnd; //Tell irrlicht about the window to use
+        }
+#endif
+        device = irr::createDeviceEx(deviceParameters);
+#ifdef _WIN32
+        if (device && startOnMainScreen) {
+            SetWindowPos(hWnd, NULL, windowX, windowY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            std::cout << "3D display started on the main screen, then moved to the chosen screen." << std::endl;
+        }
+#endif
+    }
 
     //On Windows, redirect console stderr to log file
-    std::string userLog = userFolder + "log.txt";
+    std::string userLog = userFolder + logName;
     std::cout << "User log file is " << userLog << std::endl;
     /*
     FILE * stream = 0;
@@ -866,8 +1070,17 @@ int main(int argc, char** argv)
     */
     if (device == 0) {
         std::cerr << "Could not start - please check your graphics options." << std::endl;
+#ifdef _WIN32
+        std::wstring message = L"L'affichage 3D (OpenGL) n'a pas pu d\u00E9marrer.\n\nV\u00E9rifiez le pilote de la carte graphique, "
+            L"et les options graphiques du simulateur (graphics_mode, monitor, anti_alias).";
+        if (logRedirected) { message += L"\n\nD\u00E9tails : " + CrashReport::widen(CrashReport::tidyPath(userLog)); }
+        MessageBoxW(NULL, message.c_str(), L"NAUTITECH - Simulateur", MB_OK | MB_ICONERROR);
+#endif
         return(EXIT_FAILURE); //Could not get file system
     }
+    device->getCursorControl()->setVisible(true);
+    //Start paused initially
+    device->getTimer()->setSpeed(0.0);
 
     device->setWindowCaption(irr::core::stringw(LONGNAME.c_str()).c_str()); //Note: Odd conversion from char* to wchar*!
 
@@ -976,26 +1189,7 @@ int main(int argc, char** argv)
 
     hostname = Utilities::trim(hostname);
 
-    //Save hostname in user directory (hostname.txt). Check first that the location exists
-    if (!Utilities::pathExists(Utilities::getUserDirBase())) {
-        std::string pathToMake = Utilities::getUserDirBase();
-        if (pathToMake.size() > 1) { pathToMake.erase(pathToMake.size() - 1); } //Remove trailing slash
-#ifdef _WIN32
-        _mkdir(pathToMake.c_str());
-#else
-        mkdir(pathToMake.c_str(), 0755);
-#endif // _WIN32
-    }
-    if (!Utilities::pathExists(Utilities::getUserDir())) {
-        std::string pathToMake = Utilities::getUserDir();
-        if (pathToMake.size() > 1) { pathToMake.erase(pathToMake.size() - 1); } //Remove trailing slash
-#ifdef _WIN32
-        _mkdir(pathToMake.c_str());
-#else
-        mkdir(pathToMake.c_str(), 0755);
-#endif // _WIN32
-    }
-
+    //Save hostname in user directory (hostname.txt). (The directory was made at start-up.)
     if (Utilities::pathExists(userFolder)) { //TODO: Should we make this if it doesn't exist?
         std::string hostnameFile = userFolder + "/hostname.txt";
         std::ofstream file(hostnameFile.c_str());
@@ -1039,6 +1233,32 @@ int main(int argc, char** argv)
 
     //create GUI
     GUIMain guiMain;
+    guiMain.setInstanceNumber(instanceNumber);
+#ifdef _WIN32
+    //Instrument console on a screen of its own: launcher -console N (0: in the bridge view), else bc5.ini
+    //console_monitor=N. Never on the bridge view's own screen.
+    {
+        int consoleMonitor = (int)IniFile::iniFileTou32(iniFilename, "console_monitor") - 1;
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-console") == 0) {
+                consoleMonitor = atoi(argv[arg + 1]) - 1;
+            }
+        }
+        if (consoleMonitor >= 0) {
+            cMonitorsVec monitors;
+            const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
+            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
+            if (consoleMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[consoleMonitor] != bridgeMonitor) {
+                const RECT& r = monitors.rcMonitors[consoleMonitor];
+                guiMain.setConsoleScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                std::cout << "Instrument console on screen " << consoleMonitor + 1 << std::endl;
+            }
+            else {
+                std::cerr << "Instrument console: screen " << consoleMonitor + 1 << " is not connected, or shows the bridge view. Console kept in the bridge view." << std::endl;
+            }
+        }
+    }
+#endif
 
     //Set up networking (this will get a pointer to the model later)
     //Create networking, linked to model, choosing whether to use main or secondary network mode
@@ -1609,7 +1829,7 @@ int main(int argc, char** argv)
     }
     else {
     */
-    logFile.open(userLog); //Overwrite
+    logFile.open(userLog, logRedirected ? std::ofstream::app : std::ofstream::out); //After what was printed, or overwrite
     /*
     }
     */

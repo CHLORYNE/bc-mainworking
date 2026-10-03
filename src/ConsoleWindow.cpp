@@ -131,7 +131,7 @@ LRESULT CALLBACK consoleWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 } // namespace
 
 ConsoleWindow::ConsoleWindow()
-    : closePending(false), opened(false), hwnd(0), hdc(0)
+    : closePending(false), opened(false), borderless(false), hwnd(0), hdc(0)
 {
 }
 
@@ -140,7 +140,7 @@ ConsoleWindow::~ConsoleWindow()
     close();
 }
 
-bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h)
+bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool noFrame)
 {
     if (opened) { return true; }
     if (!device || device->getVideoDriver()->getDriverType() != irr::video::EDT_OPENGL) { return false; }
@@ -168,10 +168,10 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
         if (!RegisterClassExW(&wc)) { return false; }
     }
 
-    const DWORD style = WS_OVERLAPPEDWINDOW;
+    const DWORD style = noFrame ? WS_POPUP : WS_OVERLAPPEDWINDOW;
     const DWORD exStyle = WS_EX_NOACTIVATE;
     RECT frame = { 0, 0, (LONG)w, (LONG)h };
-    AdjustWindowRectEx(&frame, style, FALSE, exStyle);
+    if (!noFrame) { AdjustWindowRectEx(&frame, style, FALSE, exStyle); }
     const int frameW = frame.right - frame.left;
     const int frameH = frame.bottom - frame.top;
 
@@ -202,6 +202,7 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
 
     hwnd = window;
     hdc = dc;
+    borderless = noFrame;
     windowData = irr::video::SExposedVideoData();
     windowData.OpenGLWin32.HWnd = window;
     windowData.OpenGLWin32.HDc = dc;
@@ -246,7 +247,7 @@ bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32
     x = wp.rcNormalPosition.left;   //restored (not minimised / maximised) frame position
     y = wp.rcNormalPosition.top;
     RECT frame = { 0, 0, 0, 0 };
-    AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE);
+    if (!borderless) { AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE); }
     const int fw = (wp.rcNormalPosition.right - wp.rcNormalPosition.left) - (frame.right - frame.left);
     const int fh = (wp.rcNormalPosition.bottom - wp.rcNormalPosition.top) - (frame.bottom - frame.top);
     w = fw > 0 ? (irr::u32)fw : clientSize.Width;
@@ -261,7 +262,7 @@ bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32
 #include <X11/Xutil.h>
 
 ConsoleWindow::ConsoleWindow()
-    : closePending(false), opened(false), display(0), window(0), deleteAtom(0)
+    : closePending(false), opened(false), borderless(false), display(0), window(0), deleteAtom(0)
 {
 }
 
@@ -270,7 +271,7 @@ ConsoleWindow::~ConsoleWindow()
     close();
 }
 
-bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h)
+bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool noFrame)
 {
     if (opened) { return true; }
     if (!device || device->getVideoDriver()->getDriverType() != irr::video::EDT_OPENGL) { return false; }
@@ -330,12 +331,20 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
     Atom del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(dpy, win, &del, 1);
 
+    if (noFrame) {
+        //No decorations (Motif hints, honoured by the usual window managers).
+        struct { unsigned long flags, functions, decorations; long inputMode; unsigned long status; } motif = { 2, 0, 0, 0, 0 };
+        Atom motifAtom = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+        XChangeProperty(dpy, win, motifAtom, motifAtom, 32, PropModeReplace, (unsigned char*)&motif, 5);
+    }
+
     XMapWindow(dpy, win);
     XSync(dpy, False);   //the window must exist on the server before the main connection draws to it
 
     display = dpy;
     window = win;
     deleteAtom = del;
+    borderless = noFrame;
     windowData = mainData;
     windowData.OpenGLLinux.X11Window = win;
     windowData.OpenGLLinux.GLXWindow = win;

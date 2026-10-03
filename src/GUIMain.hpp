@@ -299,6 +299,12 @@ public:
     //main screen to the bridge view. The window's place is remembered for the next session.
     void toggleConsoleDetached();
     bool isConsoleDetached() const { return consoleDetached; }
+    //Call before load(). Instance: which copy of the simulator this is on the PC (1 for the first), so
+    //that each copy keeps its own console window placement. Screen: desktop area of a screen given
+    //to the console (launcher -console N, bc5.ini console_monitor) - the console opens there, without
+    //a frame, filling it, and that placement is not saved.
+    void setInstanceNumber(irr::u32 instance) { consoleInstance = instance; }
+    void setConsoleScreen(const irr::core::rect<irr::s32>& area) { consoleScreen = area; consoleOnScreen = true; }
     //Call once per frame, after the main window's endScene(): handles the console window's input and
     //draws it. Restores the driver's screen size for the main window before returning.
     void renderDetachedConsole();
@@ -526,6 +532,9 @@ private:
     irr::s32 consoleStatusWidthFor(irr::gui::IGUIFont* font) const;
     irr::s32 consolePlaceX = 80, consolePlaceY = 80;  //console window placement (consoleWindow.ini)
     irr::u32 consolePlaceW = 0, consolePlaceH = 0;
+    irr::u32 consoleInstance = 1;                    //copy of the simulator: consoleWindow-N.ini from the second
+    bool consoleOnScreen = false;                    //console given a screen of its own
+    irr::core::rect<irr::s32> consoleScreen;
     void setConsoleDetached(bool detached);
     void layoutConsoleStatusColumn();
     void dispatchConsoleWindowInput();

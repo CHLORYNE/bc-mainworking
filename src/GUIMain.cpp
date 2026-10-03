@@ -57,8 +57,9 @@ private:
     irr::IrrlichtDevice* device;
 };
 
-std::string consolePlacementFile()
+std::string consolePlacementFile(irr::u32 instance)
 {
+    if (instance > 1) { return Utilities::getUserDir() + "consoleWindow-" + std::to_string(instance) + ".ini"; }
     return Utilities::getUserDir() + "consoleWindow.ini";
 }
 } // namespace
@@ -1793,12 +1794,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         consoleStatusAttachedRect[3] = ackAlarms->getRelativePosition();
         const irr::u32 fps = IniFile::iniFileTou32(iniFilename, "console_window_fps");
         if (fps > 0) { consoleFrameMs = 1000 / fps; }
-        const std::string placement = consolePlacementFile();
+        const std::string placement = consolePlacementFile(consoleInstance);
         consolePlaceX = IniFile::iniFileTos32(placement, "X", consolePlaceX);
         consolePlaceY = IniFile::iniFileTos32(placement, "Y", consolePlaceY);
         consolePlaceW = IniFile::iniFileTou32(placement, "Width");
         consolePlaceH = IniFile::iniFileTou32(placement, "Height");
-        if (IniFile::iniFileTou32(placement, "Detached") == 1) {
+        if (consoleOnScreen || IniFile::iniFileTou32(placement, "Detached") == 1) {
             setConsoleDetached(true);
         }
     }
@@ -3989,10 +3990,11 @@ void GUIMain::toggleConsoleDetached()
 
 void GUIMain::saveConsolePlacement(bool detached)
 {
+    if (consoleOnScreen) { return; } //placed by the launcher or bc5.ini, not by the user
     if (consoleWindow && consoleWindow->isOpen()) {
         consoleWindow->getPlacement(consolePlaceX, consolePlaceY, consolePlaceW, consolePlaceH);
     }
-    std::ofstream f(consolePlacementFile().c_str());
+    std::ofstream f(consolePlacementFile(consoleInstance).c_str());
     if (!f) { return; }
     f << "Detached=" << (detached ? 1 : 0) << std::endl;
     f << "X=" << consolePlaceX << std::endl;
@@ -4094,16 +4096,22 @@ void GUIMain::setConsoleDetached(bool detached)
 
     if (detached) {
         if (!consoleWindow) { consoleWindow = new ConsoleWindow(); }
-        //Last place and size, or the console's own size on the main screen.
+        //Its own screen, filled; or the last place and size; or the console's own size on the main screen.
         irr::u32 w = consolePlaceW;
         irr::u32 h = consolePlaceH;
-        const irr::s32 x = consolePlaceX;
-        const irr::s32 y = consolePlaceY;
-        if (w < 200 || h < 80) {
+        irr::s32 x = consolePlaceX;
+        irr::s32 y = consolePlaceY;
+        if (consoleOnScreen) {
+            x = consoleScreen.UpperLeftCorner.X;
+            y = consoleScreen.UpperLeftCorner.Y;
+            w = (irr::u32)consoleScreen.getWidth();
+            h = (irr::u32)consoleScreen.getHeight();
+        }
+        else if (w < 200 || h < 80) {
             w = (irr::u32)consolePanelAttachedRect.getWidth();
             h = (irr::u32)consolePanelAttachedRect.getHeight();
         }
-        if (!consoleWindow->open(device, L"NAUTITECH - Instruments", x, y, w, h)) {
+        if (!consoleWindow->open(device, L"NAUTITECH - Instruments", x, y, w, h, consoleOnScreen)) {
             std::cerr << "Could not open the instrument console window (OpenGL driver needed)." << std::endl;
             return;
         }

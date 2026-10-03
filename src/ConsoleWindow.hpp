@@ -28,7 +28,8 @@ public:
     ~ConsoleWindow();
 
     //Opens the window with a client area of w x h at screen position (x, y) (top-left of the frame).
-    bool open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h);
+    //borderless: no frame or title bar, the client area at (x, y) - for a screen of its own.
+    bool open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool borderless = false);
     void close();
     bool isOpen() const;
 
@@ -58,6 +59,7 @@ private:
     irr::core::dimension2du clientSize;
     bool closePending;
     bool opened;
+    bool borderless;
 
 #ifdef _WIN32
     void* hwnd;
