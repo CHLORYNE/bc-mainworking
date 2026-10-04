@@ -34,6 +34,7 @@ public:
     void setVisible(bool visible);
 
 private:
+    void setSea(irr::f32 weather, irr::f32 windDirection);
     irr::f32 tileWidth;
     irr::scene::MovingWaterSceneNode* waterNode;
 };

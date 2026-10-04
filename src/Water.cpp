@@ -62,6 +62,9 @@ void Water::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* ownShi
         waterNode->setMaterialTexture(0, driver->getTexture("media/water.bmp"));
     }
 
+    //The scenario's sea from the start: the loading screens already draw the water, and with the
+    //grid's default (rough) sea the ship's first physics step would feel steep slopes.
+    setSea(weather, 225.0f);
 }
 
 void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection, irr::f32 rainIntensity)
@@ -75,6 +78,11 @@ void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::
 
     waterNode->setPosition(irr::core::vector3df(xPos, yPos, zPos));
 
+    setSea(weather, windDirection);
+}
+
+void Water::setSea(irr::f32 weather, irr::f32 windDirection)
+{
     //scale with weather
     //waterNode->setVerticalScale(sqrt(weather));
     // KYARA HOULE: the FFT wind vector used to be (k, k) - i.e. the chop always ran at 45 deg,

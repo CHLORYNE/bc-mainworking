@@ -31,14 +31,14 @@ namespace irr
 namespace scene
 {
 
-//! constructor
-    MovingWaterSceneNode::MovingWaterSceneNode(ISceneNode* parent, ISceneManager* mgr, ISceneNode* ownShip, irr::s32 id, irr::u32 disableShaders, bool withReflection, irr::u32 segments, irr::u32 reflectionEveryN,
-        const core::vector3df& position, const core::vector3df& rotation)
-        : IMeshSceneNode(parent, mgr, id, position, rotation, irr::core::vector3df(1.0f, 1.0f, 1.0f)), lightLevel(0.75), seaState(0.5), shaderTime(0.0f), disableShaders(disableShaders), withReflection(withReflection), segments(segments), reflectionEveryN(reflectionEveryN)
-{
-	#ifdef _DEBUG
-	setDebugName("MovingWaterSceneNode");
-	#endif
+        //! constructor
+        MovingWaterSceneNode::MovingWaterSceneNode(ISceneNode* parent, ISceneManager* mgr, ISceneNode* ownShip, irr::s32 id, irr::u32 disableShaders, bool withReflection, irr::u32 segments, irr::u32 reflectionEveryN,
+            const core::vector3df& position, const core::vector3df& rotation)
+            : IMeshSceneNode(parent, mgr, id, position, rotation, irr::core::vector3df(1.0f, 1.0f, 1.0f)), lightLevel(0.75), seaState(0.5), shaderTime(0.0f), disableShaders(disableShaders), withReflection(withReflection), segments(segments), reflectionEveryN(reflectionEveryN)
+        {
+#ifdef _DEBUG
+            setDebugName("MovingWaterSceneNode");
+#endif
 
 	//scaleFactorVertical = 1.0;
 
@@ -429,9 +429,9 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
         lightColour[2] = ambientLight.b / maxC;
 		const irr::f32 time = timeMs / 1000.f;
 
-		//Update the FFT Calculation
-		ocean->evaluateWavesFFT(time);
-		vertex_ocean* vertices = ocean->getVertices();
+                //Update the FFT Calculation
+                ocean->evaluateWavesFFT(time);
+                vertex_ocean* vertices = ocean->getVertices();
 
         const irr::u32 meshBufferCount = mesh->getMeshBufferCount();
 
@@ -624,8 +624,8 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
 	}
 }
 
-irr::f32 MovingWaterSceneNode::getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ) const
-{
+        irr::f32 MovingWaterSceneNode::getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ) const
+        {
 
     //Adjust relative position by 1/2 tile width
 
@@ -685,8 +685,8 @@ irr::f32 MovingWaterSceneNode::getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ)
 
 }
 
-irr::core::vector2df MovingWaterSceneNode::getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const
-{
+        irr::core::vector2df MovingWaterSceneNode::getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const
+        {
 
     //Adjust relative position by 1/2 tile width
 
