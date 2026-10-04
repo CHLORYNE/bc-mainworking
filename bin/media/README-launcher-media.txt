@@ -1,8 +1,15 @@
 NAUTITECH launcher - intro film, menu background, music and sounds
 ====================================================================
 
-Put these files in this "media" folder. Every one of them is optional: when a file
-is missing, the launcher uses its built-in look and sounds.
+Already here:
+  sounds\ui_*.wav        The menu sounds. Listen to them, replace them with your own
+                         (same names), or delete them to get the built-in ones back.
+  fonts\barlow-condensed The menu lettering.
+
+To add yourself (they are your own films and music, so none of them are supplied):
+put them in this "media" folder (the one next to the launcher), with exactly these
+names. Every one is optional: while a file is missing, the launcher simply goes on
+without it (no film: the menu opens at once; no music: silence).
 
   intro.mp4              Intro film, played full screen when the launcher starts.
                          Any key or a mouse click skips it (it fades out in half a second).
