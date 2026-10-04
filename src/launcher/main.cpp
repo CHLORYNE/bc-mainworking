@@ -1340,6 +1340,20 @@ irr::core::dimension2du windowedSize(const irr::core::rect<irr::s32>& area)
         (irr::u32)irr::core::min_(720, (irr::s32)(area.getHeight() * 0.9f)));
 }
 
+//To the taskbar. (Irrlicht's minimizeWindow leaves a borderless full-screen window where it is.)
+void minimiseLauncher()
+{
+    if (!g_device) { return; }
+#ifdef _WIN32
+    HWND hwnd = reinterpret_cast<HWND>(g_device->getVideoDriver()->getExposedVideoData().OpenGLWin32.HWnd);
+    if (hwnd) {
+        ShowWindow(hwnd, SW_MINIMIZE);
+        return;
+    }
+#endif
+    g_device->minimizeWindow();
+}
+
 void setWindowMode(bool fullScreen)
 {
     if (!g_device) { return; }
@@ -1349,7 +1363,8 @@ void setWindowMode(bool fullScreen)
     mi.cbSize = sizeof(mi);
     if (!hwnd || !GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) { return; }
     if (fullScreen) {
-        SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+        //(minimise box and system menu: no frame is drawn for them, but Windows then minimises and restores it)
+        SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_MINIMIZEBOX | WS_SYSMENU);
         SetWindowPos(hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
             mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     }
@@ -1688,7 +1703,7 @@ int main(int argc, char** argv)
                 device->closeDevice();
                 return;
             case HUD_MINIMISE:
-                device->minimizeWindow();
+                minimiseLauncher();
                 return;
             case HUD_TOGGLE_FULLSCREEN:
                 options.fullScreen = !options.fullScreen;
