@@ -1589,21 +1589,22 @@ int main(int argc, char** argv)
     //icon - kyara
     device->setWindowCaption(L"NAUTITECH - Simulateur de Navigation Maritime");
 
-    // --- ADD THIS BLOCK TO LOAD YOUR CUSTOM WINDOW ICON ---
+    //Window and taskbar icon: the one built into the program (icon.rc, every size from 16 to 256 pixels),
+    //else media/myIcon.ico.
 #ifdef _WIN32
-    // Load your custom .ico file from the media folder
-    HICON hIcon = (HICON)LoadImageA(NULL, "media/myIcon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
-    if (hIcon) {
-        // Extract the native Windows window handle (HWND) from the Irrlicht engine
-        irr::video::SExposedVideoData videoData = driver->getExposedVideoData();
-        HWND hwnd = reinterpret_cast<HWND>(videoData.OpenGLWin32.HWnd);
-
-        // Attach the icon to the window's title bar and taskbar
-        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
-        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+    {
+        HWND hwnd = reinterpret_cast<HWND>(driver->getExposedVideoData().OpenGLWin32.HWnd);
+        HINSTANCE module = GetModuleHandle(NULL);
+        HICON bigIcon = (HICON)LoadImageA(module, "MAINICON", IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+        HICON smallIcon = (HICON)LoadImageA(module, "MAINICON", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+        if (!bigIcon) { bigIcon = (HICON)LoadImageA(NULL, "media/myIcon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE); }
+        if (!smallIcon) { smallIcon = bigIcon; }
+        if (hwnd && bigIcon) {
+            SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)bigIcon);
+            SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)smallIcon);
+        }
     }
 #endif
-    // ------------------------------------------------------
 
     if (fullScreen) { setWindowMode(true); }
     else { device->setResizable(true); }
