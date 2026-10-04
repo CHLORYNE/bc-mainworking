@@ -10,6 +10,8 @@
 
 #include "../Utilities.hpp"
 #include "../chartView/ChartView.hpp"
+#include "../EditorStartScreen.hpp"
+#include "../IniFile.hpp"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -161,7 +163,7 @@ void listSubdirectories(irr::IrrlichtDevice* device, std::vector<std::string>& o
 
 FireMenu::FireMenu(irr::IrrlichtDevice* dev, const std::string& path, const std::wstring& message)
     : device(dev), scenariosPath(path), choice(-1), worldList(0), scenarioList(0), mapDetails(0), scenarioDetails(0),
-    statusText(0), ieWindow(0), ieText(0), ieImporting(false)
+    statusText(0), ieWindow(0), ieText(0), ieImporting(false), previousFont(0)
 {
     env = device->getGUIEnvironment();
     userFolder = Utilities::getUserDir();
@@ -173,48 +175,74 @@ FireMenu::~FireMenu()
 {
     device->setEventReceiver(0);
     env->clear();
+    if (previousFont) { env->getSkin()->setFont(previousFont); }
+    env->getSkin()->setColor(irr::gui::EGDC_HIGH_LIGHT, previousHighlight);
 }
 
 void FireMenu::build(const std::wstring& message)
 {
-    irr::video::IVideoDriver* driver = device->getVideoDriver();
-    irr::s32 w = (irr::s32)driver->getScreenSize().Width, h = (irr::s32)driver->getScreenSize().Height;
+    //Header, cards and the chart, behind the lists and buttons (same layout as the scenario editor).
+    EditorStartScreen* screen = new EditorStartScreen(device, 0, L"\u00C9diteur incendie / SAR",
+        L"NAUTITECH  \u00B7  Exercices d'incendie \u00E0 bord, naufrag\u00E9s et moyens SAR", irr::video::SColor(255, 236, 120, 50), true);
+    screen->drop();
+    screen->setCardTitles(L"CARTES", L"LA CARTE", L"EXERCICES EXISTANTS", L"D\u00C9TAILS DE L'EXERCICE");
+    irr::gui::IGUIFont* listFont = screen->font(15);
+    if (listFont) {
+        previousFont = env->getSkin()->getFont();
+        env->getSkin()->setFont(listFont);
+        rowH = std::max(24, (irr::s32)listFont->getDimension(L"Ag").Height + 10);
+    }
+    previousHighlight = env->getSkin()->getColor(irr::gui::EGDC_HIGH_LIGHT);
+    irr::video::SColor highlight(255, 196, 92, 30);
+    env->getSkin()->setColor(irr::gui::EGDC_HIGH_LIGHT, highlight);
 
-    irr::gui::IGUIStaticText* title = env->addStaticText(
-        L"\u00C9diteur de sc\u00E9narios incendie / SAR\nNAUTITECH S.A.R.L",
-        irr::core::recti(w / 10, h / 40, w * 9 / 10, h / 40 + rowH * 2), false, true);
-    title->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    title->setOverrideColor(kHeading);
-
-    irr::s32 top = h / 40 + rowH * 2 + 14;
-    irr::s32 x1 = w / 20;
-    irr::s32 colW = (w - 2 * x1 - 30) / 2;
-    irr::s32 x2 = x1 + colW + 30;
-    irr::s32 bottom = h - rowH * 2 - 24;                 // above the status line and Quit
-    irr::s32 buttonsTop = bottom - (2 * rowH + 6);
-    irr::s32 listBottom = top + rowH + (buttonsTop - top - rowH) * 45 / 100;
-
+    const irr::s32 buttonH = (irr::s32)screen->buttonHeight();
     // Charts
-    env->addStaticText(L"Cartes - nouvel exercice incendie :", irr::core::recti(x1, top, x1 + colW, top + rowH));
-    worldList = env->addListBox(irr::core::recti(x1, top + rowH, x1 + colW, listBottom), 0, ID_WORLDS, true);
-    mapDetails = env->addListBox(irr::core::recti(x1, listBottom + 8, x1 + colW, buttonsTop - 8), 0, -1, true);
-    env->addButton(irr::core::recti(x1, buttonsTop, x1 + colW, buttonsTop + rowH), 0, ID_NEW, L"Cr\u00E9er un nouvel exercice sur cette carte");
+    const irr::core::rect<irr::s32> leftArea = screen->content(screen->leftCard(), (irr::f32)(buttonH + 10));
+    worldList = env->addListBox(leftArea, 0, ID_WORLDS, true);
+    worldList->setDrawBackground(false);
+    Ui::Button* create = new Ui::Button(env, 0, ID_NEW, irr::core::rect<irr::s32>(leftArea.UpperLeftCorner.X, leftArea.LowerRightCorner.Y + 8,
+        leftArea.LowerRightCorner.X, leftArea.LowerRightCorner.Y + 8 + buttonH), L"Cr\u00E9er un exercice sur cette carte", Ui::Button::Primary);
+    create->drop();
+    mapDetails = env->addListBox(screen->content(screen->mapInfoCard()), 0, -1, true);
+    mapDetails->setDrawBackground(false);
 
     // Exercises
-    env->addStaticText(L"Exercices existants :", irr::core::recti(x2, top, x2 + colW, top + rowH));
-    scenarioList = env->addListBox(irr::core::recti(x2, top + rowH, x2 + colW, listBottom), 0, ID_SCENARIOS, true);
-    scenarioDetails = env->addListBox(irr::core::recti(x2, listBottom + 8, x2 + colW, buttonsTop - 8), 0, -1, true);
-    irr::s32 half = (colW - 8) / 2;
-    env->addButton(irr::core::recti(x2, buttonsTop, x2 + half, buttonsTop + rowH), 0, ID_OPEN, L"Ouvrir l'exercice");
-    irr::gui::IGUIButton* del = env->addButton(irr::core::recti(x2 + half + 8, buttonsTop, x2 + colW, buttonsTop + rowH), 0, ID_DELETE, L"Supprimer l'exercice");
-    del->setOverrideColor(irr::video::SColor(255, 255, 110, 110));
-    irr::s32 row2 = buttonsTop + rowH + 6;
-    env->addButton(irr::core::recti(x2, row2, x2 + half, row2 + rowH), 0, ID_IMPORT, L"Importer");
-    env->addButton(irr::core::recti(x2 + half + 8, row2, x2 + colW, row2 + rowH), 0, ID_EXPORT, L"Exporter");
+    scenarioList = env->addListBox(screen->content(screen->rightCard()), 0, ID_SCENARIOS, true);
+    scenarioList->setDrawBackground(false);
+    Ui::Button* open = new Ui::Button(env, 0, ID_OPEN, screen->half(screen->actionRow(), 0), L"Ouvrir l'exercice", Ui::Button::Primary);
+    open->drop();
+    Ui::Button* del = new Ui::Button(env, 0, ID_DELETE, screen->half(screen->actionRow(), 1), L"Supprimer l'exercice", Ui::Button::Danger);
+    del->drop();
+    scenarioDetails = env->addListBox(screen->content(screen->detailsCard()), 0, -1, true);
+    scenarioDetails->setDrawBackground(false);
+    Ui::Button* importButton = new Ui::Button(env, 0, ID_IMPORT, screen->half(screen->bottomRow(), 0), L"Importer", Ui::Button::Secondary);
+    importButton->drop();
+    Ui::Button* exportButton = new Ui::Button(env, 0, ID_EXPORT, screen->half(screen->bottomRow(), 1), L"Exporter", Ui::Button::Secondary);
+    exportButton->drop();
+    Ui::Button* buttons[5] = { create, open, del, importButton, exportButton };
+    for (int i = 0; i < 5; i++) { buttons[i]->setFont(listFont); }
 
-    statusText = env->addStaticText(message.c_str(), irr::core::recti(x1, bottom + 10, x2 + colW - 170, h - 8), false, true);
+    // Footer: messages on the left, Quit on the right; header: nothing else
+    const irr::f32 W = (irr::f32)device->getVideoDriver()->getScreenSize().Width, H = (irr::f32)device->getVideoDriver()->getScreenSize().Height;
+    const irr::s32 footerTop = (irr::s32)screen->footerTop();
+    const irr::s32 m = (irr::s32)screen->margin();
+    statusText = env->addStaticText(message.c_str(), irr::core::recti(m, footerTop, (irr::s32)(W * 0.75f), (irr::s32)H), false, true);
+    statusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
     statusText->setOverrideColor(kDim);
-    env->addButton(irr::core::recti(x2 + colW - 160, h - rowH - 16, x2 + colW, h - 16), 0, ID_QUIT, L"Quitter");
+    const irr::s32 quitH = (irr::s32)(H - footerTop) - 10;
+    Ui::Button* quit = new Ui::Button(env, 0, ID_QUIT, irr::core::recti((irr::s32)W - m - (irr::s32)(150 * screen->scale()), footerTop + 5,
+        (irr::s32)W - m, footerTop + 5 + quitH), L"Quitter", Ui::Button::Secondary);
+    quit->setFont(listFont);
+    quit->drop();
+
+    //The chart follows the map selected, or the map of the exercise selected.
+    const std::string path = scenariosPath;
+    std::vector<std::string>* names = &scenarios;
+    screen->follow(worldList, scenarioList, [path, names](irr::s32 index) -> std::string {
+        if (index < 0 || index >= (irr::s32)names->size()) { return ""; }
+        return IniFile::iniFileToString(path + (*names)[index] + "/environment.ini", "Setting");
+    });
 
     refreshLists();
 }

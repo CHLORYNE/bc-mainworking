@@ -102,6 +102,7 @@
   <ItemGroup>
     <ClInclude Include="..\GUIPanelDraw.hpp" />
     <ClInclude Include="..\UiTheme.hpp" />
+    <ClInclude Include="..\EditorStartScreen.hpp" />
     <ClInclude Include="..\Constants.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />
