@@ -46,6 +46,8 @@ public:
     virtual ~EditorStartScreen()
     {
         for (std::map<std::string, ChartView*>::iterator it = charts.begin(); it != charts.end(); ++it) { delete it->second; }
+        if (worldList) { worldList->drop(); }
+        if (scenarioList) { scenarioList->drop(); }
     }
 
     //The bitmap font of the given size (bc5.ini font), cleaned; for the editors' lists too.
@@ -62,6 +64,11 @@ public:
     //selected, whichever was chosen last.
     void follow(irr::gui::IGUIListBox* worlds, irr::gui::IGUIListBox* scenarios, ScenarioWorldFn scenarioWorld)
     {
+        //Held, so that the lists can be removed before this screen without it reading freed ones.
+        if (worlds) { worlds->grab(); }
+        if (scenarios) { scenarios->grab(); }
+        if (worldList) { worldList->drop(); }
+        if (scenarioList) { scenarioList->drop(); }
         worldList = worlds;
         scenarioList = scenarios;
         worldOfScenario = scenarioWorld;
