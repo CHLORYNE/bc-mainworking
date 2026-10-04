@@ -14,6 +14,7 @@
      with this program; if not, write to the Free Software Foundation, Inc.,
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
+#include <limits>
 #include "OtherShips.hpp"
 
 #include "Constants.hpp"
@@ -86,11 +87,16 @@ void OtherShips::load(std::vector<OtherShipData> otherShipsData, irr::f32 scenar
                 legs.push_back(currentLeg);
 
                 //find the start time for the next leg
-                legStartTime = legStartTime + SECONDS_IN_HOUR * (distance / fabs(currentLeg.speed)); // nm/kts -> hours, so convert to seconds
+                if (fabs(currentLeg.speed) > 1e-6f) {
+                    legStartTime = legStartTime + SECONDS_IN_HOUR * (distance / fabs(currentLeg.speed)); // nm/kts -> hours, so convert to seconds
+                } else if (distance > 0) {
+                    legStartTime = std::numeric_limits<irr::f32>::max(); //stopped with distance still to go: stays on this leg
+                } //stopped and no distance (a ship set to lie at a heading): no time, its bearing is kept by the stop leg
             }
-            //add a final 'stop' leg, which the ship will remain on after it has passed the other legs.
+            //add a final 'stop' leg, which the ship will remain on after it has passed the other legs,
+            //keeping the heading of its last leg.
             Leg stopLeg;
-            stopLeg.bearing = 0;
+            stopLeg.bearing = legs.empty() ? 0 : legs.back().bearing;
             stopLeg.speed = 0;
             stopLeg.distance = 0;
             stopLeg.startTime = legStartTime;
