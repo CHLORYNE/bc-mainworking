@@ -34,7 +34,7 @@ namespace irr
         //! constructor
         MovingWaterSceneNode::MovingWaterSceneNode(ISceneNode* parent, ISceneManager* mgr, ISceneNode* ownShip, irr::s32 id, irr::u32 disableShaders, bool withReflection, irr::u32 segments, irr::u32 reflectionEveryN,
             const core::vector3df& position, const core::vector3df& rotation)
-            : IMeshSceneNode(parent, mgr, id, position, rotation, irr::core::vector3df(1.0f, 1.0f, 1.0f)), lightLevel(0.75), seaState(0.5), shaderTime(0.0f), disableShaders(disableShaders), withReflection(withReflection), segments(segments), reflectionEveryN(reflectionEveryN)
+            : IMeshSceneNode(parent, mgr, id, position, rotation, irr::core::vector3df(1.0f, 1.0f, 1.0f)), lightLevel(0.75), seaState(0.5), wavesEvaluated(false), shaderTime(0.0f), disableShaders(disableShaders), withReflection(withReflection), segments(segments), reflectionEveryN(reflectionEveryN)
         {
 #ifdef _DEBUG
             setDebugName("MovingWaterSceneNode");
@@ -401,6 +401,7 @@ namespace irr
 
                 //Update the FFT Calculation
                 ocean->evaluateWavesFFT(time);
+                wavesEvaluated = true;
                 vertex_ocean* vertices = ocean->getVertices();
 
                 const irr::u32 meshBufferCount = mesh->getMeshBufferCount();
@@ -596,6 +597,9 @@ namespace irr
 
         irr::f32 MovingWaterSceneNode::getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ) const
         {
+            //Before the first frame is drawn the grid holds no sea yet (not the scenario's sea state):
+            //read as flat, else the ship's first physics step feels steep slopes and is pushed off.
+            if (!wavesEvaluated) { return 0; }
 
             //Adjust relative position by 1/2 tile width
 
@@ -658,6 +662,7 @@ namespace irr
 
         irr::core::vector2df MovingWaterSceneNode::getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const
         {
+            if (!wavesEvaluated) { return irr::core::vector2df(0, 0); } //flat until the first FFT evaluation
 
             //Adjust relative position by 1/2 tile width
 

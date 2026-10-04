@@ -118,6 +118,7 @@ namespace scene
 		f32 lightLevel;
 		f32 lightColour[3];         // KYARA: normalised ambient chroma, sent as vec3
 		f32 seaState;
+		bool wavesEvaluated;        // false until the first FFT evaluation: the grid holds no sea yet
 		f32 shaderTime;             // NEW: seconds, updated in OnAnimate
 		f32 swellData[20];          // KYARA HOULE
 		f32 swellFade[4];           // KYARA HOULE
