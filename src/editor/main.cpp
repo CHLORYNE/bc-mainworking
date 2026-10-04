@@ -343,8 +343,8 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
         multiplayer = scenarioData->multiplayerName;
     }
 
-    //Clean up
-   //Clean up
+    //Clean up: the start screen first, as it follows the lists
+    screen->remove();
     scenarioListBox->remove();
     worldListBox->remove();
     skin->setFont(editorFont);
