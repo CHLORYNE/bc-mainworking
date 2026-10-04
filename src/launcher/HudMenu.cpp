@@ -117,7 +117,7 @@ HudMenu::HudMenu(irr::gui::IGUIEnvironment* env, bool french, const std::string&
     UiSounds* sounds, LauncherOptions* options, ActionFn onAction, BlockedFn blocked)
     : irr::gui::IGUIElement(irr::gui::EGUIET_ELEMENT, env, env->getRootGUIElement(), -1, irr::core::rect<irr::s32>(0, 0, 10, 10)),
     french(french), fontFolder(fontFolder), fallback(fallback), sounds(sounds), options(options), onAction(onAction), blocked(blocked),
-    page(0), selected(0), pressedRow(-1), selectionY(0), lastSeconds(0), picture(0), film(0), windowControls(false), windowActive(true),
+    page(0), selected(0), pressedRow(-1), selectionY(0), lastSeconds(0), picture(0), logo(0), film(0), windowControls(false), windowActive(true),
     revealAt(0), pageAt(-10), selectAt(-10), activateAt(-10), toastAt(-10), quitAt(-10), revealed(false), pageForward(true),
     quitOpen(false), quitChoice(0), enterHeld(false), mouse(-1000, -1000), laidOut(0, 0), k(1), mx(0), headerH(0), footerY(0), menuX(0), menuTop(0),
     rowH(0), rowW(0), radarRadius(0)
@@ -700,9 +700,11 @@ void HudMenu::drawHeader(irr::video::IVideoDriver* driver, irr::f32 r)
     const irr::core::vector2df badge(mx + 30 * k + slide, 78 * k);
     irr::gui::PanelBatch b;
     b.begin(driver);
-    b.disc(badge, 30 * k, fade(irr::video::SColor(255, 50, 140, 240), a), fade(irr::video::SColor(255, 20, 84, 180), a));
-    b.sector(badge, 30 * k, 31.5f * k, 0, 360, fade(irr::video::SColor(200, 170, 220, 255), a), fade(irr::video::SColor(200, 170, 220, 255), a));
-    drawIcon(b, Icon_Helm, badge, 18 * k, fade(cWhite, a));
+    if (!logo) {
+        b.disc(badge, 30 * k, fade(irr::video::SColor(255, 50, 140, 240), a), fade(irr::video::SColor(255, 20, 84, 180), a));
+        b.sector(badge, 30 * k, 31.5f * k, 0, 360, fade(irr::video::SColor(200, 170, 220, 255), a), fade(irr::video::SColor(200, 170, 220, 255), a));
+        drawIcon(b, Icon_Helm, badge, 18 * k, fade(cWhite, a));
+    }
     const bool overMinimise = windowControls && minimiseButton.isPointInside(mouse);
     if (windowControls) {
         roundRect(b, minimiseButton, 8 * k, fade(irr::video::SColor(overMinimise ? 120 : 50, 40, 90, 160), a), fade(irr::video::SColor(overMinimise ? 120 : 50, 30, 70, 130), a));
@@ -711,9 +713,27 @@ void HudMenu::drawHeader(irr::video::IVideoDriver* driver, irr::f32 r)
         b.rect(irr::core::rect<irr::f32>(c.X - 10 * k, c.Y + 5 * k, c.X + 10 * k, c.Y + 7 * k), fade(cWhite, a));
     }
     b.flush();
-    fonts.brand->draw(L"NAUTITECH", mx + 76 * k + slide, 78 * k - fonts.brand->capHeight() - 5 * k, fade(cWhite, a), 4 * k);
-    fonts.sub->draw(french ? L"SIMULATEUR DE NAVIGATION MARITIME" : L"MARITIME NAVIGATION SIMULATOR", mx + 77 * k + slide, 78 * k + 9 * k,
-        fade(cDim, a), 3 * k);
+    if (logo) {
+        //The logo picture, as large as the header allows, keeping its shape.
+        const irr::core::dimension2du size = logo->getOriginalSize();
+        if (size.Width > 0 && size.Height > 0) {
+            const irr::f32 scale = std::min(104 * k / size.Height, 560 * k / size.Width);
+            const irr::f32 w = size.Width * scale, h = size.Height * scale, top = 78 * k - h * 0.5f;
+            const irr::video::SColor tint = fade(cWhite, a);
+            const irr::video::SColor tints[4] = { tint, tint, tint, tint };
+            driver->getMaterial2D().TextureLayer[0].BilinearFilter = true;
+            driver->getMaterial2D().TextureLayer[0].TrilinearFilter = true;
+            driver->enableMaterial2D(true);
+            driver->draw2DImage(logo, irr::core::rect<irr::s32>((irr::s32)(mx + slide), (irr::s32)top, (irr::s32)(mx + slide + w), (irr::s32)(top + h)),
+                irr::core::rect<irr::s32>(0, 0, (irr::s32)size.Width, (irr::s32)size.Height), 0, tints, true);
+            driver->enableMaterial2D(false);
+        }
+    }
+    else {
+        fonts.brand->draw(L"NAUTITECH", mx + 76 * k + slide, 78 * k - fonts.brand->capHeight() - 5 * k, fade(cWhite, a), 4 * k);
+        fonts.sub->draw(french ? L"SIMULATEUR DE NAVIGATION MARITIME" : L"MARITIME NAVIGATION SIMULATOR", mx + 77 * k + slide, 78 * k + 9 * k,
+            fade(cDim, a), 3 * k);
+    }
     //Station, right
     if (!station.empty()) {
         const irr::f32 right = windowControls ? minimiseButton.UpperLeftCorner.X - 22 * k : W - mx;

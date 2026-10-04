@@ -1718,6 +1718,24 @@ int main(int argc, char** argv)
     if (!LONGVERSION.empty()) { version += L"  \u00B7  v" + std::wstring(irr::core::stringw(LONGVERSION.c_str()).c_str()); }
     hud->setStatus(stationName(), version);
     hud->setBackground(bgTex, 0);
+    //Logo at the top left: media/launcher_logo.png if there is one, else the NAUTITECH logo (a
+    //transparent PNG; reduced on loading, the original being very large).
+    {
+        const std::string logoName = Utilities::pathExists("media/launcher_logo.png") ? std::string("media/launcher_logo.png") : std::string("media/logo_nautitech.png");
+        irr::video::IImage* image = Utilities::pathExists(logoName) ? driver->createImageFromFile(logoName.c_str()) : 0;
+        if (image) {
+            const irr::core::dimension2du full = image->getDimension();
+            irr::video::IImage* used = image;
+            if (full.Height > 512 && full.Width > 0) {
+                const irr::core::dimension2du reduced((irr::u32)((irr::u64)full.Width * 512 / full.Height), 512);
+                used = driver->createImage(irr::video::ECF_A8R8G8B8, reduced);
+                if (used) { image->copyToScalingBoxFilter(used); } else { used = image; }
+            }
+            hud->setLogo(driver->addTexture("launcher-logo", used));
+            if (used != image) { used->drop(); }
+            image->drop();
+        }
+    }
 
     const int mainPage = hud->addPage(french ? L"Menu principal" : L"Main menu");
     const int settingsPage = hud->addPage(french ? L"Param\u00E8tres" : L"Settings");
@@ -1971,6 +1989,24 @@ int main(int argc, char** argv)
             if (film.isOpen() && film.failed() && !filmLogged) {
                 logLine("Menu background film: " + film.error());
                 hud->setBackground(bgTex, 0);
+    //Logo at the top left: media/launcher_logo.png if there is one, else the NAUTITECH logo (a
+    //transparent PNG; reduced on loading, the original being very large).
+    {
+        const std::string logoName = Utilities::pathExists("media/launcher_logo.png") ? std::string("media/launcher_logo.png") : std::string("media/logo_nautitech.png");
+        irr::video::IImage* image = Utilities::pathExists(logoName) ? driver->createImageFromFile(logoName.c_str()) : 0;
+        if (image) {
+            const irr::core::dimension2du full = image->getDimension();
+            irr::video::IImage* used = image;
+            if (full.Height > 512 && full.Width > 0) {
+                const irr::core::dimension2du reduced((irr::u32)((irr::u64)full.Width * 512 / full.Height), 512);
+                used = driver->createImage(irr::video::ECF_A8R8G8B8, reduced);
+                if (used) { image->copyToScalingBoxFilter(used); } else { used = image; }
+            }
+            hud->setLogo(driver->addTexture("launcher-logo", used));
+            if (used != image) { used->drop(); }
+            image->drop();
+        }
+    }
                 filmLogged = true;
             }
             if (music.isOpen() && music.failed() && !musicLogged) {

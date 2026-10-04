@@ -20,6 +20,8 @@ without it (no film: the menu opens at once; no music: silence).
     (or .png)            is no menu_background.mp4. Without it: bc5.ini launcher_image,
                          else bg_main.png. A picture without text or logos looks best,
                          the menu draws its own titles over it.
+  launcher_logo.png      Logo at the top left of the menu (transparent PNG, white on
+                         transparent looks best). Without it: logo_nautitech.png.
   menu_music.mp3         Music looped while the menu is shown. It stops while the
     (or .m4a .wav .wma)  launcher is behind an exercise.
   sounds/ui_hover.wav    Moving onto a menu item (short: 30 to 80 ms)

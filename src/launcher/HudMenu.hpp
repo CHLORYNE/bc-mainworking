@@ -70,6 +70,8 @@ public:
 
     void setBackground(irr::video::ITexture* picture, VideoClip* film);
     void setStatus(const std::wstring& station, const std::wstring& version);
+    //Picture shown at the top left in place of the drawn emblem and name (0: the drawn ones).
+    void setLogo(irr::video::ITexture* picture) { logo = picture; }
     void setWindowControls(bool on) { windowControls = on; }
 
     //The intro film full screen (black bars as needed), dimmed by fadeOut (0..1), with the prompt to
@@ -133,6 +135,7 @@ private:
     irr::f32 lastSeconds;
 
     irr::video::ITexture* picture;
+    irr::video::ITexture* logo;
     VideoClip* film;
     std::wstring station, version;
     bool windowControls, windowActive;
