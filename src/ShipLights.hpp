@@ -126,6 +126,32 @@ public:
     static const wchar_t* overrideLabelFr(int slot);
     static const wchar_t* overrideTipFr(int slot);
 
+    //KYARA FEUX EDIT ---------------------------------------------------------------------------
+    //In-simulator placement of the lamps, written back to the vessel's boat.ini. Positions move
+    //in the SHIP's frame (towards the bow, to starboard, up), in metres, so the model's own axes,
+    //scale, YCorrection and AngleCorrection never have to be worked out by hand.
+    void beginEdit();                          //creates any missing standard lamp, lights them all
+    void endEdit();
+    bool isEditing() const;
+    int getEditItemCount() const;
+    std::wstring getEditItemLabel(int item) const;
+    void selectEditItem(int item);
+    int getSelectedEditItem() const;
+    void moveSelected(irr::f32 foreMetres, irr::f32 stbdMetres, irr::f32 upMetres);
+    bool getSelectedWorldPosition(irr::core::vector3df& out) const;
+    std::wstring describeSelectedFr() const;   //the readout under the list
+    void setMirror(bool on);                   //moving one sidelight moves the other symmetrically
+    bool getMirror() const;
+    void changeSignalSpacing(irr::f32 deltaMetres);
+    irr::f32 getSignalSpacingMetres() const;
+    void revertEdit();                         //back to where the lamps were at beginEdit()
+    bool saveToIni(std::wstring& message);      //rewrites the light block of boat.ini, keeps a .bak
+    irr::f32 getAngleCorrection() const;
+    const std::string& getIniFilename() const;
+    void cycleSelectedRole(int direction);     //fix a role the loader guessed wrong; recolours it
+    bool deleteSelected();                     //drop a junk lamp (not the signal stack)
+    int getEditRevision() const;               //changes whenever the list's labels change
+
 private:
     struct Lamp
     {
@@ -137,7 +163,13 @@ private:
         //ship's geometry, not a painted patch - a fake pool is a flat sheet that hangs in the air
         //the moment it is not exactly on a surface, which is what the first attempt looked like.
         irr::scene::ILightSceneNode* lightSource;
-        Lamp() : light(0), role(ROLE_UNUSED), signalIndex(-1), lightSource(0) {}
+        //KYARA FEUX EDIT: what saveToIni() needs to write the lamp back exactly as it came in
+        irr::f32 rangeM;                 // metres (the ini holds nautical miles)
+        irr::f32 iniA0, iniA1;           // arc as written in the ini, before the COLREG default
+        std::string sequence;
+        irr::u32 phase;
+        Lamp() : light(0), role(ROLE_UNUSED), signalIndex(-1), lightSource(0),
+            rangeM(2.0f * 1852.0f), iniA0(-360.0f), iniA1(360.0f), phase(0) {}
     };
 
     Role roleFromName(const std::string& name) const;
@@ -172,6 +204,30 @@ private:
     int dynamicLightsUsed;
     bool loaded;
     bool lastMakingWay; //KYARA FEUX TAB
+
+    //KYARA FEUX EDIT: what load() was given, kept so lamps can be created and saved later
+    irr::scene::ISceneManager* smgrStored;
+    irr::scene::ISceneNode* shipNodeStored;
+    std::string iniFile;
+    irr::f32 mupm;                     // model units per metre
+    irr::core::aabbox3df boxStored;
+    irr::f32 waterlineY;               // model-unit Y of the sea surface
+    irr::f32 angleCorr;
+    irr::f32 signalSpacingM;
+    bool editing;
+    bool mirror;
+    int editSel;
+    std::vector<int> editItems;        // lamp index, or -1 for the whole signal stack
+    std::vector<irr::core::vector3df> editSnapshot;
+    irr::f32 editSnapshotSpacing;
+    int editRevision;
+    irr::core::vector3df bowDir() const;   // unit vector towards the bow, model frame
+    irr::core::vector3df stbdDir() const;  // unit vector to starboard, model frame
+    irr::core::vector3df boxCentre() const;
+    irr::core::vector3df modelPoint(irr::f32 foreFrac, irr::f32 stbdFrac, irr::f32 upMetres) const;
+    void ensureStandardSet();
+    void restackSignals();
+    static const char* roleIniName(Role r);
 };
 
 #endif

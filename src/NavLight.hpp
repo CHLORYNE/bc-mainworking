@@ -35,6 +35,11 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled() const;
     void setColour(irr::video::SColor colour);
+    //KYARA FEUX EDIT: the placement editor needs to see every lamp from any angle, whatever its
+    //arc, range or flashing sequence. -1 = normal behaviour, 0 = force hidden, 1 = force shown.
+    void setEditVisible(int mode);
+    irr::core::vector3df getLocalPosition() const; //in the parent ship's model units
+    void remove();                                 //take the lamp out of the scene for good
 
 private:
     irr::scene::ISceneManager* smgr;
@@ -49,6 +54,7 @@ private:
     irr::f32 charTime; //Time in seconds per character in sequence
     irr::f32 timeOffset;
     bool enabled;                           // KYARA FEUX
+    int editVisible;                        // KYARA FEUX EDIT: -1 normal, 0 hidden, 1 shown
     irr::u16 currentAlpha; //Note that this is u16 not u8 so we can indicate an initial implausible value.
     //bool setAlpha(irr::u8 alpha, irr::video::ITexture* tex);
     //irr::f32 lightLevel;

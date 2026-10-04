@@ -28,6 +28,24 @@
    the main shader use exp2 - at half the visibility that was 50 % fog instead of ~18 %,
    which is why this path looked greyer. It now uses the same exp2 as everything else. */
 
+// ============================================================================
+//  KYARA METEO - BAD-WEATHER SEA (keep matching Water_ps.glsl)
+// ============================================================================
+// 'gloom' (0..1) comes from the C++ side (Water::update): it rises with the sea state and
+// with rain, and eases in over ~20 s. Under a storm sky the sea loses its blue: it reflects
+// a grey overcast sky, there is no sun to light the body of the water, and it turns a dark
+// slate grey-green with more, whiter foam. 0 = exactly the fair-weather look you have now.
+uniform float gloom;
+const vec3  STORM_BODY        = vec3(0.105, 0.165, 0.175); // looking down: dark slate grey-green
+const vec3  STORM_GRAZE       = vec3(0.085, 0.135, 0.150); // towards the horizon
+const vec3  STORM_SKY_HORIZON = vec3(0.50, 0.53, 0.55);    // overcast sky seen in the water
+const vec3  STORM_SKY_ZENITH  = vec3(0.36, 0.39, 0.42);
+const float STORM_DARKEN      = 0.80;  // overall level of the water at full storm (1 = no change)
+const float STORM_DESATURATE  = 0.45;  // 0 = keep colour, 1 = fully grey
+const float STORM_SUN         = 0.10;  // fraction of sun glint/glitter left under full overcast
+const float STORM_FOAM_BOOST  = 1.70;  // more / whiter foam in a storm
+float gStorm = 0.0;                    // set at the top of main()
+
 uniform float lightLevel;
 uniform float seaState;
 uniform float time;
@@ -137,7 +155,9 @@ float rippleHeight(vec2 p)
 vec3 skyAlong(vec3 d, float level)
 {
     float upness = clamp(d.y, 0.0, 1.0);
-    return mix(SKY_HORIZON, SKY_ZENITH, pow(upness, 0.7)) * max(level, 0.15);
+    vec3 skyH = mix(SKY_HORIZON, STORM_SKY_HORIZON, gStorm);   // KYARA METEO
+    vec3 skyZ = mix(SKY_ZENITH,  STORM_SKY_ZENITH,  gStorm);
+    return mix(skyH, skyZ, pow(upness, 0.7)) * max(level, 0.15);
 }
 
 // KYARA EAU: sun glitter path. nMean = the surface without ripples, n = with ripples.
@@ -156,12 +176,14 @@ float glitterPath(vec3 nMean, vec3 n, vec3 h, float dist, float sea)
 vec3 waterTinted(vec3 c)
 {
     const vec3 LUMA = vec3(0.299, 0.587, 0.114);
-    vec3 hue = WATER_BODY / dot(WATER_BODY, LUMA);
-    return mix(c, dot(c, LUMA) * hue, REFL_WATER_TINT);
+    vec3 body = mix(WATER_BODY, STORM_BODY, gStorm);            // KYARA METEO
+    vec3 hue = body / dot(body, LUMA);
+    return mix(c, dot(c, LUMA) * hue, REFL_WATER_TINT * (1.0 - gStorm));
 }
 
 void main()
 {
+    gStorm = smoothstep(0.0, 1.0, clamp(gloom, 0.0, 1.0)); // KYARA METEO
     float z = gl_FragCoord.z / gl_FragCoord.w;
 
     float distanceSmoothing = clamp(1.0 - z / 300.0,        0.0, 1.0);
@@ -202,8 +224,9 @@ void main()
     float shade = mix(0.80, 1.08, ndl);
     shade = mix(1.0, shade, distanceSmoothing);
 
-    vec3 deepColor = WATER_GRAZE * WATER_BRIGHTNESS;   // towards the horizon
-    vec3 bodyColor = mix(deepColor, WATER_BODY * WATER_BRIGHTNESS, NdotV) * shade * lv;
+    // KYARA METEO: fair-weather blue -> storm slate grey-green
+    vec3 deepColor = mix(WATER_GRAZE, STORM_GRAZE, gStorm) * WATER_BRIGHTNESS;   // towards the horizon
+    vec3 bodyColor = mix(deepColor, mix(WATER_BODY, STORM_BODY, gStorm) * WATER_BRIGHTNESS, NdotV) * shade * lv;
 
     // ---------- Fake reflection ----------
     vec3 R     = reflect(-V, N);
@@ -233,13 +256,20 @@ void main()
     // ---------- Distance darkening (matches the main shader) ----------
     color *= mix(1.0, FAR_DARKEN, clamp(z / FAR_DARKEN_RANGE, 0.0, 1.0));
 
+    // KYARA METEO: storm - duller and darker (before sun and foam)
+    {
+        float lum = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(color, vec3(lum), STORM_DESATURATE * gStorm) * mix(1.0, STORM_DARKEN, gStorm);
+    }
+
     // ---------- Specular: two lobes ----------
     float NdotH = max(dot(N, H), 0.0);
     float glint = pow(NdotH, 180.0);
     float sheen = pow(NdotH, SHEEN_POWER);
     float glitter = glitterPath(Nflat, N, H, z, seaState) * GLITTER_STRENGTH; // KYARA EAU
     color += vec3(1.0, 0.97, 0.90) * lv
-           * ((glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH) * specFade + glitter);
+           * ((glint * GLINT_STRENGTH + sheen * SHEEN_STRENGTH) * specFade + glitter)
+           * mix(1.0, STORM_SUN, gStorm); // KYARA METEO: overcast hides the sun
 
     // ---------- Foam ----------
     float heightMask = smoothstep(0.5, 2.0, waveH);
@@ -249,7 +279,8 @@ void main()
     // KYARA EAU: per-pixel ragged edge instead of the triangle-shaped one
     float edgeT      = foamEdgeNoise(vWorldXZ, time, z);
     float foamAmount = smoothstep(edgeT, edgeT + FOAM_EDGE_SOFT, foamField);
-    color = mix(color, vec3(0.92, 0.95, 0.98) * lv, foamAmount * 0.55);
+    color = mix(color, vec3(0.92, 0.95, 0.98) * lv,
+                clamp(foamAmount * mix(1.0, STORM_FOAM_BOOST, gStorm), 0.0, 1.0) * 0.55); // KYARA METEO
 
     vec4 outputColour = vec4(color, 1.0);
 

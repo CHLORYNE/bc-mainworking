@@ -85,6 +85,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\fireEditor\FireHelp.cpp" />
     <ClCompile Include="..\IncidentConfig.cpp" />
     <ClCompile Include="..\IniFile.cpp" />
     <ClCompile Include="..\Utilities.cpp" />
@@ -98,6 +99,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Constants.hpp" />
+    <ClInclude Include="..\fireEditor\FireHelp.hpp" />
     <ClInclude Include="..\IncidentConfig.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\ScenarioDataStructure.hpp" />

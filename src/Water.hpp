@@ -26,7 +26,7 @@ public:
     Water();
     virtual ~Water();
     void load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* ownShip, irr::f32 weather, irr::u32 disableShaders, bool withReflection, irr::u32 segments, irr::u32 reflectionEveryN = 1);
-    void update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection = 225.0f); // KYARA HOULE: + wind direction
+    void update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection = 225.0f, irr::f32 rainIntensity = 0.0f); // KYARA HOULE: + wind direction, KYARA METEO: + rain
     void setSwellShaderData(const irr::f32* comp20, const irr::f32* fade4); // KYARA HOULE
     irr::f32 getWaveHeight(irr::f32 relPosX, irr::f32 relPosZ) const;
     irr::core::vector2df getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const;

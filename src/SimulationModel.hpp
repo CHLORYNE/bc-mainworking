@@ -294,6 +294,12 @@ public:
     int getOwnShipInstrumentMaterialCount() const; //KYARA FEUX TAB
     //KYARA FEUX TAB: the lights of one vessel. -1 = own ship, 0.. = other ship. 0 if none.
     ShipLights* getShipLights(int vessel);
+    //KYARA FEUX EDIT: in-simulator placement of a vessel's lamps (-1 = own ship)
+    bool beginLightEdit(int vessel);
+    void endLightEdit();
+    bool isLightEditing() const;
+    int getLightEditVessel() const;
+    void lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
     bool getOwnShipDeckLights() const;
     void setOtherShipLightSituation(int shipNumber, int situation);
     int getOtherShipLightSituation(int shipNumber) const;
@@ -568,6 +574,7 @@ private:
     LandObjects landObjects;
     LandLights landLights;
     Camera camera;
+    int lightEditVessel = -2; //KYARA FEUX EDIT: -2 = not editing
     Camera radarCamera;
     Water water;
     Swell swell;           // KYARA HOULE

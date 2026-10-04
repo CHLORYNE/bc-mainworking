@@ -1080,6 +1080,47 @@ ShipLights* SimulationModel::getShipLights(int vessel) {
     return otherShips.getLights(vessel);
 }
 
+//KYARA FEUX EDIT ---------------------------------------------------------------------------------
+bool SimulationModel::beginLightEdit(int vessel)
+{
+    if (lightEditVessel != -2) { endLightEdit(); }
+    ShipLights* lights = getShipLights(vessel);
+    if (!lights) { return false; }
+    lights->beginEdit();
+    lightEditVessel = vessel;
+    //Start far enough out to see the whole vessel round the first lamp
+    const irr::f32 len = (vessel < 0) ? ownShip.getLength() : otherShips.getLength(vessel);
+    irr::f32 radius = 0.9f * len;
+    if (radius < 12.0f) { radius = 12.0f; }
+    camera.setOrbit(true, radius);
+    device->getLogger()->log(("Light editor: " + lights->getIniFilename()).c_str());
+    return true;
+}
+
+void SimulationModel::endLightEdit()
+{
+    if (lightEditVessel == -2) { return; }
+    ShipLights* lights = getShipLights(lightEditVessel);
+    if (lights) { lights->endEdit(); }
+    lightEditVessel = -2;
+    camera.setOrbit(false);
+}
+
+bool SimulationModel::isLightEditing() const
+{
+    return lightEditVessel != -2;
+}
+
+int SimulationModel::getLightEditVessel() const
+{
+    return lightEditVessel;
+}
+
+void SimulationModel::lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor)
+{
+    camera.orbitBy(dYawDeg, dPitchDeg, zoomFactor);
+}
+
 void SimulationModel::setOwnShipDeckLights(bool on) {
     ownShip.getLights().setDeckLights(on);
 }
@@ -4674,6 +4715,17 @@ void SimulationModel::update()
         }
     } {
         IPROF("Update camera pos");
+
+        //KYARA FEUX EDIT: keep the orbit centred on the lamp being moved, and turning with the vessel
+        if (lightEditVessel != -2) {
+            ShipLights* lights = getShipLights(lightEditVessel);
+            irr::scene::ISceneNode* node = (lightEditVessel < 0) ? ownShip.getSceneNode()
+                                                                  : otherShips.getSceneNode(lightEditVessel);
+            irr::core::vector3df centre;
+            if (lights && node && lights->getSelectedWorldPosition(centre)) {
+                camera.setOrbitCentre(centre, node->getRotation().Y - lights->getAngleCorrection());
+            }
+        }
 
         //update the camera position
         camera.update(deltaTime);

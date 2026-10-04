@@ -185,7 +185,13 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                model->changeLookPx(deltaX, deltaY);
+                if (model->isLightEditing()) {
+                    //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp
+                    model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
+                }
+                else {
+                    model->changeLookPx(deltaX, deltaY);
+                }
             }
             mouseClickX = event.MouseInput.X;
             mouseClickY = event.MouseInput.Y;
@@ -199,6 +205,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             irr::gui::IGUIElement* wheelOver = wheelRoot->getElementFromPoint(irr::core::position2d<irr::s32>(event.MouseInput.X, event.MouseInput.Y));
             if (wheelOver && wheelOver != wheelRoot) {
                 wheelOver->OnEvent(event);
+                return true;
+            }
+            //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
+            if (model->isLightEditing()) {
+                model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
                 return true;
             }
             //KYARA: the wheel now drives the ZOOM (magnification) bar. It used to drive the
@@ -258,6 +269,15 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED)
         {
+            //KYARA FEUX EDIT: lamp picked in the placement window
+            if (id == GUIMain::GUI_ID_LEDIT_LIST && model->isLightEditing())
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                const irr::s32 sel = ((irr::gui::IGUIListBox*)event.GUIEvent.Caller)->getSelected();
+                if (lights && sel >= 0) { lights->selectEditItem(sel); }
+                device->getGUIEnvironment()->setFocus(0); //so the arrow keys move the lamp, not the list
+            }
+
             if (id == GUIMain::GUI_ID_LINES_LIST)
             {
                 model->getLines()->setSelectedLine(((irr::gui::IGUIListBox*)event.GUIEvent.Caller)->getSelected());
@@ -307,6 +327,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_AZIMUTH_2_MASTER_CHECKBOX)
             {
                 model->setAzimuth2Master(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked());
+            }
+
+            //KYARA FEUX EDIT
+            if (id == GUIMain::GUI_ID_LEDIT_MIRROR && model->isLightEditing())
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                if (lights) { lights->setMirror(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked()); }
+                device->getGUIEnvironment()->setFocus(0);
             }
 
             //KYARA FEUX TAB: "hide this light" boxes and the working lights, on the vessel
@@ -587,6 +615,49 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_STORM_PRESET_BUTTON)
             {
                 model->setBadWeatherPreset();
+            }
+
+            //KYARA FEUX EDIT: the placement editor
+            if (id == GUIMain::GUI_ID_LIGHTS_EDIT_BUTTON)
+            {
+                const int vessel = gui->getLightsVessel();
+                if (model->beginLightEdit(vessel)) {
+                    gui->openLightEditor(vessel);
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isLightEditing() &&
+                (id == GUIMain::GUI_ID_LEDIT_SAVE || id == GUIMain::GUI_ID_LEDIT_REVERT ||
+                 id == GUIMain::GUI_ID_LEDIT_SPACING_DOWN || id == GUIMain::GUI_ID_LEDIT_SPACING_UP ||
+                 id == GUIMain::GUI_ID_LEDIT_CLOSE || id == GUIMain::GUI_ID_LEDIT_ROLE ||
+                 id == GUIMain::GUI_ID_LEDIT_DELETE))
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                if (lights) {
+                    if (id == GUIMain::GUI_ID_LEDIT_SAVE) {
+                        std::wstring msg;
+                        const bool ok = lights->saveToIni(msg);
+                        gui->setLightEditorStatus(msg, !ok);
+                        device->getLogger()->log(ok ? "Light editor: saved" : "Light editor: SAVE FAILED");
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_REVERT) {
+                        lights->revertEdit();
+                        gui->setLightEditorStatus(L"Positions remises comme \u00E0 l'ouverture (rien n'est enregistr\u00E9).", false);
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_ROLE) { lights->cycleSelectedRole(1); }
+                    if (id == GUIMain::GUI_ID_LEDIT_DELETE && lights->deleteSelected()) {
+                        gui->setLightEditorStatus(L"Feu supprim\u00E9 - d\u00E9finitif \u00E0 l'enregistrement.", false);
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_SPACING_DOWN) { lights->changeSignalSpacing(-0.5f); }
+                    if (id == GUIMain::GUI_ID_LEDIT_SPACING_UP) { lights->changeSignalSpacing(0.5f); }
+                }
+                if (id == GUIMain::GUI_ID_LEDIT_CLOSE) {
+                    model->endLightEdit();
+                    gui->closeLightEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0); //keys go back to moving the lamp
+                return true;
             }
 
             //KYARA FEUX TAB: COLREG situation of the selected vessel
@@ -1135,6 +1206,47 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             cancelShutdown();
         }
         return true;
+    }
+
+    //KYARA FEUX EDIT: while placing lamps, the arrows / Page keys move the selected lamp in the
+    //ship's frame, Tab picks the next one, and A/D, W/S, Q/E turn and zoom the camera. Taken here,
+    //before the normal key handling, so none of them also steers the ship or turns the bridge view.
+    irr::gui::IGUIElement* editFocus = device->getGUIEnvironment()->getFocus();
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isLightEditing() &&
+        !(editFocus && editFocus->getType() == irr::gui::EGUIET_EDIT_BOX)) //typing in a box wins
+    {
+        ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+        const irr::EKEY_CODE k = event.KeyInput.Key;
+        const bool ours = (k == irr::KEY_UP || k == irr::KEY_DOWN || k == irr::KEY_LEFT || k == irr::KEY_RIGHT ||
+            k == irr::KEY_PRIOR || k == irr::KEY_NEXT || k == irr::KEY_TAB ||
+            k == irr::KEY_KEY_A || k == irr::KEY_KEY_D || k == irr::KEY_KEY_W || k == irr::KEY_KEY_S ||
+            k == irr::KEY_KEY_Q || k == irr::KEY_KEY_E || k == irr::KEY_KEY_R || k == irr::KEY_DELETE);
+        if (lights && ours) {
+            if (event.KeyInput.PressedDown) {
+                const irr::f32 step = event.KeyInput.Shift ? 0.05f : (event.KeyInput.Control ? 1.0f : 0.25f);
+                switch (k) {
+                case irr::KEY_UP:    lights->moveSelected(step, 0.0f, 0.0f); break;
+                case irr::KEY_DOWN:  lights->moveSelected(-step, 0.0f, 0.0f); break;
+                case irr::KEY_LEFT:  lights->moveSelected(0.0f, -step, 0.0f); break;
+                case irr::KEY_RIGHT: lights->moveSelected(0.0f, step, 0.0f); break;
+                case irr::KEY_PRIOR: lights->moveSelected(0.0f, 0.0f, step); break;
+                case irr::KEY_NEXT:  lights->moveSelected(0.0f, 0.0f, -step); break;
+                case irr::KEY_TAB:
+                    lights->selectEditItem(lights->getSelectedEditItem() + (event.KeyInput.Shift ? -1 : 1));
+                    break;
+                case irr::KEY_KEY_A: model->lightEditOrbit(-5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_D: model->lightEditOrbit(5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_W: model->lightEditOrbit(0.0f, 5.0f, 1.0f); break;
+                case irr::KEY_KEY_S: model->lightEditOrbit(0.0f, -5.0f, 1.0f); break;
+                case irr::KEY_KEY_Q: model->lightEditOrbit(0.0f, 0.0f, 0.9f); break;
+                case irr::KEY_KEY_E: model->lightEditOrbit(0.0f, 0.0f, 1.1f); break;
+                case irr::KEY_KEY_R: lights->cycleSelectedRole(event.KeyInput.Shift ? -1 : 1); break;
+                case irr::KEY_DELETE: lights->deleteSelected(); break;
+                default: break;
+                }
+            }
+            return true; //the key-up too, so nothing downstream sees half a key press
+        }
     }
 
     if (event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown)

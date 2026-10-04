@@ -24,7 +24,12 @@
 
 Camera::Camera()
 {
-
+    //KYARA FEUX EDIT
+    orbiting = false;
+    orbitHeading = 0.0f;
+    orbitYaw = -60.0f;
+    orbitPitch = 15.0f;
+    orbitRadius = 40.0f;
 }
 
 Camera::~Camera()
@@ -355,6 +360,51 @@ void Camera::applyOffset(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ)
     }
 }
 
+//KYARA FEUX EDIT -----------------------------------------------------------------------------------
+void Camera::setOrbit(bool on, irr::f32 radiusMetres)
+{
+    orbiting = on;
+    if (on) {
+        orbitYaw = -60.0f;   //port bow: the red sidelight and the mast in one view
+        orbitPitch = 15.0f;
+        orbitRadius = radiusMetres;
+    }
+}
+
+bool Camera::isOrbiting() const
+{
+    return orbiting;
+}
+
+void Camera::setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingDeg)
+{
+    orbitCentre = centre;
+    orbitHeading = vesselHeadingDeg;
+}
+
+void Camera::orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor)
+{
+    orbitYaw += dYawDeg;
+    while (orbitYaw >= 360.0f) { orbitYaw -= 360.0f; }
+    while (orbitYaw < 0.0f) { orbitYaw += 360.0f; }
+    orbitPitch += dPitchDeg;
+    if (orbitPitch > 85.0f) { orbitPitch = 85.0f; }
+    if (orbitPitch < -10.0f) { orbitPitch = -10.0f; } //a little below the lamp, never under the sea
+    orbitRadius *= zoomFactor;
+    if (orbitRadius < 2.0f) { orbitRadius = 2.0f; }
+    if (orbitRadius > 1500.0f) { orbitRadius = 1500.0f; }
+}
+
+void Camera::orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const
+{
+    const irr::f32 yaw = (orbitHeading + orbitYaw) * irr::core::DEGTORAD;
+    const irr::f32 pitch = orbitPitch * irr::core::DEGTORAD;
+    const irr::core::vector3df dir(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch));
+    pos = orbitCentre + dir * orbitRadius;
+    fwd = -dir;
+}
+//KYARA FEUX EDIT ^^^ ------------------------------------------------------------------------------
+
 void Camera::update(irr::f32 deltaTime, irr::core::quaternion quat, irr::core::vector3df pos, irr::core::vector2df lensShift, bool vrMode)
 {
      //link camera rotation to shipNode
@@ -379,6 +429,19 @@ void Camera::update(irr::f32 deltaTime, irr::core::quaternion quat, irr::core::v
         if (!frozen) {
             parentAngles.setRotationDegrees(parent->getRotation());
             parentPosition = parent->getPosition();
+        }
+
+        //KYARA FEUX EDIT: orbiting a lamp replaces the bridge view entirely
+        if (orbiting) {
+            irr::core::vector3df orbitPos, orbitFwd;
+            orbitPose(orbitPos, orbitFwd);
+            frv = orbitFwd;
+            camera->setLensShift(lensShift);
+            camera->setPosition(orbitPos);
+            camera->setUpVector(irr::core::vector3df(0.0f, 1.0f, 0.0f));
+            camera->setTarget(orbitPos + orbitFwd);
+            camera->updateAbsolutePosition();
+            return;
         }
 
         // Quaternion for the view angles, ignoring the lookUpAngle if in VR Mode
@@ -440,6 +503,19 @@ void Camera::renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f3
     irr::f32 vFOV = 2*atan(tan(hFOV/2)/columnAspect);
     camera->setFOV(vFOV);
     camera->setLensShift(irr::core::vector2df(0,0));
+
+    //KYARA FEUX EDIT: triple-screen columns turn about the orbit position too
+    if (orbiting) {
+        irr::core::vector3df orbitPos, orbitFwd;
+        orbitPose(orbitPos, orbitFwd);
+        irr::core::quaternion yawQ(0.0f, irr::core::DEGTORAD * yawOffsetDeg, 0.0f);
+        orbitFwd = yawQ * orbitFwd;
+        camera->setPosition(orbitPos);
+        camera->setUpVector(irr::core::vector3df(0.0f, 1.0f, 0.0f));
+        camera->setTarget(orbitPos + orbitFwd);
+        camera->updateAbsolutePosition();
+        return;
+    }
 
     // Rebuild the view direction with an extra yaw for this panel
     irr::core::quaternion viewQuat(irr::core::DEGTORAD*(-1*lookUpAngle),

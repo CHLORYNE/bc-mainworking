@@ -82,6 +82,9 @@ namespace scene
 		// KYARA HOULE: long-wave swell, added in the vertex shader (see shaders/swell_snippet.glsl)
 		void setSwellShaderData(const f32* comp20, const f32* fade4);
 
+		// KYARA METEO: storm look of the sea, 0 = fair weather, 1 = full storm. Eased in OnAnimate.
+		void setGloom(f32 target);
+
 		f32 getWaveHeight(f32 relPosX, f32 relPosZ) const;
 		irr::core::vector2df getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const;
 
@@ -102,6 +105,7 @@ namespace scene
 		int idLightColour;          // KYARA: vec3 sun/ambient chroma
 		int idSwell[5];             // KYARA HOULE: vec4 swell0..swell4 = (kx, kz, amplitude, phase)
 		int idSwellFade;            // KYARA HOULE: vec4 (centreX, centreZ, fadeStart, fadeEnd)
+		int idGloom;                // KYARA METEO: float gloom
 		
         bool firstRun;
         bool IsOpenGL;//Our constants set callback isn't limited to D3D9
@@ -121,6 +125,10 @@ namespace scene
 		f32 shaderTime;             // NEW: seconds, updated in OnAnimate
 		f32 swellData[20];          // KYARA HOULE
 		f32 swellFade[4];           // KYARA HOULE
+		f32 gloom;                  // KYARA METEO: value sent to the shader (eased)
+		f32 gloomTarget;            // KYARA METEO: value asked for by Water::update
+		u32 lastGloomTimeMs;        // KYARA METEO
+		bool gloomInitialised;      // KYARA METEO: first frame jumps straight to the target
 
 		f32 tileWidth;
 		//f32 scaleFactorVertical;

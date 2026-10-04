@@ -2,6 +2,7 @@
 add_executable(bridgecommand-fe
     main.cpp
     FireEditor.cpp
+    FireHelp.cpp
     FireMenu.cpp
     FireScenario.cpp
     ../chartView/ChartView.cpp

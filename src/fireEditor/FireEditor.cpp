@@ -26,7 +26,7 @@ enum {
     ID_BOAT_PLACE, ID_BOAT_OUT, ID_BOAT_OUT_CLEAR, ID_BOAT_RET, ID_BOAT_RET_CLEAR,
     ID_HELO_DELAY, ID_HELO_SPEED, ID_HELO_LIST, ID_HELO_ADD, ID_HELO_DELETE, ID_HELO_MODEL, ID_HELO_BASE, ID_HELO_BASE_CLEAR,
     ID_HELO_BASE_H, ID_HELO_PAD, ID_HELO_PAD_CLEAR, ID_HELO_PAD_H,
-    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU, ID_MRSC, ID_STYLE
+    ID_CONFIRM_OVERWRITE, ID_CONFIRM_MENU, ID_MRSC, ID_STYLE, ID_CONFIRM_TIMELINE
 };
 
 enum { TAB_SCENARIO = 0, TAB_CASUALTY = 1, TAB_SURVIVORS = 2, TAB_BOATS = 3, TAB_HELOS = 4 };
@@ -134,7 +134,7 @@ FireEditor::FireEditor(irr::IrrlichtDevice* dev, FireScenario* scenario, ChartVi
     : device(dev), scn(scenario), map(chart), scenariosPath(path), ownTypes(ownShipTypes), otherTypes(otherShipTypes),
     rescueTypes(rescueShipTypes),
     quit(false), backToMenu(false), dirty(isNewScenario), needRefresh(false), tool(Tool_Select), selBoat(-1), selHelo(-1), selSurvivor(-1),
-    moveGroupWithCasualty(true),
+    moveGroupWithCasualty(true), helpField(FireHelp::Field_None), timelineConfirmed(false),
     leftDown(false), rightDown(false), panning(false), dragging(false), rightMoved(false)
 {
     driver = device->getVideoDriver();
@@ -328,7 +328,7 @@ void FireEditor::buildGui()
     label(t, lx, y, lw, L"Dur\u00E9e de l'incendie (coul\u00E9 \u00E0 T+)");
     durationBox = edit(t, fx, y, fw, ID_T_DURATION);
     y += rowH;
-    label(t, lx, y, lw, L"Commence \u00E0 couler avant la fin");
+    label(t, lx, y, lw, L"Dur\u00E9e du naufrage (fin de l'incendie)");
     sinkLeadBox = edit(t, fx, y, fw, ID_T_SINKLEAD);
     y += rowH;
     label(t, lx, y, lw, L"G\u00EEte permanente si \u00E9teint apr\u00E8s T+");
@@ -429,6 +429,13 @@ void FireEditor::buildGui()
     heloPadHBox = edit(t, fx, y, fw, ID_HELO_PAD_H);
     y += rowH + 6;
     heloInfoText = guienv->addStaticText(L"", irr::core::recti(lx, y, lx + tw, tabH), false, true, t);
+
+    // Kyara: hover tooltip on every time field; clicking one shows the full explanation in the tab.
+    irr::gui::IGUIEditBox* helpBoxes[] = { abandonBox, spreadBox, durationBox, sinkLeadBox, permListBox, intervalBox,
+        boatDelayBox, heloDelayBox, heloSpeedBox };
+    for (size_t i = 0; i < sizeof(helpBoxes) / sizeof(helpBoxes[0]); i++) {
+        helpBoxes[i]->setToolTipText(FireHelp::tooltip(helpFieldFor(helpBoxes[i]->getID())).c_str());
+    }
 
     if (!scn->hadIncidentFile) {
         statusText->setText(L"Ce sc\u00E9nario n'a pas encore de r\u00E9glages incendie : ce qui est affich\u00E9 correspond \u00E0 ce que fait le simulateur aujourd'hui. V\u00E9rifiez puis enregistrez.");
@@ -577,7 +584,7 @@ void FireEditor::refreshBoatTab()
     if (!has) {
         boatTypeBox->clear();
         boatHdgBox->setText(L""); boatSpeedBox->setText(L""); boatDelayBox->setText(L""); boatMoorBox->setText(L"");
-        boatInfoText->setText((rescueModelsLine() + L"Aucune vedette SAR : les radeaux ne seront pas r\u00E9cup\u00E9r\u00E9s. Ajoutez une vedette puis placez son point de d\u00E9part.").c_str());
+        boatInfoText->setText((helpPrefix(TAB_BOATS) + rescueModelsLine() + L"Aucune vedette SAR : les radeaux ne seront pas r\u00E9cup\u00E9r\u00E9s. Ajoutez une vedette puis placez son point de d\u00E9part.").c_str());
         return;
     }
     const EdShip& s = scn->sarBoats[selBoat];
@@ -606,7 +613,7 @@ void FireEditor::refreshBoatTab()
         (int)c.outbound.size(), (int)c.inbound.size(),
         c.inbound.empty() ? L" (retour au d\u00E9part)" : L" (le dernier = poste \u00E0 quai)",
         assigned, shared);
-    boatInfoText->setText((rescueModelsLine() + buf).c_str());
+    boatInfoText->setText((helpPrefix(TAB_BOATS) + rescueModelsLine() + buf).c_str());
 }
 
 void FireEditor::refreshHeloTab()
@@ -635,12 +642,12 @@ void FireEditor::refreshHeloTab()
     else {
         heloModelBox->clear();
     }
-    heloInfoText->setText(
+    heloInfoText->setText((helpPrefix(TAB_HELOS) +
         L"Les h\u00E9licopt\u00E8res ne d\u00E9collent que si le stagiaire passe l'appel OSC (3e Ctrl+A). Ils arrivent sur zone le d\u00E9lai ci-dessus apr\u00E8s cet appel "
         L"(00:00 = imm\u00E9diatement, comme avant).\n\n"
         L"Avec une base : l'h\u00E9lico d\u00E9colle de sa base au bon moment et vole jusqu'\u00E0 la zone. Sans base : il appara\u00EEt sur zone \u00E0 l'heure pr\u00E9vue.\n"
         L"Apr\u00E8s l'op\u00E9ration il se pose sur son h\u00E9lisurface, sinon sur sa base, sinon il quitte la zone.\n\n"
-        L"Les hauteurs sont en m\u00E8tres au-dessus de la flottaison du navire en feu.");
+        L"Les hauteurs sont en m\u00E8tres au-dessus de la flottaison du navire en feu.").c_str());
 }
 
 void FireEditor::refreshInfo()
@@ -661,7 +668,7 @@ void FireEditor::refreshInfo()
     std::wstring warn;
     if (!scn->hasCasualty) { warn += L"- Aucun navire en feu : placez-le sur la carte.\n"; }
     if (c.sinkStartTime() <= c.abandonTime) { warn += L"- Le navire commence \u00E0 couler avant l'abandon.\n"; }
-    if (inWater > c.fireDuration) { warn += L"- Tous les naufrag\u00E9s ne seront pas \u00E0 l'eau avant que le navire ait coul\u00E9.\n"; }
+    else if (inWater > c.sinkStartTime()) { warn += L"- Le navire commence \u00E0 couler avant que tous les naufrag\u00E9s soient \u00E0 l'eau.\n"; }
     if (rafts > 0 && scn->sarBoats.empty()) { warn += L"- Des radeaux mais aucune vedette : ils ne seront pas r\u00E9cup\u00E9r\u00E9s.\n"; }
     if (mobs > 0 && c.helos.empty()) { warn += L"- Des hommes \u00E0 la mer mais aucun h\u00E9licopt\u00E8re.\n"; }
     for (size_t b = 0; b < scn->sarBoats.size(); b++) {
@@ -672,7 +679,50 @@ void FireEditor::refreshInfo()
         }
     }
     if (!warn.empty()) { s += L"\nA V\u00C9RIFIER :\n" + warn; }
-    casInfoText->setText(s.c_str());
+    casInfoText->setText((helpPrefix(TAB_CASUALTY) + s).c_str());
+}
+
+FireHelp::Field FireEditor::helpFieldFor(irr::s32 id) const
+{
+    switch (id) {
+    case ID_T_ABANDON:  return FireHelp::Field_AbandonTime;
+    case ID_T_SPREAD:   return FireHelp::Field_FireSpreadTime;
+    case ID_T_DURATION: return FireHelp::Field_FireDuration;
+    case ID_T_SINKLEAD: return FireHelp::Field_SinkLeadTime;
+    case ID_T_PERMLIST: return FireHelp::Field_PermanentListTime;
+    case ID_T_INTERVAL: return FireHelp::Field_SurvivorInterval;
+    case ID_BOAT_DELAY: return FireHelp::Field_SarBoatDelay;
+    case ID_HELO_DELAY: return FireHelp::Field_HeloDelay;
+    case ID_HELO_SPEED: return FireHelp::Field_HeloSpeed;
+    default:            return FireHelp::Field_None;
+    }
+}
+
+std::wstring FireEditor::helpPrefix(irr::s32 tab) const
+{
+    irr::s32 home = -1;
+    switch (helpField) {
+    case FireHelp::Field_SarBoatDelay: home = TAB_BOATS; break;
+    case FireHelp::Field_HeloDelay: case FireHelp::Field_HeloSpeed: home = TAB_HELOS; break;
+    case FireHelp::Field_None: break;
+    default: home = TAB_CASUALTY; break;
+    }
+    if (home != tab) { return L""; }
+    return FireHelp::title(helpField) + L"\n" + FireHelp::explanation(helpField) + L"\n\n";
+}
+
+bool FireEditor::timelineProblem(std::wstring& message) const
+{
+    const IncidentConfig& c = scn->incident;
+    if (!FireHelp::hasBlockingProblem(c)) { return false; }
+    int n = (int)c.survivors.size();
+    float inWater = c.abandonTime + (n > 1 ? (float)(n - 1) * c.survivorInterval : 0.0f);
+    message = L"Le navire commence \u00E0 couler \u00E0 T+" + fmtTime(c.sinkStartTime())
+        + L" (dur\u00E9e de l'incendie " + fmtTime(c.fireDuration) + L" - dur\u00E9e du naufrage " + fmtTime(c.sinkLeadTime) + L"), "
+        + L"alors que l'abandon est \u00E0 T+" + fmtTime(c.abandonTime)
+        + (n > 0 ? L" et le dernier naufrag\u00E9 \u00E0 l'eau \u00E0 T+" + fmtTime(inWater) : std::wstring(L"")) + L". "
+        + L"L'exercice sera perdu \u00E0 T+" + fmtTime(c.sinkStartTime()) + L" si le feu n'est pas \u00E9teint.";
+    return true;
 }
 
 void FireEditor::setTool(Tool t)
@@ -837,10 +887,18 @@ bool FireEditor::onGuiEvent(const irr::SEvent::SGUIEvent& e)
         onEditChanged(id, e.Caller->getText());
         if (e.EventType == irr::gui::EGET_EDITBOX_ENTER && id != ID_DESC) { guienv->setFocus(0); refreshAll(); }
         return false;
+    case irr::gui::EGET_ELEMENT_FOCUSED:
+        // Kyara: a time field was clicked - explain it in its tab's info text.
+        if (helpFieldFor(id) != FireHelp::Field_None) {
+            helpField = helpFieldFor(id);
+            needRefresh = true;
+        }
+        return false;
     case irr::gui::EGET_ELEMENT_FOCUS_LOST:
         // Show the value as it was understood once the user leaves the box (next frame, once
         // focus has moved on).
         if (e.Caller && e.Caller->getType() == irr::gui::EGUIET_EDIT_BOX) { needRefresh = true; }
+        if (helpFieldFor(id) == helpField) { helpField = FireHelp::Field_None; }   // FOCUSED re-sets it if another field took over
         return false;
     case irr::gui::EGET_COMBO_BOX_CHANGED:
         onComboChanged(id, (irr::gui::IGUIComboBox*)e.Caller);
@@ -865,6 +923,7 @@ bool FireEditor::onGuiEvent(const irr::SEvent::SGUIEvent& e)
     case irr::gui::EGET_MESSAGEBOX_YES:
         if (id == ID_CONFIRM_OVERWRITE) { save(true); }
         if (id == ID_CONFIRM_MENU) { backToMenu = true; }
+        if (id == ID_CONFIRM_TIMELINE) { timelineConfirmed = true; save(false); timelineConfirmed = false; }
         return false;
     default:
         return false;
@@ -1202,6 +1261,15 @@ bool FireEditor::save(bool confirmedOverwrite)
     if (name.empty() || name.find_first_of(bad) != std::string::npos) {
         statusText->setText(L"Nom invalide : il ne doit pas \u00EAtre vide ni contenir / \\ : * ? \" < > |");
         statusText->setOverrideColor(irr::video::SColor(255, 255, 110, 110));
+        return false;
+    }
+    // Kyara: do not silently save a timeline the trainee cannot win (e.g. sinking before the
+    // survivors are in the water) - the instructor can still confirm.
+    std::wstring problem;
+    if (!confirmedOverwrite && !timelineConfirmed && timelineProblem(problem)) {
+        guienv->addMessageBox(L"Chronologie \u00E0 v\u00E9rifier", (problem + L"\n\nEnregistrer quand m\u00EAme ?").c_str(),
+            true, irr::gui::EMBF_YES | irr::gui::EMBF_NO, 0, ID_CONFIRM_TIMELINE);
+        tabs->setActiveTab(TAB_CASUALTY);
         return false;
     }
     std::string dir = scenariosPath + name;

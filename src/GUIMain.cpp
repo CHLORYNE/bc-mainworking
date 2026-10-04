@@ -1070,9 +1070,11 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         guienv->addButton(cell(4, cD0, cD1), tabFeux, GUI_ID_LIGHTS_OVR_RESET,
             L"R\u00E9tablir", L"Rallumer tous les feux masqu\u00E9s de ce navire");
 
-        //Row 5: the answer key, for the instructor.
-        lightsStatusText = guienv->addStaticText(L"", cell(5, cA0, cD1), false, false, tabFeux);
+        //Row 5: the answer key, for the instructor - and the way into the placement editor.
+        lightsStatusText = guienv->addStaticText(L"", cell(5, cA0, cC1), false, false, tabFeux);
         lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        guienv->addButton(cell(5, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
+            L"Placer les feux", L"Placer les feux de ce navire \u00E0 la main et les enregistrer dans son boat.ini");
     }
 #endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays
 
@@ -3233,6 +3235,10 @@ void GUIMain::drawGUI()
     if (extraControlsWindow && extraControlsWindow->isVisible()) {
         refreshLightsTab();
     }
+    //KYARA FEUX EDIT: the readout follows the lamp as it moves
+    if (lightEditWindow) {
+        refreshLightEditor();
+    }
 
     // Update lines display
     if (model && model->getLines()) {
@@ -4261,4 +4267,154 @@ void GUIMain::shutdownConsoleWindow()
     consoleWindow->close();
     delete consoleWindow;
     consoleWindow = 0;
+}
+
+
+#include <cwchar> //KYARA FEUX EDIT: std::swprintf
+//=================================================================================================
+//KYARA FEUX EDIT - the "Placement des feux" window
+//=================================================================================================
+void GUIMain::openLightEditor(int vessel)
+{
+    closeLightEditor();
+    if (!model) { return; }
+    ShipLights* lights = model->getShipLights(vessel);
+    if (!lights) { return; }
+
+    //Sized from the font, so it reads the same at every screen resolution.
+    irr::s32 fh = 16;
+    if (guienv->getSkin() && guienv->getSkin()->getFont()) {
+        fh = (irr::s32)guienv->getSkin()->getFont()->getDimension(L"Ag").Height;
+    }
+    const irr::s32 pad = fh / 2;
+    const irr::s32 rowH = fh + 10;
+    const irr::s32 w = fh * 26;
+    const irr::s32 listH = rowH * 7;
+    const irr::s32 readH = fh * 5;
+    const irr::s32 helpH = fh * 9;
+    const irr::s32 h = 2 * fh + listH + readH + 6 * (rowH + pad) + fh * 3 + helpH + 3 * pad;
+    const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
+    const irr::s32 x = sw - w - fh;
+    const irr::s32 y = fh * 3;
+
+    std::wstring title = L"Placement des feux - ";
+    if (vessel < 0) { title += L"navire propre"; }
+    else {
+        const std::string n = model->getOtherShipName(vessel);
+        title += std::wstring(n.begin(), n.end());
+    }
+    lightEditWindow = guienv->addWindow(irr::core::rect<irr::s32>(x, y, x + w, y + h), false, title.c_str());
+    if (lightEditWindow->getCloseButton()) { lightEditWindow->getCloseButton()->setVisible(false); }
+
+    irr::s32 cy = 2 * fh;
+    lightEditList = guienv->addListBox(irr::core::rect<irr::s32>(pad, cy, w - pad, cy + listH),
+        lightEditWindow, GUI_ID_LEDIT_LIST, true);
+    for (int i = 0; i < lights->getEditItemCount(); i++) {
+        lightEditList->addItem(lights->getEditItemLabel(i).c_str());
+    }
+    lightEditList->setSelected(lights->getSelectedEditItem());
+    lightEditRevision = lights->getEditRevision();
+    cy += listH + pad;
+
+    lightEditReadout = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + readH),
+        true, true, lightEditWindow);
+    cy += readH + pad;
+
+    lightEditMirror = guienv->addCheckBox(lights->getMirror(),
+        irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH), lightEditWindow, GUI_ID_LEDIT_MIRROR,
+        L"Miroir : d\u00E9placer un feu de c\u00F4t\u00E9 d\u00E9place l'autre");
+    cy += rowH + pad;
+
+    const irr::s32 bw = fh * 2;
+    lightEditSpacingText = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad - 2 * bw - pad, cy + rowH),
+        false, false, lightEditWindow);
+    lightEditSpacingText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+    guienv->addButton(irr::core::rect<irr::s32>(w - pad - 2 * bw - pad / 2, cy, w - pad - bw - pad / 2, cy + rowH),
+        lightEditWindow, GUI_ID_LEDIT_SPACING_DOWN, L"-", L"Rapprocher les feux de signal (0,5 m)");
+    guienv->addButton(irr::core::rect<irr::s32>(w - pad - bw, cy, w - pad, cy + rowH),
+        lightEditWindow, GUI_ID_LEDIT_SPACING_UP, L"+", L"\u00C9carter les feux de signal (0,5 m)");
+    cy += rowH + pad;
+
+    const irr::s32 half = (w - 3 * pad) / 2;
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + half, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_ROLE, L"R\u00F4le suivant (R)",
+        L"Corriger le r\u00F4le de ce feu s'il a \u00E9t\u00E9 mal devin\u00E9 (Maj+R : pr\u00E9c\u00E9dent)");
+    guienv->addButton(irr::core::rect<irr::s32>(2 * pad + half, cy, w - pad, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_DELETE, L"Supprimer ce feu (Suppr)",
+        L"Retirer un feu en trop - prend effet \u00E0 l'enregistrement");
+    cy += rowH + pad;
+
+    const irr::s32 third = (w - 4 * pad) / 3;
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + third, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_SAVE, L"Enregistrer", L"\u00C9crire les positions dans le boat.ini du navire (copie .bak / .prev)");
+    guienv->addButton(irr::core::rect<irr::s32>(2 * pad + third, cy, 2 * pad + 2 * third, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_REVERT, L"Annuler", L"Remettre les feux o\u00F9 ils \u00E9taient \u00E0 l'ouverture");
+    guienv->addButton(irr::core::rect<irr::s32>(3 * pad + 2 * third, cy, w - pad, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_CLOSE, L"Terminer", L"Fermer l'\u00E9diteur et revenir \u00E0 la passerelle");
+    cy += rowH + pad;
+
+    lightEditStatus = guienv->addStaticText(L"Non enregistr\u00E9.", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + fh * 3),
+        false, true, lightEditWindow);
+    cy += fh * 3 + pad;
+
+    guienv->addStaticText(
+        L"Fl\u00E8ches : vers l'avant / l'arri\u00E8re, vers b\u00E2bord / tribord\n"
+        L"Pg.Pr\u00E9c / Pg.Suiv : monter / descendre\n"
+        L"Pas : 25 cm - Maj : 5 cm - Ctrl : 1 m\n"
+        L"Tab : feu suivant - Maj+Tab : pr\u00E9c\u00E9dent\n"
+        L"R : changer le r\u00F4le - Suppr : supprimer le feu\n"
+        L"Tourner autour : glisser dans la vue, ou A / D et W / S\n"
+        L"Zoom : molette, ou Q / E\n"
+        L"Le feu s\u00E9lectionn\u00E9 clignote.",
+        irr::core::rect<irr::s32>(pad, cy, w - pad, cy + helpH), false, true, lightEditWindow);
+
+    refreshLightEditor();
+}
+
+void GUIMain::closeLightEditor()
+{
+    if (lightEditWindow) { lightEditWindow->remove(); }
+    lightEditWindow = 0;
+    lightEditList = 0;
+    lightEditReadout = 0;
+    lightEditMirror = 0;
+    lightEditSpacingText = 0;
+    lightEditStatus = 0;
+}
+
+void GUIMain::refreshLightEditor()
+{
+    if (!lightEditWindow || !model || !model->isLightEditing()) { return; }
+    ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+    if (!lights) { return; }
+
+    //A role changed or a lamp was deleted: the labels are stale, rebuild the list.
+    if (lightEditList && lightEditRevision != lights->getEditRevision()) {
+        lightEditList->clear();
+        for (int i = 0; i < lights->getEditItemCount(); i++) {
+            lightEditList->addItem(lights->getEditItemLabel(i).c_str());
+        }
+        lightEditRevision = lights->getEditRevision();
+        lightEditList->setSelected(-1); //forces the selection below to be re-applied
+    }
+    //Tab on the keyboard changes the selection behind the list's back; follow it.
+    if (lightEditList && lightEditList->getSelected() != lights->getSelectedEditItem()) {
+        lightEditList->setSelected(lights->getSelectedEditItem());
+    }
+    if (lightEditReadout) {
+        lightEditReadout->setText(lights->describeSelectedFr().c_str());
+    }
+    if (lightEditSpacingText) {
+        wchar_t buf[96];
+        std::swprintf(buf, 96, L"Espacement des feux de signal : %.1f m", lights->getSignalSpacingMetres());
+        lightEditSpacingText->setText(buf);
+    }
+}
+
+void GUIMain::setLightEditorStatus(const std::wstring& text, bool isError)
+{
+    if (!lightEditStatus) { return; }
+    lightEditStatus->setText(text.c_str());
+    lightEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
+                                              : irr::video::SColor(255, 140, 230, 140));
 }

@@ -12,6 +12,11 @@
 
 #include <cmath>
 #include <string>
+#include <chrono>  //KYARA FEUX EDIT: blink timer, independent of the sim clock (works paused)
+#include <fstream> //KYARA FEUX EDIT: saveToIni()
+#include <cstdio>
+#include <cwchar>
+#include <cctype>
 
 namespace
 {
@@ -48,7 +53,9 @@ namespace
 ShipLights::ShipLights()
     : anchorFwd(-1), anchorAft(-1), situation(SIT_UNDERWAY), deckLights(false),
     lengthMetres(20.0f), allowDynamicLights(false), dynamicLightsUsed(0), loaded(false),
-    lastMakingWay(false)
+    lastMakingWay(false),
+    smgrStored(0), shipNodeStored(0), mupm(1.0f), waterlineY(0.0f), angleCorr(0.0f),
+    signalSpacingM(2.0f), editing(false), mirror(true), editSel(0), editSnapshotSpacing(2.0f), editRevision(0)
 {
     for (int i = 0; i < 16; i++) { overrideOff[i] = false; }
 }
@@ -107,6 +114,7 @@ void ShipLights::addLamp(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode
     lamp.role = role;
     lamp.colour = colour;
     lamp.light = new NavLight(shipNode, smgr, position, colour, a0, a1, rangeNm * M_IN_NM, "", 0);
+    lamp.rangeM = rangeNm * M_IN_NM; //KYARA FEUX EDIT
     lamps.push_back(lamp);
 }
 
@@ -150,6 +158,7 @@ void ShipLights::addDeckLamp(irr::scene::ISceneManager* smgr, irr::scene::IScene
     Lamp lamp;
     lamp.role = ROLE_DECK;
     lamp.colour = COL_DECK;
+    lamp.rangeM = DECK_RANGE_NM * M_IN_NM; //KYARA FEUX EDIT
     lamp.light = new NavLight(shipNode, smgr, position, COL_DECK, ARC_ALL_START, ARC_ALL_END,
         DECK_RANGE_NM * M_IN_NM, "", 0);
     attachLightSource(smgr, shipNode, lamp, position, radiusMetres);
@@ -170,6 +179,21 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     lamps.clear();
     signalLamps.clear();
     anchorFwd = anchorAft = -1;
+
+    //KYARA FEUX EDIT: keep the context, the editor needs it long after load() returns
+    smgrStored = smgr;
+    shipNodeStored = shipNode;
+    iniFile = iniFilename;
+    mupm = modelUnitsPerMetre;
+    boxStored = modelBox;
+    waterlineY = waterlineModelY;
+    angleCorr = IniFile::iniFileTof32(iniFilename, "AngleCorrection");
+    //Annex I: signal lights at least 2 m apart, 1 m on a vessel under 20 m.
+    signalSpacingM = (shipLengthMetres < 20.0f) ? 1.0f : 2.0f;
+    {
+        const irr::f32 sp = IniFile::iniFileTof32(iniFilename, "SignalSpacing");
+        if (sp > 0.0f) { signalSpacingM = sp; }
+    }
 
     //KYARA FEUX: per-vessel opt-in to the guessed set (GenerateLights=1 in her boat.ini).
     if (IniFile::iniFileTou32(iniFilename, "GenerateLights") != 0) { generateMissing = true; }
@@ -241,6 +265,11 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
 
         lamp.light = new NavLight(shipNode, smgr, positions[i], colours[i], a0, a1,
             ranges[i], sequences[i], phases[i]);
+        lamp.rangeM = ranges[i];               //KYARA FEUX EDIT: kept for saveToIni()
+        lamp.iniA0 = startAngles[i];
+        lamp.iniA1 = endAngles[i];
+        lamp.sequence = sequences[i];
+        lamp.phase = phases[i];
         lamps.push_back(lamp);
         if (lamp.role == ROLE_ANCHOR && anchorFwd < 0) { anchorFwd = (int)lamps.size() - 1; }
     }
@@ -286,8 +315,8 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     const irr::f32 sideHM = clampf(0.05f * lengthMetres, 1.5f, 12.0f);
     const irr::f32 deckHM = clampf(0.06f * lengthMetres, 1.5f, 14.0f);
 
-    const irr::f32 mastY = waterline + mastHM * mupm;
-    const irr::f32 deckY = waterline + sideHM * mupm;
+    const irr::f32 mastY  = waterline + mastHM * mupm;
+    const irr::f32 deckY  = waterline + sideHM * mupm;
     const irr::f32 floodY = waterline + deckHM * mupm;
 
     if (generateMissing) {
@@ -352,15 +381,13 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     //hand on the mast. The other two stack straight up from it, SignalSpacing metres apart (2 m by
     //default, the COLREG minimum for most vessels). Without it, the line still sits above the
     //highest white lamp the ini declares.
-    irr::f32 spacing = SIGNAL_SPACING_M * modelUnitsPerMetre;
+    irr::f32 spacing = signalSpacingM * modelUnitsPerMetre; //KYARA FEUX EDIT: 1 m under 20 m
     {
         const std::string sx = IniFile::iniFileToString(iniFilename, "SignalX");
         if (!sx.empty()) {
             mastTop = irr::core::vector3df(IniFile::iniFileTof32(iniFilename, "SignalX"),
                 IniFile::iniFileTof32(iniFilename, "SignalY"),
                 IniFile::iniFileTof32(iniFilename, "SignalZ"));
-            const irr::f32 sp = IniFile::iniFileTof32(iniFilename, "SignalSpacing");
-            if (sp > 0.0f) { spacing = sp * modelUnitsPerMetre; }
             mastTop.Y -= spacing; //the loop below starts one spacing above mastTop
         }
     }
@@ -372,6 +399,7 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
         irr::core::vector3df p = mastTop;
         p.Y += spacing * (irr::f32)(i + 1);
         lamp.light = makeSignalLight(smgr, shipNode, p, COL_WHITE, SIGNAL_RANGE_NM);
+        lamp.rangeM = SIGNAL_RANGE_NM * M_IN_NM; //KYARA FEUX EDIT
         lamps.push_back(lamp);
         signalLamps.push_back((int)lamps.size() - 1);
     }
@@ -390,6 +418,7 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
                 IniFile::iniFileTof32(iniFilename, "AnchorZ"));
         }
         lamp.light = makeSignalLight(smgr, shipNode, p, COL_WHITE, ANCHOR_RANGE_NM);
+        lamp.rangeM = ANCHOR_RANGE_NM * M_IN_NM; //KYARA FEUX EDIT
         lamps.push_back(lamp);
         anchorFwd = (int)lamps.size() - 1;
     }
@@ -472,6 +501,29 @@ void ShipLights::update(irr::f32 scenarioTime, irr::u32 lightLevel, bool makingW
 
     //Colour the signal line for the situation before deciding what is lit: the same three lamps
     //serve every pattern.
+    //KYARA FEUX EDIT: every lamp lit and visible from any angle; the one being moved blinks, and
+    //the signal stack shows red-white-red so its three lamps can be told apart.
+    if (editing) {
+        const long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const bool blinkOn = ((ms / 250) % 2) == 0;
+        const int selLamp = (editSel >= 0 && editSel < (int)editItems.size()) ? editItems[editSel] : -99;
+        for (size_t i = 0; i < lamps.size(); i++) {
+            Lamp& lamp = lamps[i];
+            if (!lamp.light) { continue; }
+            if (lamp.role == ROLE_SIGNAL) {
+                const irr::video::SColor want = (lamp.signalIndex == 1) ? COL_WHITE : COL_RED;
+                if (want != lamp.colour) { lamp.colour = want; lamp.light->setColour(want); }
+            }
+            const bool selected = ((int)i == selLamp) || (selLamp == -1 && lamp.role == ROLE_SIGNAL);
+            lamp.light->setEnabled(true);
+            lamp.light->setEditVisible(selected ? (blinkOn ? 1 : 0) : 1);
+            lamp.light->update(scenarioTime, lightLevel);
+            if (lamp.lightSource) { lamp.lightSource->setVisible(false); }
+        }
+        return;
+    }
+
     for (size_t i = 0; i < signalLamps.size(); i++) {
         Lamp& lamp = lamps[signalLamps[i]];
         irr::video::SColor want = COL_RED;
@@ -621,23 +673,507 @@ std::wstring ShipLights::describeExpectedFr() const
     switch (situation) {
     case SIT_UNDERWAY:
         return big ? L"2 feux de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)"
-            : L"Feu de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)";
+                   : L"Feu de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)";
     case SIT_ANCHORED:
         return L"Feu de mouillage blanc visible sur tout l'horizon (r\u00E8gle 30)";
     case SIT_AGROUND:
         return L"Feu de mouillage + deux feux rouges superpos\u00E9s (r\u00E8gle 30 d)";
     case SIT_NUC:
         return lastMakingWay ? L"Rouge sur rouge + c\u00F4t\u00E9s et poupe : fait route surface (r\u00E8gle 27 a)"
-            : L"Rouge sur rouge seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 27 a)";
+                             : L"Rouge sur rouge seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 27 a)";
     case SIT_RAM:
         return lastMakingWay ? L"Rouge-blanc-rouge + m\u00E2t, c\u00F4t\u00E9s, poupe : fait route surface (r\u00E8gle 27 b)"
-            : L"Rouge-blanc-rouge seuls : stopp\u00E9 (r\u00E8gle 27 b)";
+                             : L"Rouge-blanc-rouge seuls : stopp\u00E9 (r\u00E8gle 27 b)";
     case SIT_FISHING:
         return lastMakingWay ? L"Vert sur blanc + c\u00F4t\u00E9s et poupe : fait route surface (r\u00E8gle 26 b)"
-            : L"Vert sur blanc seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 26 b)";
+                             : L"Vert sur blanc seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 26 b)";
     case SIT_LIGHTS_OUT:
         return L"Aucun feu : navire non \u00E9clair\u00E9";
     default:
         return L"";
     }
+}
+
+
+//=================================================================================================
+//KYARA FEUX EDIT - in-simulator placement of the lamps
+//=================================================================================================
+//The model's frame is not the ship's: a model may be built bow towards -Z (AngleCorrection=180) or
+//sideways. Everything the user does is in the SHIP's frame, worked out from AngleCorrection, which
+//is exactly what turns the model to sail bow first.
+irr::core::vector3df ShipLights::bowDir() const
+{
+    const irr::f32 t = -angleCorr * irr::core::DEGTORAD;
+    return irr::core::vector3df(std::sin(t), 0.0f, std::cos(t));
+}
+
+irr::core::vector3df ShipLights::stbdDir() const
+{
+    const irr::f32 t = (-angleCorr + 90.0f) * irr::core::DEGTORAD;
+    return irr::core::vector3df(std::sin(t), 0.0f, std::cos(t));
+}
+
+irr::core::vector3df ShipLights::boxCentre() const
+{
+    return irr::core::vector3df(0.5f * (boxStored.MinEdge.X + boxStored.MaxEdge.X), waterlineY,
+        0.5f * (boxStored.MinEdge.Z + boxStored.MaxEdge.Z));
+}
+
+//A point on the hull's footprint: foreFrac -1 stern .. +1 bow, stbdFrac -1 port .. +1 starboard,
+//upMetres above the waterline. Only used for the first position of a lamp the vessel lacks.
+irr::core::vector3df ShipLights::modelPoint(irr::f32 foreFrac, irr::f32 stbdFrac, irr::f32 upMetres) const
+{
+    const irr::core::vector3df b = bowDir(), s = stbdDir();
+    const irr::f32 hx = 0.5f * (boxStored.MaxEdge.X - boxStored.MinEdge.X);
+    const irr::f32 hz = 0.5f * (boxStored.MaxEdge.Z - boxStored.MinEdge.Z);
+    const irr::f32 halfLen = std::fabs(b.X) * hx + std::fabs(b.Z) * hz;
+    const irr::f32 halfBeam = std::fabs(s.X) * hx + std::fabs(s.Z) * hz;
+    irr::core::vector3df p = boxCentre() + b * (foreFrac * halfLen) + s * (stbdFrac * halfBeam);
+    p.Y = waterlineY + upMetres * mupm;
+    return p;
+}
+
+const char* ShipLights::roleIniName(Role r)
+{
+    switch (r) {
+    case ROLE_MASTHEAD:      return "masthead";
+    case ROLE_MASTHEAD_AFT:  return "masthead_aft";
+    case ROLE_PORT:          return "port";
+    case ROLE_STARBOARD:     return "starboard";
+    case ROLE_STERN:         return "stern";
+    case ROLE_ANCHOR:        return "anchor";
+    case ROLE_DECK:          return "deck";
+    case ROLE_ACCOMMODATION: return "accommodation";
+    case ROLE_SEARCHLIGHT:   return "searchlight";
+    default:                 return "";
+    }
+}
+
+//Every vessel being placed gets the full COLREG set. The lamps she lacks are put somewhere
+//visible and plainly wrong (spread round the hull, a few metres up) - the point is that they can
+//be seen and grabbed, not that they are right.
+void ShipLights::ensureStandardSet()
+{
+    if (!smgrStored || !shipNodeStored) { return; }
+    const irr::f32 mastH = (lengthMetres < 20.0f) ? 4.0f : (lengthMetres < 60.0f ? 8.0f : 14.0f);
+    const irr::f32 sideH = (lengthMetres < 20.0f) ? 1.5f : 3.0f;
+
+    if (!hasRole(ROLE_MASTHEAD)) {
+        addLamp(smgrStored, shipNodeStored, ROLE_MASTHEAD, modelPoint(0.30f, 0.0f, mastH),
+            COL_WHITE, ARC_MASTHEAD_START - angleCorr, ARC_MASTHEAD_END - angleCorr, MASTHEAD_RANGE_NM);
+    }
+    if (!hasRole(ROLE_MASTHEAD_AFT) && lengthMetres >= 50.0f) {
+        addLamp(smgrStored, shipNodeStored, ROLE_MASTHEAD_AFT, modelPoint(-0.30f, 0.0f, mastH + 4.5f),
+            COL_WHITE, ARC_MASTHEAD_START - angleCorr, ARC_MASTHEAD_END - angleCorr, MASTHEAD_RANGE_NM);
+    }
+    if (!hasRole(ROLE_PORT)) {
+        addLamp(smgrStored, shipNodeStored, ROLE_PORT, modelPoint(0.10f, -0.9f, sideH),
+            COL_RED, ARC_SIDE_PORT_START - angleCorr, ARC_SIDE_PORT_END - angleCorr, SIDE_RANGE_NM);
+    }
+    if (!hasRole(ROLE_STARBOARD)) {
+        addLamp(smgrStored, shipNodeStored, ROLE_STARBOARD, modelPoint(0.10f, 0.9f, sideH),
+            COL_GREEN, ARC_SIDE_STBD_START - angleCorr, ARC_SIDE_STBD_END - angleCorr, SIDE_RANGE_NM);
+    }
+    if (!hasRole(ROLE_STERN)) {
+        addLamp(smgrStored, shipNodeStored, ROLE_STERN, modelPoint(-0.95f, 0.0f, sideH),
+            COL_WHITE, ARC_STERN_START - angleCorr, ARC_STERN_END - angleCorr, STERN_RANGE_NM);
+    }
+    if (signalLamps.empty()) {
+        irr::core::vector3df base = modelPoint(0.30f, 0.0f, mastH + signalSpacingM);
+        for (int i = 0; i < 3; i++) {
+            Lamp lamp;
+            lamp.role = ROLE_SIGNAL;
+            lamp.signalIndex = i;
+            lamp.colour = COL_WHITE;
+            irr::core::vector3df p = base;
+            p.Y += signalSpacingM * mupm * (irr::f32)i;
+            lamp.light = makeSignalLight(smgrStored, shipNodeStored, p, COL_WHITE, SIGNAL_RANGE_NM);
+            lamp.rangeM = SIGNAL_RANGE_NM * M_IN_NM;
+            lamps.push_back(lamp);
+            signalLamps.push_back((int)lamps.size() - 1);
+        }
+    }
+    if (anchorFwd < 0) {
+        Lamp lamp;
+        lamp.role = ROLE_ANCHOR;
+        lamp.colour = COL_WHITE;
+        lamp.light = makeSignalLight(smgrStored, shipNodeStored, modelPoint(0.85f, 0.0f, sideH + 1.0f),
+            COL_WHITE, ANCHOR_RANGE_NM);
+        lamp.rangeM = ANCHOR_RANGE_NM * M_IN_NM;
+        lamps.push_back(lamp);
+        anchorFwd = (int)lamps.size() - 1;
+    }
+    loaded = true;
+}
+
+void ShipLights::beginEdit()
+{
+    ensureStandardSet();
+
+    //The list: navigation lamps in a fixed order, then the signal stack, then everything else.
+    editItems.clear();
+    const Role order[] = { ROLE_MASTHEAD, ROLE_MASTHEAD_AFT, ROLE_PORT, ROLE_STARBOARD, ROLE_STERN,
+                           ROLE_ANCHOR };
+    for (size_t r = 0; r < sizeof(order) / sizeof(order[0]); r++) {
+        for (size_t i = 0; i < lamps.size(); i++) {
+            if (lamps[i].role == order[r] && lamps[i].light) { editItems.push_back((int)i); }
+        }
+    }
+    if (!signalLamps.empty()) { editItems.push_back(-1); }
+    for (size_t i = 0; i < lamps.size(); i++) {
+        const Role r = lamps[i].role;
+        if (!lamps[i].light || r == ROLE_SIGNAL) { continue; }
+        bool listed = false;
+        for (size_t k = 0; k < sizeof(order) / sizeof(order[0]); k++) { if (order[k] == r) { listed = true; } }
+        if (!listed) { editItems.push_back((int)i); }
+    }
+
+    editSnapshot.clear();
+    for (size_t i = 0; i < lamps.size(); i++) {
+        editSnapshot.push_back(lamps[i].light ? lamps[i].light->getLocalPosition() : irr::core::vector3df());
+    }
+    editSnapshotSpacing = signalSpacingM;
+    editSel = 0;
+    editing = true;
+}
+
+void ShipLights::endEdit()
+{
+    editing = false;
+    for (size_t i = 0; i < lamps.size(); i++) {
+        if (lamps[i].light) { lamps[i].light->setEditVisible(-1); }
+    }
+}
+
+bool ShipLights::isEditing() const { return editing; }
+int ShipLights::getEditItemCount() const { return (int)editItems.size(); }
+int ShipLights::getSelectedEditItem() const { return editSel; }
+void ShipLights::setMirror(bool on) { mirror = on; }
+bool ShipLights::getMirror() const { return mirror; }
+irr::f32 ShipLights::getSignalSpacingMetres() const { return signalSpacingM; }
+irr::f32 ShipLights::getAngleCorrection() const { return angleCorr; }
+const std::string& ShipLights::getIniFilename() const { return iniFile; }
+
+void ShipLights::selectEditItem(int item)
+{
+    if (editItems.empty()) { editSel = 0; return; }
+    const int n = (int)editItems.size();
+    editSel = ((item % n) + n) % n; //wraps, so Tab past the end comes back to the top
+}
+
+std::wstring ShipLights::getEditItemLabel(int item) const
+{
+    if (item < 0 || item >= (int)editItems.size()) { return L""; }
+    const int li = editItems[item];
+    if (li == -1) { return L"Feux de signal (x3, superpos\u00E9s)"; }
+    switch (lamps[li].role) {
+    case ROLE_MASTHEAD:      return L"T\u00EAte de m\u00E2t avant (blanc)";
+    case ROLE_MASTHEAD_AFT:  return L"T\u00EAte de m\u00E2t arri\u00E8re (blanc)";
+    case ROLE_PORT:          return L"C\u00F4t\u00E9 b\u00E2bord (rouge)";
+    case ROLE_STARBOARD:     return L"C\u00F4t\u00E9 tribord (vert)";
+    case ROLE_STERN:         return L"Poupe (blanc)";
+    case ROLE_ANCHOR:        return L"Mouillage (blanc)";
+    case ROLE_DECK:          return L"Feu de pont (n\u00B0" + std::to_wstring(li + 1) + L")";
+    case ROLE_ACCOMMODATION: return L"\u00C9clairage logement (n\u00B0" + std::to_wstring(li + 1) + L")";
+    case ROLE_SEARCHLIGHT:   return L"Projecteur (n\u00B0" + std::to_wstring(li + 1) + L")";
+    default:                 return L"Feu n\u00B0" + std::to_wstring(li + 1);
+    }
+}
+
+//The vertical line is defined by its lowest lamp; the other two follow at the spacing.
+void ShipLights::restackSignals()
+{
+    if (signalLamps.empty()) { return; }
+    const irr::core::vector3df base = lamps[signalLamps[0]].light->getLocalPosition();
+    for (size_t i = 1; i < signalLamps.size(); i++) {
+        irr::core::vector3df p = base;
+        p.Y += signalSpacingM * mupm * (irr::f32)i;
+        lamps[signalLamps[i]].light->setPosition(p);
+    }
+}
+
+void ShipLights::moveSelected(irr::f32 foreMetres, irr::f32 stbdMetres, irr::f32 upMetres)
+{
+    if (!editing || editItems.empty()) { return; }
+    const irr::core::vector3df delta = (bowDir() * foreMetres + stbdDir() * stbdMetres) * mupm
+        + irr::core::vector3df(0.0f, upMetres * mupm, 0.0f);
+    const int li = editItems[editSel];
+
+    if (li == -1) {
+        for (size_t i = 0; i < signalLamps.size(); i++) {
+            NavLight* l = lamps[signalLamps[i]].light;
+            l->setPosition(l->getLocalPosition() + delta);
+        }
+        return;
+    }
+
+    NavLight* l = lamps[li].light;
+    const irr::core::vector3df p = l->getLocalPosition() + delta;
+    l->setPosition(p);
+
+    //Sidelights are symmetric about the centreline. The centreline is taken through the forward
+    //masthead light when there is one (it sits on it by definition), otherwise the hull's middle.
+    if (mirror && (lamps[li].role == ROLE_PORT || lamps[li].role == ROLE_STARBOARD)) {
+        const Role other = (lamps[li].role == ROLE_PORT) ? ROLE_STARBOARD : ROLE_PORT;
+        irr::core::vector3df c = boxCentre();
+        for (size_t i = 0; i < lamps.size(); i++) {
+            if (lamps[i].role == ROLE_MASTHEAD && lamps[i].light) { c = lamps[i].light->getLocalPosition(); break; }
+        }
+        const irr::core::vector3df s = stbdDir();
+        const irr::f32 off = (p - c).dotProduct(s);
+        const irr::core::vector3df mirrored = p - s * (2.0f * off);
+        for (size_t i = 0; i < lamps.size(); i++) {
+            if (lamps[i].role == other && lamps[i].light) { lamps[i].light->setPosition(mirrored); }
+        }
+    }
+}
+
+bool ShipLights::getSelectedWorldPosition(irr::core::vector3df& out) const
+{
+    if (editItems.empty() || editSel < 0 || editSel >= (int)editItems.size()) { return false; }
+    const int li = editItems[editSel];
+    if (li == -1) {
+        if (signalLamps.empty()) { return false; }
+        out = lamps[signalLamps[1 < signalLamps.size() ? 1 : 0]].light->getPosition(); //middle lamp
+        return true;
+    }
+    if (!lamps[li].light) { return false; }
+    out = lamps[li].light->getPosition();
+    return true;
+}
+
+std::wstring ShipLights::describeSelectedFr() const
+{
+    if (editItems.empty()) { return L""; }
+    const int li = editItems[editSel];
+    irr::core::vector3df p;
+    if (li == -1) {
+        if (signalLamps.empty()) { return L""; }
+        p = lamps[signalLamps[0]].light->getLocalPosition();
+    }
+    else {
+        p = lamps[li].light->getLocalPosition();
+    }
+    const irr::core::vector3df d = p - boxCentre();
+    const irr::f32 upM = (p.Y - waterlineY) / mupm;
+    const irr::f32 foreM = d.dotProduct(bowDir()) / mupm;
+    const irr::f32 sideM = d.dotProduct(stbdDir()) / mupm;
+
+    wchar_t buf[256];
+    std::swprintf(buf, 256, L"Hauteur au-dessus de l'eau : %.2f m\n"
+        L"Avant (+) / arri\u00E8re (-) du milieu : %+.2f m\n"
+        L"Tribord (+) / b\u00E2bord (-) de l'axe : %+.2f m",
+        upM, foreM, sideM);
+    std::wstring s(buf);
+    if (li == -1) {
+        std::swprintf(buf, 256, L"\n(feu du bas ; espacement %.1f m)", signalSpacingM);
+        s += buf;
+    }
+    return s;
+}
+
+void ShipLights::changeSignalSpacing(irr::f32 deltaMetres)
+{
+    signalSpacingM += deltaMetres;
+    if (signalSpacingM < 0.5f) { signalSpacingM = 0.5f; }
+    if (signalSpacingM > 6.0f) { signalSpacingM = 6.0f; }
+    restackSignals();
+}
+
+void ShipLights::revertEdit()
+{
+    for (size_t i = 0; i < lamps.size() && i < editSnapshot.size(); i++) {
+        if (lamps[i].light) { lamps[i].light->setPosition(editSnapshot[i]); }
+    }
+    signalSpacingM = editSnapshotSpacing;
+}
+
+//-------------------------------------------------------------------------------------------------
+//Writes the vessel's light block back into her boat.ini. Every existing light line is taken out
+//(including the ones commented out with '/'), and one clean block is appended at the end; every
+//other line of the file is left exactly as it was. Two copies are kept beside it:
+//  boat.ini.bak  - the file as it was the FIRST time it was ever saved from here (never overwritten)
+//  boat.ini.prev - the file as it was just before THIS save
+//-------------------------------------------------------------------------------------------------
+static std::string kyaraNum(irr::f32 v)
+{
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3f", v);
+    std::string s(buf);
+    for (size_t i = 0; i < s.size(); i++) { if (s[i] == ',') { s[i] = '.'; } } //locale-proof
+    return s;
+}
+
+static bool kyaraIsLightLine(const std::string& rawLine)
+{
+    std::string line = rawLine;
+    while (!line.empty() && (line[line.size() - 1] == '\r' || line[line.size() - 1] == ' ')) { line.erase(line.size() - 1); }
+    size_t a = 0;
+    while (a < line.size() && (line[a] == ' ' || line[a] == '\t')) { a++; }
+    line = line.substr(a);
+    //Our own comment headers from earlier saves and from copy_lights.py
+    if (line.compare(0, 16, "# ---- KYARA FEU") == 0) { return true; }
+    if (line.compare(0, 16, "# Positions copi") == 0) { return true; }
+    if (line.compare(0, 18, "# LightRole is a g") == 0) { return true; }
+    if (line.compare(0, 13, "# Y shifted b") == 0) { return true; }
+
+    std::string key;
+    for (size_t i = 0; i < line.size(); i++) {
+        const char ch = line[i];
+        if (ch == '=' || ch == '/' || ch == ' ' || ch == '\t') { break; }
+        key += (char)std::tolower((unsigned char)ch);
+    }
+    if (key.empty()) { return false; }
+    if (key == "numberoflights") { return true; }
+    if (key == "signalx" || key == "signaly" || key == "signalz" || key == "signalspacing") { return true; }
+    if (key == "anchorx" || key == "anchory" || key == "anchorz") { return true; }
+    if (key.compare(0, 5, "light") == 0 && key.find('(') != std::string::npos) { return true; }
+    if (key.compare(0, 9, "sequence(") == 0 || key.compare(0, 11, "phasestart(") == 0) { return true; }
+    return false;
+}
+
+bool ShipLights::saveToIni(std::wstring& message)
+{
+    std::ifstream in(iniFile.c_str(), std::ios::binary);
+    const std::wstring wpath(iniFile.begin(), iniFile.end());
+    if (!in.is_open()) { message = L"Impossible de lire " + wpath; return false; }
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const bool crlf = content.find("\r\n") != std::string::npos;
+    const std::string nl = crlf ? "\r\n" : "\n";
+
+    //Backups first, so a failed write can never cost the original.
+    {
+        std::ifstream bakTest((iniFile + ".bak").c_str());
+        const bool haveBak = bakTest.is_open();
+        bakTest.close();
+        if (!haveBak) { std::ofstream bak((iniFile + ".bak").c_str(), std::ios::binary); bak << content; }
+        std::ofstream prev((iniFile + ".prev").c_str(), std::ios::binary);
+        prev << content;
+    }
+
+    //Keep every line that is not a light line.
+    std::string kept;
+    size_t start = 0;
+    bool lastBlank = false;
+    while (start <= content.size()) {
+        size_t end = content.find('\n', start);
+        std::string line = content.substr(start, (end == std::string::npos) ? std::string::npos : end - start);
+        if (!line.empty() && line[line.size() - 1] == '\r') { line.erase(line.size() - 1); }
+        if (!kyaraIsLightLine(line)) {
+            const bool blank = (line.find_first_not_of(" \t") == std::string::npos);
+            if (!(blank && lastBlank)) { kept += line + nl; } //removed blocks leave no gaps behind
+            lastBlank = blank;
+        }
+        if (end == std::string::npos) { break; }
+        start = end + 1;
+    }
+    //Trim trailing blank lines, then one blank line before the block.
+    while (kept.size() >= nl.size() * 2 &&
+           kept.compare(kept.size() - nl.size() * 2, nl.size() * 2, nl + nl) == 0) {
+        kept.erase(kept.size() - nl.size());
+    }
+
+    //The block. Navigation lamps are written with an arc of -360..360 = "unspecified", so on
+    //loading they get the correct COLREG sector for their role, turned by AngleCorrection.
+    std::string block = nl + "# ---- KYARA FEUX: placed with the in-simulator editor ----" + nl;
+    int n = 0;
+    std::string lampLines;
+    for (size_t i = 0; i < lamps.size(); i++) {
+        const Lamp& L = lamps[i];
+        if (!L.light || L.role == ROLE_SIGNAL) { continue; }
+        n++;
+        const irr::core::vector3df p = L.light->getLocalPosition();
+        const bool navRole = (L.role == ROLE_MASTHEAD || L.role == ROLE_MASTHEAD_AFT ||
+            L.role == ROLE_PORT || L.role == ROLE_STARBOARD || L.role == ROLE_STERN);
+        const irr::f32 a0 = navRole ? -360.0f : L.iniA0;
+        const irr::f32 a1 = navRole ? 360.0f : L.iniA1;
+        const std::string k = "(" + std::to_string(n) + ")=";
+        lampLines += "LightX" + k + kyaraNum(p.X) + nl;
+        lampLines += "LightY" + k + kyaraNum(p.Y) + nl;
+        lampLines += "LightZ" + k + kyaraNum(p.Z) + nl;
+        lampLines += "LightRange" + k + kyaraNum(L.rangeM / M_IN_NM) + nl;
+        lampLines += "LightRed" + k + std::to_string(L.colour.getRed()) + nl;
+        lampLines += "LightGreen" + k + std::to_string(L.colour.getGreen()) + nl;
+        lampLines += "LightBlue" + k + std::to_string(L.colour.getBlue()) + nl;
+        lampLines += "LightStartAngle" + k + kyaraNum(a0) + nl;
+        lampLines += "LightEndAngle" + k + kyaraNum(a1) + nl;
+        const char* rn = roleIniName(L.role);
+        if (rn[0]) { lampLines += std::string("LightRole") + k + rn + nl; }
+        if (!L.sequence.empty()) { lampLines += "Sequence" + k + L.sequence + nl; }
+        if (L.phase != 0) { lampLines += "PhaseStart" + k + std::to_string(L.phase) + nl; }
+        lampLines += nl;
+    }
+    block += "NumberOfLights=" + std::to_string(n) + nl + nl + lampLines;
+    if (!signalLamps.empty()) {
+        const irr::core::vector3df s = lamps[signalLamps[0]].light->getLocalPosition();
+        block += "SignalX=" + kyaraNum(s.X) + nl;
+        block += "SignalY=" + kyaraNum(s.Y) + nl;
+        block += "SignalZ=" + kyaraNum(s.Z) + nl;
+        block += "SignalSpacing=" + kyaraNum(signalSpacingM) + nl;
+    }
+
+    std::ofstream out(iniFile.c_str(), std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+        message = L"Impossible d'\u00E9crire " + wpath + L" (fichier en lecture seule ?)";
+        return false;
+    }
+    out << kept << block;
+    out.close();
+    message = L"Enregistr\u00E9 : " + std::to_wstring(n) + L" feux + signaux dans " + wpath;
+    return true;
+}
+
+int ShipLights::getEditRevision() const { return editRevision; }
+
+void ShipLights::cycleSelectedRole(int direction)
+{
+    if (!editing || editItems.empty()) { return; }
+    const int li = editItems[editSel];
+    if (li < 0 || !lamps[li].light) { return; } //the signal stack is always the signal stack
+    static const Role cycle[] = { ROLE_MASTHEAD, ROLE_MASTHEAD_AFT, ROLE_PORT, ROLE_STARBOARD,
+                                  ROLE_STERN, ROLE_ANCHOR, ROLE_DECK, ROLE_ACCOMMODATION };
+    const int n = (int)(sizeof(cycle) / sizeof(cycle[0]));
+    int at = 0;
+    for (int i = 0; i < n; i++) { if (cycle[i] == lamps[li].role) { at = i; } }
+    at = ((at + direction) % n + n) % n;
+    Lamp& L = lamps[li];
+    L.role = cycle[at];
+
+    //A sidelight has to be red or green, everything else in the set white (working lights warm).
+    irr::video::SColor col = COL_WHITE;
+    if (L.role == ROLE_PORT) { col = COL_RED; }
+    else if (L.role == ROLE_STARBOARD) { col = COL_GREEN; }
+    else if (L.role == ROLE_DECK || L.role == ROLE_ACCOMMODATION) { col = COL_DECK; }
+    L.colour = col;
+    L.light->setColour(col);
+    L.iniA0 = -360.0f; L.iniA1 = 360.0f; //the role decides the arc from now on
+
+    //Keep the anchor index honest
+    if (L.role == ROLE_ANCHOR && anchorFwd < 0) { anchorFwd = li; }
+    if (L.role != ROLE_ANCHOR && anchorFwd == li) {
+        anchorFwd = -1;
+        for (size_t i = 0; i < lamps.size(); i++) {
+            if (lamps[i].role == ROLE_ANCHOR && lamps[i].light) { anchorFwd = (int)i; break; }
+        }
+    }
+    editRevision++;
+}
+
+bool ShipLights::deleteSelected()
+{
+    if (!editing || editItems.empty()) { return false; }
+    const int li = editItems[editSel];
+    if (li < 0 || !lamps[li].light) { return false; }
+    lamps[li].light->remove();
+    delete lamps[li].light;
+    lamps[li].light = 0;
+    if (lamps[li].lightSource) { lamps[li].lightSource->remove(); lamps[li].lightSource = 0; }
+    if (anchorFwd == li) { anchorFwd = -1; }
+    lamps[li].role = ROLE_UNUSED; //so countRole / hasRole no longer see it
+    editItems.erase(editItems.begin() + editSel);
+    if (editSel >= (int)editItems.size()) { editSel = (int)editItems.size() - 1; }
+    if (editSel < 0) { editSel = 0; }
+    editRevision++;
+    return true;
 }

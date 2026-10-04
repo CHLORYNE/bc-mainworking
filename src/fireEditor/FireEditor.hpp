@@ -9,6 +9,7 @@
 
 #include "irrlicht.h"
 #include "../chartView/ChartView.hpp"
+#include "FireHelp.hpp"
 #include "FireScenario.hpp"
 
 class FireEditor : public irr::IEventReceiver {
@@ -85,6 +86,10 @@ private:
     std::wstring toolHint() const;
     std::wstring boatLabel(int index) const;
     std::wstring rescueModelsLine() const;
+    // Kyara: explanation shown in the tab's info text while a time field has focus.
+    FireHelp::Field helpFieldFor(irr::s32 id) const;
+    std::wstring helpPrefix(irr::s32 tab) const;    // "" unless helpField lives on that tab
+    bool timelineProblem(std::wstring& message) const;
 
     irr::IrrlichtDevice* device;
     irr::video::IVideoDriver* driver;
@@ -103,6 +108,8 @@ private:
     Pick selected, hover;
     int selBoat, selHelo, selSurvivor;
     bool moveGroupWithCasualty;
+    FireHelp::Field helpField;       // time field currently explained, Field_None = none
+    bool timelineConfirmed;          // instructor chose to save an impossible timeline anyway
 
     // mouse
     bool leftDown, rightDown, panning, dragging, rightMoved;

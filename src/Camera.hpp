@@ -65,6 +65,12 @@ class Camera
         void setFrozen(bool frozen);
         void toggleFrozen();
         void applyOffset(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ);
+        //KYARA FEUX EDIT: orbit camera for placing lamps. Circles a point (the lamp being moved),
+        //its angle measured from the target vessel's bow so the view stays put as she turns.
+        void setOrbit(bool on, irr::f32 radiusMetres = 40.0f);
+        bool isOrbiting() const;
+        void setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingDeg);
+        void orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
         void update(irr::f32 deltaTime=0, irr::core::quaternion quat=irr::core::quaternion(0,0,0,1), irr::core::vector3df pos=irr::core::vector3df(0,0,0), irr::core::vector2df lensShift=irr::core::vector2df(0,0), bool vrMode = false);
 
     private:
@@ -91,6 +97,12 @@ class Camera
         bool isHighViewActive;
         irr::f32 previousLookAngle;
         irr::f32 previousLookUpAngle;
+
+        //KYARA FEUX EDIT
+        bool orbiting;
+        irr::core::vector3df orbitCentre;
+        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius;
+        void orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const;
 };
 
 #endif

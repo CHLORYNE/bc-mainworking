@@ -287,6 +287,17 @@ public:
         GUI_ID_INSTR_LIGHTS_END = GUI_ID_INSTR_LIGHTS_0 + 3,
         GUI_ID_OWN_DECK_LIGHTS_CHECKBOX = GUI_ID_INSTR_LIGHTS_END,
         GUI_ID_DETACH_CONSOLE_BUTTON, //instrument console in its own window (second screen)
+        //KYARA FEUX EDIT: in-simulator lamp placement
+        GUI_ID_LIGHTS_EDIT_BUTTON,
+        GUI_ID_LEDIT_LIST,
+        GUI_ID_LEDIT_MIRROR,
+        GUI_ID_LEDIT_SPACING_DOWN,
+        GUI_ID_LEDIT_SPACING_UP,
+        GUI_ID_LEDIT_SAVE,
+        GUI_ID_LEDIT_REVERT,
+        GUI_ID_LEDIT_CLOSE,
+        GUI_ID_LEDIT_ROLE,
+        GUI_ID_LEDIT_DELETE,
 
     };
 
@@ -319,6 +330,11 @@ public:
     //KYARA FEUX TAB
     void refreshLightsTab();       // pull the selected vessel's light state into both tabs
     int getLightsVessel() const;   // -1 = own ship, 0.. = other ship
+    //KYARA FEUX EDIT: the "Placement des feux" window
+    void openLightEditor(int vessel);
+    void closeLightEditor();
+    void refreshLightEditor();
+    void setLightEditorStatus(const std::wstring& text, bool isError);
     irr::s32 adjustMagnification(irr::s32 delta); //Returns the new raw scrollbar position
     void toggleShow2dInterface();
     void show2dInterface();
@@ -668,6 +684,14 @@ private:
     irr::gui::IGUIButton* instrLightsButton[3] = {};
     irr::gui::IGUICheckBox* ownDeckLightsBox = 0;
     irr::gui::IGUIStaticText* interiorStatusText = 0;
+    //KYARA FEUX EDIT
+    irr::gui::IGUIWindow* lightEditWindow = 0;
+    irr::gui::IGUIListBox* lightEditList = 0;
+    irr::gui::IGUIStaticText* lightEditReadout = 0;
+    irr::gui::IGUICheckBox* lightEditMirror = 0;
+    irr::gui::IGUIStaticText* lightEditSpacingText = 0;
+    irr::gui::IGUIStaticText* lightEditStatus = 0;
+    int lightEditRevision = -1;
 
     //Different locations for heading indicator depending on GUI visibility
     irr::core::rect<irr::s32> stdHdgIndicatorPos;

@@ -85,6 +85,7 @@ NavLight::NavLight(irr::scene::ISceneNode* parent, irr::scene::ISceneManager* sm
     //set initial alpha to implausible value
     currentAlpha = -1;
     enabled = true; // KYARA FEUX
+    editVisible = -1; // KYARA FEUX EDIT
 }
 
 NavLight::~NavLight() {
@@ -93,12 +94,14 @@ NavLight::~NavLight() {
 
 irr::core::vector3df NavLight::getPosition() const
 {
+    if (!lightNode) { return irr::core::vector3df(0, 0, 0); } //KYARA FEUX EDIT
     lightNode->updateAbsolutePosition();//ToDo: This may be needed, but seems odd that it's required
     return lightNode->getAbsolutePosition();
 }
 
 void NavLight::setPosition(irr::core::vector3df position)
 {
+    if (!lightNode) { return; } //KYARA FEUX EDIT
     lightNode->setPosition(position);
 }
 
@@ -117,7 +120,23 @@ void NavLight::setColour(irr::video::SColor colour) {
     currentAlpha = -1; //force the vertex colours to be rewritten on the next update
 }
 
+//KYARA FEUX EDIT
+void NavLight::setEditVisible(int mode) {
+    editVisible = mode;
+}
+
+irr::core::vector3df NavLight::getLocalPosition() const {
+    return lightNode ? lightNode->getPosition() : irr::core::vector3df(0, 0, 0);
+}
+
+void NavLight::remove() {
+    //The halo is a child of the core, so removing the core takes both.
+    if (lightNode) { lightNode->remove(); lightNode = 0; glowNode = 0; }
+}
+
 void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
+
+    if (!lightNode) { return; } //KYARA FEUX EDIT: removed by the editor
 
     //KYARA FEUX: a lamp that is switched off is simply not there
     if (!enabled) {
@@ -180,6 +199,12 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
         if (sequence[positionInSequence] == 'D' || sequence[positionInSequence] == 'd') {
             lightNode->setVisible(false);
         }
+    }
+
+    //KYARA FEUX EDIT: while placing lamps, ignore arc, range and sequence - you have to be able to
+    //see a sidelight from the wrong side to put it in the right place.
+    if (editVisible >= 0) {
+        lightNode->setVisible(editVisible == 1);
     }
 
     // ================= KYARA: fog / haze =================
@@ -270,6 +295,7 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
 
 void NavLight::moveNode(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ)
 {
+    if (!lightNode) { return; } //KYARA FEUX EDIT
     irr::core::vector3df currentPos = lightNode->getPosition();
     irr::f32 newPosX = currentPos.X + deltaX;
     irr::f32 newPosY = currentPos.Y + deltaY;
