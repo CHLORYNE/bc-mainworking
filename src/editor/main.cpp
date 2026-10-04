@@ -202,6 +202,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     scnWorldChoiceWindow->getCloseButton()->setVisible(false);
     scnWorldChoiceWindow->setDrawTitlebar(false);
     scnWorldChoiceWindow->setDrawBackground(false);
+    scnWorldChoiceWindow->setDraggable(false); //else dragging an empty spot moves the lists off their cards
 
     //Drawn first: header, cards and chart behind the lists and buttons.
     EditorStartScreen* screen = new EditorStartScreen(device, scnWorldChoiceWindow, L"\u00C9diteur de sc\u00E9nario",
