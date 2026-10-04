@@ -98,6 +98,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Constants.hpp" />
+    <ClInclude Include="..\EditorStartScreen.hpp" />
     <ClInclude Include="..\IncidentConfig.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\ScenarioDataStructure.hpp" />

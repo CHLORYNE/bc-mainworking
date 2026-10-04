@@ -57,6 +57,8 @@ private:
     irr::gui::IGUIWindow* ieWindow;      // import / export
     irr::gui::IGUIEditBox* ieText;
     bool ieImporting;
+    irr::gui::IGUIFont* previousFont;
+    irr::video::SColor previousHighlight;  // skin font before the menu (given back)
 
     static std::string rememberedWorld, rememberedScenario;   // selection kept between visits
 };
