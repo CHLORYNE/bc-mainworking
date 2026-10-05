@@ -699,7 +699,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     const irr::s32 rowH = (irr::s32)(ecCh * 1.7f);
     const irr::s32 rowPitch = (irr::s32)(ecCh * 2.4f);
     const irr::s32 row0Y = (irr::s32)(ecCh * 0.7f);
-    const int      ecMaxRows = 6; //Wind & Current is the tallest tab: 4 sliders + the override box
+    const int      ecMaxRows = 7; //Feux is the tallest tab: 8 situations, deck lights, then the answer key
 
     //Height the tab body needs, then what the whole window needs to hold it.
     const irr::s32 tabBodyH = row0Y + (ecMaxRows - 1) * rowPitch + rowH + (irr::s32)(ecCh * 0.7f);
@@ -1005,8 +1005,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 #if KYARA_COLREG_ENABLED
     //=== KYARA FEUX TAB: the COLREG situation of any vessel ======================================
     // Row 0      : vessel                              | "Feu masque (erreur volontaire)"
-    // Rows 1..4  : 7 situations + deck lights (2 cols)  | 7 lamps to hide + "Retablir" (2 cols)
-    // Row 5      : what the rules want her to show right now
+    // Rows 1..4  : 8 situations (2 cols)                | 7 lamps to hide + "Retablir" (2 cols)
+    // Row 5      : deck lights
+    // Row 6      : what the rules want her to show right now
     {
         irr::gui::IGUITab* tabFeux = extraControlsTabControl->addTab(L"Feux");
 
@@ -1053,8 +1054,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 ShipLights::getSituationShortFr((ShipLights::Situation)k),
                 ShipLights::getSituationNameFr((ShipLights::Situation)k));
         }
-        //The 8th slot of the left block: working lights of the same vessel.
-        lightsDeckBox = guienv->addCheckBox(false, cell(4, cB0, cB1), tabFeux,
+        //Under the situations: working lights of the same vessel.
+        lightsDeckBox = guienv->addCheckBox(false, cell(5, cA0, cB1), tabFeux,
             GUI_ID_LIGHTS_DECK_CHECKBOX, L"Feux de pont");
         lightsDeckBox->setToolTipText(L"Feux de travail / de pont de ce navire (pas des feux de navigation)");
 
@@ -1070,10 +1071,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         guienv->addButton(cell(4, cD0, cD1), tabFeux, GUI_ID_LIGHTS_OVR_RESET,
             L"R\u00E9tablir", L"Rallumer tous les feux masqu\u00E9s de ce navire");
 
-        //Row 5: the answer key, for the instructor - and the way into the placement editor.
-        lightsStatusText = guienv->addStaticText(L"", cell(5, cA0, cC1), false, false, tabFeux);
+        //Row 6: the answer key, for the instructor - and the way into the placement editor.
+        lightsStatusText = guienv->addStaticText(L"", cell(6, cA0, cC1), false, false, tabFeux);
         lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
-        guienv->addButton(cell(5, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
+        guienv->addButton(cell(6, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
             L"Placer les feux", L"Placer les feux de ce navire \u00E0 la main et les enregistrer dans son boat.ini");
     }
 #endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays

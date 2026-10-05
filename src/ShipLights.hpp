@@ -49,7 +49,8 @@ public:
         SIT_AGROUND,        // Echoue (Rule 30 d)
         SIT_NUC,            // Non maitre de sa manoeuvre (Rule 27 a)
         SIT_RAM,            // Capacite de manoeuvre restreinte (Rule 27 b)
-        SIT_FISHING,        // En peche / chalutage (Rule 26)
+        SIT_FISHING,        // En peche au chalut - trawling (Rule 26 b)
+        SIT_FISHING_OTHER,  // En peche autre que chalut (Rule 26 c)
         SIT_LIGHTS_OUT,     // tous feux eteints
         SIT_COUNT
     };
@@ -179,6 +180,7 @@ private:
         irr::core::vector3df position, irr::video::SColor colour,
         irr::f32 a0, irr::f32 a1, irr::f32 rangeNm);
     bool hasRole(Role role) const;
+    void ensureAftAnchor(); // Rule 30 a ii: 50 m and over, a second anchor light aft and lower
     void addDeckLamp(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* shipNode,
         irr::core::vector3df position, irr::f32 radiusMetres);
     void attachLightSource(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* shipNode,

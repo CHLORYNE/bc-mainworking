@@ -422,8 +422,30 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
         lamps.push_back(lamp);
         anchorFwd = (int)lamps.size() - 1;
     }
+    ensureAftAnchor();
 
     loaded = true;
+}
+
+//Rule 30 a ii: a vessel of 50 m and over at anchor shows a second all-round white light at or near
+//the stern, lower than the forward one (Annex I 2 k: at least 4.5 m lower). Added when her ini has
+//only one; placed near the stern, 4.5 m below the forward light but no lower than 3 m above the
+//waterline. It can be moved in the placement editor like any other lamp.
+void ShipLights::ensureAftAnchor()
+{
+    if (lengthMetres < 50.0f || countRole(ROLE_ANCHOR) >= 2 || !smgrStored || !shipNodeStored) { return; }
+    irr::f32 upM = 3.0f;
+    if (anchorFwd >= 0 && lamps[anchorFwd].light) {
+        const irr::f32 fwdUp = (lamps[anchorFwd].light->getLocalPosition().Y - waterlineY) / mupm;
+        if (fwdUp - 4.5f > upM) { upM = fwdUp - 4.5f; }
+    }
+    Lamp lamp;
+    lamp.role = ROLE_ANCHOR;
+    lamp.colour = COL_WHITE;
+    lamp.light = makeSignalLight(smgrStored, shipNodeStored, modelPoint(-0.92f, 0.0f, upM), COL_WHITE, ANCHOR_RANGE_NM);
+    lamp.rangeM = ANCHOR_RANGE_NM * M_IN_NM;
+    lamps.push_back(lamp);
+    anchorAft = (int)lamps.size() - 1;
 }
 
 int ShipLights::countRole(Role role) const
@@ -463,18 +485,22 @@ bool ShipLights::lampShouldBeLit(const Lamp& lamp, bool makingWay) const
     //Rules 26 and 27: not under command, restricted in her ability to manoeuvre and fishing show
     //their sidelights and sternlight ONLY when making way, and a vessel not under command never
     //shows a masthead light at all.
-    const bool special = (situation == SIT_NUC || situation == SIT_RAM || situation == SIT_FISHING);
+    const bool fishing = (situation == SIT_FISHING || situation == SIT_FISHING_OTHER);
+    const bool special = (situation == SIT_NUC || situation == SIT_RAM || fishing);
     const bool showMasthead = underWay && (situation == SIT_UNDERWAY ||
         (situation == SIT_RAM && makingWay));
     const bool showSidesAndStern = underWay && (!special || makingWay);
 
     switch (lamp.role) {
     case ROLE_MASTHEAD:      return showMasthead;
-    case ROLE_MASTHEAD_AFT:  return showMasthead && big;
+    //Trawling, 50 m and over: a masthead light abaft of and higher than the green light (Rule 26
+    //b ii), whether making way or not; the forward masthead light stays off.
+    case ROLE_MASTHEAD_AFT:  return (showMasthead && big) || (situation == SIT_FISHING && big && underWay);
     case ROLE_PORT:
     case ROLE_STARBOARD:
     case ROLE_STERN:         return showSidesAndStern;
 
+    //Not when fishing at anchor: a vessel engaged in fishing shows only her Rule 26 lights (26 a).
     case ROLE_ANCHOR:        return (situation == SIT_ANCHORED || situation == SIT_AGROUND);
 
     case ROLE_SIGNAL:
@@ -484,11 +510,13 @@ bool ShipLights::lampShouldBeLit(const Lamp& lamp, bool makingWay) const
         case SIT_RAM:     return lamp.signalIndex < 3;              // red, white, red
         case SIT_AGROUND: return lamp.signalIndex < 2;              // red over red
         case SIT_FISHING: return lamp.signalIndex < 2;              // green over white (trawling)
+        case SIT_FISHING_OTHER: return lamp.signalIndex < 2;        // red over white (other fishing)
         default:          return false;
         }
 
+    //At anchor, 100 m and over, the decks must be lit (Rule 30 c); otherwise the instructor's choice.
     case ROLE_DECK:
-    case ROLE_ACCOMMODATION: return deckLights;
+    case ROLE_ACCOMMODATION: return deckLights || (situation == SIT_ANCHORED && lengthMetres >= 100.0f);
     case ROLE_SEARCHLIGHT:   return false; // handled separately
     default:                 return false;
     }
@@ -533,6 +561,9 @@ void ShipLights::update(irr::f32 scenarioTime, irr::u32 lightLevel, bool makingW
         else if (situation == SIT_FISHING) {
             want = (lamp.signalIndex == 1) ? COL_GREEN : COL_WHITE; // white below, green above
         }
+        else if (situation == SIT_FISHING_OTHER) {
+            want = (lamp.signalIndex == 1) ? COL_RED : COL_WHITE;   // white below, red above
+        }
         if (want != lamp.colour) {
             lamp.colour = want;
             if (lamp.light) { lamp.light->setColour(want); }
@@ -569,7 +600,8 @@ const char* ShipLights::getSituationName(Situation s)
     case SIT_AGROUND:    return "Aground";
     case SIT_NUC:        return "Not under command";
     case SIT_RAM:        return "Restricted in ability to manoeuvre";
-    case SIT_FISHING:    return "Fishing / trawling";
+    case SIT_FISHING:    return "Fishing: trawling";
+    case SIT_FISHING_OTHER: return "Fishing other than trawling";
     case SIT_LIGHTS_OUT: return "All lights out";
     default:             return "?";
     }
@@ -583,7 +615,8 @@ const wchar_t* ShipLights::getSituationNameFr(Situation s)
     case SIT_AGROUND:    return L"\u00C9chou\u00E9";
     case SIT_NUC:        return L"Non ma\u00EEtre de sa manoeuvre";
     case SIT_RAM:        return L"Capacit\u00E9 de manoeuvre restreinte";
-    case SIT_FISHING:    return L"En p\u00EAche / chalutage";
+    case SIT_FISHING:    return L"En p\u00EAche au chalut (r\u00E8gle 26 b)";
+    case SIT_FISHING_OTHER: return L"En p\u00EAche autre qu'au chalut (r\u00E8gle 26 c)";
     case SIT_LIGHTS_OUT: return L"Tous feux \u00E9teints";
     default:             return L"?";
     }
@@ -632,7 +665,8 @@ const wchar_t* ShipLights::getSituationShortFr(Situation s)
     case SIT_AGROUND:    return L"\u00C9chou\u00E9";
     case SIT_NUC:        return L"Non ma\u00EEtre (NUC)";
     case SIT_RAM:        return L"Manoeuvre restreinte";
-    case SIT_FISHING:    return L"P\u00EAche / chalut";
+    case SIT_FISHING:    return L"Chalutage";
+    case SIT_FISHING_OTHER: return L"P\u00EAche (autre)";
     case SIT_LIGHTS_OUT: return L"Feux \u00E9teints";
     default:             return L"?";
     }
@@ -675,7 +709,11 @@ std::wstring ShipLights::describeExpectedFr() const
         return big ? L"2 feux de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)"
                    : L"Feu de t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9, feu de poupe (r\u00E8gle 23)";
     case SIT_ANCHORED:
-        return L"Feu de mouillage blanc visible sur tout l'horizon (r\u00E8gle 30)";
+        if (lengthMetres >= 100.0f) {
+            return L"2 feux de mouillage (AR plus bas) + ponts \u00E9clair\u00E9s (r\u00E8gle 30 a, c)";
+        }
+        return big ? L"2 feux de mouillage, celui de l'arri\u00E8re plus bas (r\u00E8gle 30 a)"
+                   : L"Feu de mouillage blanc visible sur tout l'horizon (r\u00E8gle 30)";
     case SIT_AGROUND:
         return L"Feu de mouillage + deux feux rouges superpos\u00E9s (r\u00E8gle 30 d)";
     case SIT_NUC:
@@ -685,8 +723,15 @@ std::wstring ShipLights::describeExpectedFr() const
         return lastMakingWay ? L"Rouge-blanc-rouge + m\u00E2t, c\u00F4t\u00E9s, poupe : fait route surface (r\u00E8gle 27 b)"
                              : L"Rouge-blanc-rouge seuls : stopp\u00E9 (r\u00E8gle 27 b)";
     case SIT_FISHING:
+        if (big) {
+            return lastMakingWay ? L"Vert/blanc + m\u00E2t AR plus haut + c\u00F4t\u00E9s, poupe (r\u00E8gle 26 b)"
+                                 : L"Vert/blanc + m\u00E2t AR plus haut seuls (r\u00E8gle 26 b)";
+        }
         return lastMakingWay ? L"Vert sur blanc + c\u00F4t\u00E9s et poupe : fait route surface (r\u00E8gle 26 b)"
-                             : L"Vert sur blanc seuls : stopp\u00E9, ni c\u00F4t\u00E9s ni poupe (r\u00E8gle 26 b)";
+                             : L"Vert sur blanc seuls : stopp\u00E9 ou mouill\u00E9 (r\u00E8gle 26 b)";
+    case SIT_FISHING_OTHER:
+        return lastMakingWay ? L"Rouge sur blanc + c\u00F4t\u00E9s et poupe : fait route (r\u00E8gle 26 c)"
+                             : L"Rouge sur blanc seuls : stopp\u00E9 ou mouill\u00E9 (r\u00E8gle 26 c)";
     case SIT_LIGHTS_OUT:
         return L"Aucun feu : navire non \u00E9clair\u00E9";
     default:
@@ -803,6 +848,7 @@ void ShipLights::ensureStandardSet()
         lamps.push_back(lamp);
         anchorFwd = (int)lamps.size() - 1;
     }
+    ensureAftAnchor();
     loaded = true;
 }
 
