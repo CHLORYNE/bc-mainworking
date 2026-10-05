@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <cstdint>
+#include <string>
 //#include <cmath>
 
 namespace irr
