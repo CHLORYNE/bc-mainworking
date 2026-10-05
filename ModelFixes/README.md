@@ -102,6 +102,7 @@ Every other line is untouched.
 | Othership | ITPM-SAFI-SAR2 | 22 m, T 1.83 | 15 m, T 1.23 | ScaleFactor 0.3 → 0.201794 |
 | Othership | ITPM-TANTAN-SAR1 | 22 m, T 1.83 | 15 m, T 1.23 | ScaleFactor 0.3 → 0.201794 |
 | Othership | ITPM-TANTAN-SAR2 | 22 m, T 1.83 | 15 m, T 1.23 | ScaleFactor 0.3 → 0.201794 |
+| Othership | LNG AZROU Tanker | 194 m, T 8.73 | 290 m, T 11.50 | ScaleFactor 12 → 17.9396; YCorrection -0.27 → -0.1832 |
 | Othership | M11 | 18 m, T 1.14 | 18 m, T 1.21 | YCorrection 0.23 → 0.22 |
 | Othership | MOB | 4.5 m tall person | 1.8 m tall person | ScaleFactor 0.030 → 0.00803571 |
 | Othership | MR | 281 m, T 8.59 | 50 m, T 2.50 | ScaleFactor 10.0 → 1.77999; YCorrection 0.13 → -0.4155 |
