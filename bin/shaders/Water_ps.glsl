@@ -297,8 +297,66 @@ vec3 waterTinted(vec3 c)
     return mix(c, dot(c, LUMA) * hue, REFL_WATER_TINT * (1.0 - gStorm)); // storm: reflect the grey sky as it is
 }
 
+// Hull mask: no sea inside the own ship's waterline outline, so high crests never show through
+// the plating or inside the wheelhouse. Set from SimulationModel through Water::setHullMask; the
+// outline is measured from the ship's model when she loads (OwnShip::measureHullWaterline).
+// Only water INSIDE the hull is hidden: above her bottom as she is heaving, pitching and rolling,
+// so the sea under a bow lifted clear by a wave is still drawn.
+//   hullMaskA = (ship node x, ship node z, forward x, forward z)
+//   hullMaskB = (zMin, zMax, centre x, on)            in the ship node's frame, metres
+//   hullW0..5 = half-widths at 24 stations from zMin (stern) to zMax (bow)
+//   hullK0..5 = height of her bottom at those stations, ship node frame
+//   hullRowY  = (how local x, y, z move world height, node height): world y of a hull point
+varying float vWorldY;
+uniform vec4 hullK0;
+uniform vec4 hullK1;
+uniform vec4 hullK2;
+uniform vec4 hullK3;
+uniform vec4 hullK4;
+uniform vec4 hullK5;
+uniform vec4 hullRowY;
+float hullKeel(int i)
+{
+    vec4 v = (i < 4) ? hullK0 : (i < 8) ? hullK1 : (i < 12) ? hullK2 : (i < 16) ? hullK3 : (i < 20) ? hullK4 : hullK5;
+    int c = i - 4 * (i / 4);
+    return (c == 0) ? v.x : (c == 1) ? v.y : (c == 2) ? v.z : v.w;
+}
+uniform vec4 hullMaskA;
+uniform vec4 hullMaskB;
+uniform vec4 hullW0;
+uniform vec4 hullW1;
+uniform vec4 hullW2;
+uniform vec4 hullW3;
+uniform vec4 hullW4;
+uniform vec4 hullW5;
+float hullStation(int i)
+{
+    vec4 v = (i < 4) ? hullW0 : (i < 8) ? hullW1 : (i < 12) ? hullW2 : (i < 16) ? hullW3 : (i < 20) ? hullW4 : hullW5;
+    int c = i - 4 * (i / 4);
+    return (c == 0) ? v.x : (c == 1) ? v.y : (c == 2) ? v.z : v.w;
+}
+bool insideHull(vec2 p)
+{
+    if (hullMaskB.w < 0.5 || hullMaskB.y <= hullMaskB.x) return false;
+    vec2 d = p - hullMaskA.xy;
+    float lz = d.x * hullMaskA.z + d.y * hullMaskA.w;                  // along the ship
+    float lxNode = d.x * hullMaskA.w - d.y * hullMaskA.z;              // across
+    float lx = lxNode - hullMaskB.z;
+    float t = (lz - hullMaskB.x) / (hullMaskB.y - hullMaskB.x) * 23.0;
+    if (t < 0.0 || t > 23.0) return false;
+    int i = int(floor(t));
+    if (i > 22) i = 22;
+    float f = t - float(i);
+    float hw = mix(hullStation(i), hullStation(i + 1), f);
+    if (abs(lx) >= hw) return false;
+    float keel = mix(hullKeel(i), hullKeel(i + 1), f);
+    float keelWorldY = hullRowY.w + hullRowY.x * lxNode + hullRowY.y * keel + hullRowY.z * lz;
+    return vWorldY > keelWorldY;
+}
+
 void main()
 {
+    if (insideHull(vWorldXZ)) discard;
     gStorm = smoothstep(0.0, 1.0, clamp(gloom, 0.0, 1.0)); // KYARA METEO
     float z = gl_FragCoord.z / gl_FragCoord.w;
 

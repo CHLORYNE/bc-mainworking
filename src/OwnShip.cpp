@@ -431,6 +431,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
 
     length = ship->getTransformedBoundingBox().getExtent().Z; // Store length for basic collision calculation
     breadth = ship->getTransformedBoundingBox().getExtent().X;  // Store length for basic collision calculation
+    measureHullWaterline(); //for the hull mask on the water (no sea drawn inside the hull)
 
     // DEE_DEC22 ---------- End of reading in information from .ini files and ownShipData
 
@@ -3039,6 +3040,109 @@ irr::core::vector3df OwnShip::getWindscreenPosition() const { return windscreenP
 irr::f32 OwnShip::getWindscreenWidth() const { return windscreenWidth; }
 irr::f32 OwnShip::getWindscreenHeight() const { return windscreenHeight; }
 irr::f32 OwnShip::getWindscreenTilt() const { return windscreenTilt; }
+
+//Cuts the model at the waterline (y = 0 once scaled and placed at heightCorrection) and keeps,
+//at each station along the length, how far the hull reaches either side. Conservative: each
+//station keeps the narrowest of itself and its neighbours, minus 8 %, so the outline stays inside
+//the plating and no water goes missing beside the hull.
+void OwnShip::measureHullWaterline()
+{
+    hullWlValid = false;
+    for (int i = 0; i < HULL_STATIONS; i++) { hullWlHalf[i] = 0.0f; hullWlKeel[i] = 0.0f; }
+    irr::scene::IAnimatedMeshSceneNode* node = (irr::scene::IAnimatedMeshSceneNode*)ship;
+    if (!node || !node->getMesh()) { return; }
+    const irr::core::aabbox3df box = ship->getTransformedBoundingBox();
+    hullWlZMin = box.MinEdge.Z;
+    hullWlZMax = box.MaxEdge.Z;
+    hullWlCentreX = box.getCenter().X;
+    if (hullWlZMax - hullWlZMin < 0.5f || box.MinEdge.Y >= 0.0f || box.MaxEdge.Y <= 0.0f) {
+        device->getLogger()->log("Hull waterline outline: none (the model does not cross the waterline)");
+        return;
+    }
+    const irr::core::matrix4 m = ship->getAbsoluteTransformation();
+    const irr::f32 stationLength = (hullWlZMax - hullWlZMin) / (irr::f32)(HULL_STATIONS - 1);
+    irr::f32 maxHalf[HULL_STATIONS], minY[HULL_STATIONS];
+    for (int i = 0; i < HULL_STATIONS; i++) { maxHalf[i] = 0.0f; minY[i] = 1e9f; }
+
+    irr::scene::IMesh* mesh = node->getMesh()->getMesh(0);
+    for (irr::u32 b = 0; mesh && b < mesh->getMeshBufferCount(); b++) {
+        const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+        if (!mb || mb->getIndexCount() < 3) { continue; }
+        const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+        const irr::u16* i16 = mb->getIndices();
+        const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+        for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+            irr::core::vector3df v[3];
+            for (int k = 0; k < 3; k++) {
+                const irr::u32 index = idx32 ? i32[t + k] : i16[t + k];
+                if (index >= mb->getVertexCount()) { v[k] = irr::core::vector3df(0, 0, 0); continue; }
+                v[k] = mb->getPosition(index);
+                m.transformVect(v[k]);
+            }
+            //Her bottom: the lowest point of the hull at each station the triangle spans
+            for (int e = 0; e < 3; e++) {
+                const irr::core::vector3df& a = v[e];
+                const irr::core::vector3df& c = v[(e + 1) % 3];
+                const irr::f32 za = (a.Z < c.Z) ? a.Z : c.Z, zc = (a.Z < c.Z) ? c.Z : a.Z;
+                const int e0 = (int)ceilf((za - hullWlZMin) / stationLength - 0.001f);
+                const int e1 = (int)floorf((zc - hullWlZMin) / stationLength + 0.001f);
+                for (int st = (e0 < 0 ? 0 : e0); st <= e1 && st < HULL_STATIONS; st++) {
+                    const irr::f32 zs = hullWlZMin + st * stationLength;
+                    const irr::f32 dz = c.Z - a.Z;
+                    const irr::f32 y = (fabsf(dz) > 1e-6f) ? a.Y + (zs - a.Z) / dz * (c.Y - a.Y) : ((a.Y < c.Y) ? a.Y : c.Y);
+                    if (y < minY[st]) { minY[st] = y; }
+                }
+            }
+            //A triangle cutting the waterline gives a segment of the waterline outline: sample it at
+            //every station it spans (a coarse hull has few vertices, so its crossing points alone
+            //would leave most stations empty).
+            irr::core::vector2df cut[2];
+            int cuts = 0;
+            for (int e = 0; e < 3 && cuts < 2; e++) {
+                const irr::core::vector3df& a = v[e];
+                const irr::core::vector3df& c = v[(e + 1) % 3];
+                if ((a.Y > 0.0f) == (c.Y > 0.0f)) { continue; }
+                const irr::f32 f = a.Y / (a.Y - c.Y);
+                cut[cuts++] = irr::core::vector2df(a.X + f * (c.X - a.X), a.Z + f * (c.Z - a.Z)); //(x, z)
+            }
+            if (cuts < 2) { continue; }
+            const irr::f32 z0 = (cut[0].Y < cut[1].Y) ? cut[0].Y : cut[1].Y;
+            const irr::f32 z1 = (cut[0].Y < cut[1].Y) ? cut[1].Y : cut[0].Y;
+            const int s0 = (int)ceilf((z0 - hullWlZMin) / stationLength - 0.001f);
+            const int s1 = (int)floorf((z1 - hullWlZMin) / stationLength + 0.001f);
+            for (int st = (s0 < 0 ? 0 : s0); st <= s1 && st < HULL_STATIONS; st++) {
+                const irr::f32 zs = hullWlZMin + st * stationLength;
+                const irr::f32 dz = cut[1].Y - cut[0].Y;
+                const irr::f32 f = (fabsf(dz) > 1e-6f) ? (zs - cut[0].Y) / dz : 0.5f;
+                const irr::f32 x = cut[0].X + f * (cut[1].X - cut[0].X);
+                const irr::f32 half = fabsf(x - hullWlCentreX);
+                if (half > maxHalf[st]) { maxHalf[st] = half; }
+            }
+        }
+    }
+    int found = 0;
+    for (int i = 0; i < HULL_STATIONS; i++) {
+        irr::f32 w = maxHalf[i];
+        if (i > 0 && maxHalf[i - 1] < w) { w = maxHalf[i - 1]; }
+        if (i + 1 < HULL_STATIONS && maxHalf[i + 1] < w) { w = maxHalf[i + 1]; }
+        hullWlHalf[i] = 0.92f * w;
+        //Back in the node's own frame (it was measured with the node at heightCorrection)
+        hullWlKeel[i] = ((minY[i] < 1e8f) ? minY[i] : box.MinEdge.Y) - heightCorrection;
+        if (w > 0.0f) { found++; }
+    }
+    hullWlValid = (found >= 3);
+    std::string log = "Hull waterline outline: ";
+    log.append(hullWlValid ? "measured (" + std::to_string(found) + " stations)" : "none (no hull at the waterline)");
+    device->getLogger()->log(log.c_str());
+}
+
+bool OwnShip::getHullWaterline(irr::f32& zMin, irr::f32& zMax, irr::f32& centreX, irr::f32* halfWidths, irr::f32* keels) const
+{
+    if (!hullWlValid) { return false; }
+    zMin = hullWlZMin; zMax = hullWlZMax; centreX = hullWlCentreX;
+    for (int i = 0; i < HULL_STATIONS; i++) { halfWidths[i] = hullWlHalf[i]; keels[i] = hullWlKeel[i]; }
+    return true;
+}
 
 bool OwnShip::consumeSlam(irr::f32& ratio, irr::f32& impactSpeed)
 {

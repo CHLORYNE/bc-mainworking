@@ -52,6 +52,11 @@ namespace scene
     lastGloomTimeMs = 0;
     gloomInitialised = false;
     idGloom = -1;
+    idHullMaskA = -1;
+    idHullMaskB = -1;
+    for (int i = 0; i < 6; i++) { idHullW[i] = -1; idHullK[i] = -1; }
+    idHullRowY = -1;
+    for (int i = 0; i < 60; i++) { hullMask[i] = 0.0f; } //off until the own ship sends its outline
 
 	//From Mel demo (http://irrlicht.sourceforge.net/forum/viewtopic.php?f=9&t=51130&start=15#p296723) START
 	irr::video::E_DRIVER_TYPE driverType = mgr->getVideoDriver()->getDriverType();
@@ -265,6 +270,12 @@ void MovingWaterSceneNode::setSwellShaderData(const irr::f32* comp20, const irr:
     for (int i = 0; i < 4; i++) { swellFade[i] = fade4[i]; }
 }
 
+void MovingWaterSceneNode::setHullMask(const f32* a4, const f32* b4, const f32* w24, const f32* k24, const f32* rowY4)
+{
+    for (int i = 0; i < 4; i++) { hullMask[i] = a4[i]; hullMask[4 + i] = b4[i]; hullMask[56 + i] = rowY4[i]; }
+    for (int i = 0; i < 24; i++) { hullMask[8 + i] = w24[i]; hullMask[32 + i] = k24[i]; }
+}
+
 // KYARA METEO
 void MovingWaterSceneNode::setGloom(f32 target)
 {
@@ -305,6 +316,15 @@ void MovingWaterSceneNode::OnSetConstants(video::IMaterialRendererServices* serv
             idSwell[4] = services->getVertexShaderConstantID("swell4");
             idSwellFade = services->getVertexShaderConstantID("swellFade");
             idGloom = services->getVertexShaderConstantID("gloom");    // KYARA METEO: -1 if the shader lacks it
+            idHullMaskA = services->getVertexShaderConstantID("hullMaskA");
+            idHullMaskB = services->getVertexShaderConstantID("hullMaskB");
+            for (int i = 0; i < 6; i++) {
+                const std::string name = "hullW" + std::to_string(i);
+                idHullW[i] = services->getVertexShaderConstantID(name.c_str());
+                const std::string keel = "hullK" + std::to_string(i);
+                idHullK[i] = services->getVertexShaderConstantID(keel.c_str());
+            }
+            idHullRowY = services->getVertexShaderConstantID("hullRowY");
 			if (IsOpenGL)
 			{
 				if (withReflection) {
@@ -347,6 +367,13 @@ void MovingWaterSceneNode::OnSetConstants(video::IMaterialRendererServices* serv
 			services->setPixelShaderConstant(idSeaState, &seaState, 1);
             services->setPixelShaderConstant(idLightColour, lightColour, 3);  // KYARA
             if (idGloom >= 0) { services->setPixelShaderConstant(idGloom, &gloom, 1); } // KYARA METEO
+            if (idHullMaskA >= 0) { services->setPixelShaderConstant(idHullMaskA, &hullMask[0], 4); }
+            if (idHullMaskB >= 0) { services->setPixelShaderConstant(idHullMaskB, &hullMask[4], 4); }
+            for (int i = 0; i < 6; i++) {
+                if (idHullW[i] >= 0) { services->setPixelShaderConstant(idHullW[i], &hullMask[8 + 4 * i], 4); }
+                if (idHullK[i] >= 0) { services->setPixelShaderConstant(idHullK[i], &hullMask[32 + 4 * i], 4); }
+            }
+            if (idHullRowY >= 0) { services->setPixelShaderConstant(idHullRowY, &hullMask[56], 4); }
             //kyara fix 
             services->setVertexShaderConstant(idTime, &shaderTime, 1);    // NEW
             // KYARA HOULE

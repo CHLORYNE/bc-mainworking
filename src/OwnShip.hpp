@@ -57,6 +57,13 @@ public:
     //threshold, and the impact speed itself in m/s.
     bool consumeSlam(irr::f32& ratio, irr::f32& impactSpeed);
 
+    //Waterline outline of the model, measured at load: half-widths at HULL_STATIONS evenly spaced
+    //stations from zMin (stern) to zMax (bow), about centreX. Ship-node coordinates in metres
+    //(before the heading rotation). False if the model has no hull at the waterline.
+    static const int HULL_STATIONS = 24;
+    //keels: height of her bottom at each station, ship-node frame (scaled, before heightCorrection)
+    bool getHullWaterline(irr::f32& zMin, irr::f32& zMax, irr::f32& centreX, irr::f32* halfWidths, irr::f32* keels) const;
+
     //KYARA FEUX: navigation lights, driven by the vessel's COLREG situation
     ShipLights& getLights();
 
@@ -359,6 +366,11 @@ private:
 
     // KYARA HOULE: seakeeping model (heave / pitch / roll) and wave forces
     HullMotion hullMotion;
+    bool hullWlValid;
+    irr::f32 hullWlZMin, hullWlZMax, hullWlCentreX;
+    irr::f32 hullWlHalf[HULL_STATIONS];
+    irr::f32 hullWlKeel[HULL_STATIONS];
+    void measureHullWaterline();
     irr::f32 heavePeriod;          // boat.ini HeavePeriod (s, optional)
     irr::f32 heaveDamping;         // boat.ini HeaveDamping (zeta, optional)
     irr::f32 pitchDamping;         // boat.ini PitchDamping (zeta, optional)

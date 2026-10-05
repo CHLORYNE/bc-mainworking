@@ -4660,7 +4660,16 @@ void SimulationModel::update()
     } {
         IPROF("Update water pos");
         //update water position
-        water.update(tideHeight, camera.getPosition(), light.getLightLevel(), weather, windDirection); // KYARA HOULE: + wind direction for the FFT chop
+        //Hull mask: the sea is not drawn inside the own ship's waterline outline (measured from
+        //her model at load), so high crests never show through the plating or inside the wheelhouse.
+        {
+            irr::f32 zMin, zMax, centreX, halfWidths[OwnShip::HULL_STATIONS], keels[OwnShip::HULL_STATIONS];
+            if (ownShip.getSceneNode() && ownShip.getHullWaterline(zMin, zMax, centreX, halfWidths, keels)) {
+                water.setHullMask(ownShip.getSceneNode()->getPosition(), ownShip.getSceneNode()->getRotation(),
+                    zMin, zMax, centreX, halfWidths, keels, true);
+            }
+        }
+        water.update(tideHeight, camera.getPosition(), light.getLightLevel(), weather, windDirection, rainIntensity); // KYARA HOULE: + wind direction for the FFT chop, KYARA METEO: + rain
         {
             // KYARA HOULE: hand the same swell to the water shader
             irr::f32 comp[Swell::NCOMP * 4];
