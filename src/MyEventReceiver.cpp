@@ -185,8 +185,8 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                if (model->isLightEditing()) {
-                    //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp
+                if (model->isLightEditing() || model->isFreeView()) {
+                    //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp (or the ship, in free view)
                     model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
                 }
                 else {
@@ -208,7 +208,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 return true;
             }
             //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
-            if (model->isLightEditing()) {
+            if (model->isLightEditing() || model->isFreeView()) {
                 model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
                 return true;
             }

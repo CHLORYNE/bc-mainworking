@@ -300,6 +300,10 @@ public:
     bool isLightEditing() const;
     int getLightEditVessel() const;
     void lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+    //Free view: a camera circling the own ship (mouse drag turns, wheel zooms), for any ship
+    //without views in boat.ini. It comes after the last boat.ini view in the "change view" cycle.
+    bool isFreeView() const;
+    void setFreeView(bool on);
     bool getOwnShipDeckLights() const;
     void setOtherShipLightSituation(int shipNumber, int situation);
     int getOtherShipLightSituation(int shipNumber) const;
@@ -575,6 +579,7 @@ private:
     LandLights landLights;
     Camera camera;
     int lightEditVessel = -2; //KYARA FEUX EDIT: -2 = not editing
+    bool freeView = false;
     Camera radarCamera;
     Water water;
     Swell swell;           // KYARA HOULE

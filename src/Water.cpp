@@ -79,6 +79,17 @@ void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::
     waterNode->setPosition(irr::core::vector3df(xPos, yPos, zPos));
 
     setSea(weather, windDirection);
+
+    // KYARA METEO: how stormy the sea should LOOK (0..1), sent to the water shader as 'gloom'.
+    //   Sea state: starts at weather 1.5, full at 4.0 (the "Mauvais temps" preset).
+    //   Rain: full at 7/10 - under a rain sky the sea goes grey even when it is calm.
+    // Whichever is stronger wins. Tune the four numbers here; the colours are in the shaders.
+    irr::f32 seaGloom = (weather - 1.5f) / (4.0f - 1.5f);
+    irr::f32 rainGloom = rainIntensity / 7.0f;
+    irr::f32 gloom = (seaGloom > rainGloom) ? seaGloom : rainGloom;
+    if (gloom < 0.0f) { gloom = 0.0f; }
+    if (gloom > 1.0f) { gloom = 1.0f; }
+    waterNode->setGloom(gloom);
 }
 
 void Water::setSea(irr::f32 weather, irr::f32 windDirection)
@@ -95,18 +106,6 @@ void Water::setSea(irr::f32 weather, irr::f32 windDirection)
     const irr::f32 dirQ = 10.0f * Utilities::round(windDirection / 10.0f);
     const irr::f32 prop = (dirQ + 180.0f) * irr::core::DEGTORAD; // waves travel downwind
     waterNode->resetParameters((weather + 0.25) * 0.000025f, vector2(-k * sinf(prop), k * cosf(prop)), weather + 0.25);
-
-    // KYARA METEO: how stormy the sea should LOOK (0..1), sent to the water shader as 'gloom'.
-    //   Sea state: starts at weather 1.5, full at 4.0 (the "Mauvais temps" preset).
-    //   Rain: full at 7/10 - under a rain sky the sea goes grey even when it is calm.
-    // Whichever is stronger wins. Tune the four numbers here; the colours are in the shaders.
-    irr::f32 seaGloom = (weather - 1.5f) / (4.0f - 1.5f);
-    irr::f32 rainGloom = rainIntensity / 7.0f;
-    irr::f32 gloom = (seaGloom > rainGloom) ? seaGloom : rainGloom;
-    if (gloom < 0.0f) { gloom = 0.0f; }
-    if (gloom > 1.0f) { gloom = 1.0f; }
-    waterNode->setGloom(gloom);
-
 }
 
 void Water::setSwellShaderData(const irr::f32* comp20, const irr::f32* fade4)

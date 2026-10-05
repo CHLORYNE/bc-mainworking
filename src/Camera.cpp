@@ -30,6 +30,7 @@ Camera::Camera()
     orbitYaw = -60.0f;
     orbitPitch = 15.0f;
     orbitRadius = 40.0f;
+    orbitMinPitch = -10.0f;
 }
 
 Camera::~Camera()
@@ -303,6 +304,11 @@ void Camera::setView(irr::u32 view) {
 
 }
 
+irr::u32 Camera::getViewCount() const
+{
+    return (irr::u32)views.size();
+}
+
 irr::u32 Camera::getView() const
 {
     return currentView;
@@ -368,7 +374,14 @@ void Camera::setOrbit(bool on, irr::f32 radiusMetres)
         orbitYaw = -60.0f;   //port bow: the red sidelight and the mast in one view
         orbitPitch = 15.0f;
         orbitRadius = radiusMetres;
+        orbitMinPitch = -10.0f;
     }
+}
+
+void Camera::setOrbitMinPitch(irr::f32 minPitchDeg)
+{
+    orbitMinPitch = minPitchDeg;
+    if (orbitPitch < orbitMinPitch) { orbitPitch = orbitMinPitch; }
 }
 
 bool Camera::isOrbiting() const
@@ -389,7 +402,7 @@ void Camera::orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor)
     while (orbitYaw < 0.0f) { orbitYaw += 360.0f; }
     orbitPitch += dPitchDeg;
     if (orbitPitch > 85.0f) { orbitPitch = 85.0f; }
-    if (orbitPitch < -10.0f) { orbitPitch = -10.0f; } //a little below the lamp, never under the sea
+    if (orbitPitch < orbitMinPitch) { orbitPitch = orbitMinPitch; } //lamps: a little below the lamp, never under the sea
     orbitRadius *= zoomFactor;
     if (orbitRadius < 2.0f) { orbitRadius = 2.0f; }
     if (orbitRadius > 1500.0f) { orbitRadius = 1500.0f; }

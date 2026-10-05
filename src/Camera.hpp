@@ -60,6 +60,7 @@ class Camera
         void changeView();
         void setView(irr::u32 view);
         irr::u32 getView() const;
+        irr::u32 getViewCount() const; //views from boat.ini
         void setNearValue(irr::f32 zn);
         void setFarValue(irr::f32 zf);
         void setFrozen(bool frozen);
@@ -71,6 +72,7 @@ class Camera
         bool isOrbiting() const;
         void setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingDeg);
         void orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+        void setOrbitMinPitch(irr::f32 minPitchDeg); //lowest the orbit may go (reset by setOrbit)
         void update(irr::f32 deltaTime=0, irr::core::quaternion quat=irr::core::quaternion(0,0,0,1), irr::core::vector3df pos=irr::core::vector3df(0,0,0), irr::core::vector2df lensShift=irr::core::vector2df(0,0), bool vrMode = false);
 
     private:
@@ -101,7 +103,7 @@ class Camera
         //KYARA FEUX EDIT
         bool orbiting;
         irr::core::vector3df orbitCentre;
-        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius;
+        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius, orbitMinPitch;
         void orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const;
 };
 

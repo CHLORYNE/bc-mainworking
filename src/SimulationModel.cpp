@@ -1084,6 +1084,7 @@ ShipLights* SimulationModel::getShipLights(int vessel) {
 bool SimulationModel::beginLightEdit(int vessel)
 {
     if (lightEditVessel != -2) { endLightEdit(); }
+    setFreeView(false); //the lamp editor has its own orbit
     ShipLights* lights = getShipLights(vessel);
     if (!lights) { return false; }
     lights->beginEdit();
@@ -1796,14 +1797,47 @@ void SimulationModel::lookStbd()
 
 void SimulationModel::changeView()
 {
-    camera.changeView();
+    //The last boat.ini view leads to the free view, which leads back to the first view.
+    if (freeView) {
+        setFreeView(false);
+        camera.setView(0);
+    }
+    else if (lightEditVessel == -2 && camera.getView() + 1 >= camera.getViewCount()) {
+        setFreeView(true);
+        return;
+    }
+    else {
+        camera.changeView();
+    }
     ownShip.setViewVisibility(camera.getView());
 }
 
 void SimulationModel::setView(irr::u32 view)
 {
+    if (freeView) { setFreeView(false); }
     camera.setView(view);
     ownShip.setViewVisibility(camera.getView());
+}
+
+bool SimulationModel::isFreeView() const
+{
+    return freeView;
+}
+
+void SimulationModel::setFreeView(bool on)
+{
+    if (on == freeView || (on && lightEditVessel != -2)) { return; }
+    freeView = on;
+    if (on) {
+        //Far enough out to see the whole ship, whatever her size
+        irr::f32 radius = 1.5f * ownShip.getLength();
+        if (radius < 25.0f) { radius = 25.0f; }
+        camera.setOrbit(true, radius);
+        camera.setOrbitMinPitch(2.0f); //never down to the sea surface
+    }
+    else {
+        camera.setOrbit(false);
+    }
 }
 
 irr::u32 SimulationModel::getCameraView() const
@@ -4725,6 +4759,11 @@ void SimulationModel::update()
             if (lights && node && lights->getSelectedWorldPosition(centre)) {
                 camera.setOrbitCentre(centre, node->getRotation().Y - lights->getAngleCorrection());
             }
+        }
+
+        //Free view: circle the middle of the own ship's model, turning with her
+        if (freeView && lightEditVessel == -2 && ownShip.getSceneNode()) {
+            camera.setOrbitCentre(ownShip.getSceneNode()->getTransformedBoundingBox().getCenter(), ownShip.getHeading());
         }
 
         //update the camera position
