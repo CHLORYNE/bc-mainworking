@@ -109,6 +109,11 @@ private:
     bool slamPending;
     irr::f32 slamSeverity, slamBowSpeed;
     irr::f32 slamHoldoff;      // s, so one wave gives one impact
+    //The tangage passing below normal trim ARMS the landing; the splash and the sound wait until
+    //the forefoot actually reaches the water, which is a moment later.
+    bool slamArmed;
+    irr::f32 slamArmTimer;     // s left before an armed landing is forgotten
+    irr::f32 slamPeakRate;     // rad/s, the hardest the bow was falling during the descent
 };
 
 #endif
