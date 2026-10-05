@@ -300,12 +300,13 @@ vec3 waterTinted(vec3 c)
 // Hull mask: no sea inside the own ship's waterline outline, so high crests never show through
 // the plating or inside the wheelhouse. Set from SimulationModel through Water::setHullMask; the
 // outline is measured from the ship's model when she loads (OwnShip::measureHullWaterline).
-// Only water INSIDE the hull is hidden: above her bottom as she is heaving, pitching and rolling,
-// so the sea under a bow lifted clear by a wave is still drawn.
+// Only sea rising ABOVE her waterline is hidden (the waterline moves with her heave, pitch and
+// roll): that is the water that would show through her plating or inside the wheelhouse. Sea below
+// it is always drawn, so nothing opens up under a bow lifted clear or beside a heeled hull.
 //   hullMaskA = (ship node x, ship node z, forward x, forward z)
 //   hullMaskB = (zMin, zMax, centre x, on)            in the ship node's frame, metres
 //   hullW0..5 = half-widths at 24 stations from zMin (stern) to zMax (bow)
-//   hullK0..5 = height of her bottom at those stations, ship node frame
+//   hullK0..5 = height of her waterline at those stations, ship node frame
 //   hullRowY  = (how local x, y, z move world height, node height): world y of a hull point
 varying float vWorldY;
 uniform vec4 hullK0;

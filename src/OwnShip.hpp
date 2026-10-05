@@ -61,7 +61,8 @@ public:
     //stations from zMin (stern) to zMax (bow), about centreX. Ship-node coordinates in metres
     //(before the heading rotation). False if the model has no hull at the waterline.
     static const int HULL_STATIONS = 24;
-    //keels: height of her bottom at each station, ship-node frame (scaled, before heightCorrection)
+    //keels: height of her waterline at each station, ship-node frame (scaled, before heightCorrection);
+    //sea below it is always drawn
     bool getHullWaterline(irr::f32& zMin, irr::f32& zMax, irr::f32& centreX, irr::f32* halfWidths, irr::f32* keels) const;
 
     //KYARA FEUX: navigation lights, driven by the vessel's COLREG situation

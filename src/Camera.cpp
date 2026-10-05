@@ -31,6 +31,7 @@ Camera::Camera()
     orbitPitch = 15.0f;
     orbitRadius = 40.0f;
     orbitMinPitch = -10.0f;
+    orbitMinHeight = -1e9f;
 }
 
 Camera::~Camera()
@@ -375,7 +376,20 @@ void Camera::setOrbit(bool on, irr::f32 radiusMetres)
         orbitPitch = 15.0f;
         orbitRadius = radiusMetres;
         orbitMinPitch = -10.0f;
+        orbitMinHeight = -1e9f;
     }
+}
+
+void Camera::setOrbitMinHeight(irr::f32 minY)
+{
+    orbitMinHeight = minY;
+}
+
+irr::core::vector3df Camera::getOrbitPosition() const
+{
+    irr::core::vector3df pos, fwd;
+    orbitPose(pos, fwd);
+    return pos;
 }
 
 void Camera::setOrbitMinPitch(irr::f32 minPitchDeg)
@@ -414,7 +428,10 @@ void Camera::orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) con
     const irr::f32 pitch = orbitPitch * irr::core::DEGTORAD;
     const irr::core::vector3df dir(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch));
     pos = orbitCentre + dir * orbitRadius;
-    fwd = -dir;
+    //Kept above the sea (free view in a storm): raised, still looking at the centre
+    if (pos.Y < orbitMinHeight) { pos.Y = orbitMinHeight; }
+    fwd = (orbitCentre - pos);
+    fwd.normalize();
 }
 //KYARA FEUX EDIT ^^^ ------------------------------------------------------------------------------
 

@@ -4773,6 +4773,10 @@ void SimulationModel::update()
         //Free view: circle the middle of the own ship's model, turning with her
         if (freeView && lightEditVessel == -2 && ownShip.getSceneNode()) {
             camera.setOrbitCentre(ownShip.getSceneNode()->getTransformedBoundingBox().getCenter(), ownShip.getHeading());
+            //Never under the water: a storm crest can rise above a low camera, which then looks at
+            //the seabed from below the surface
+            const irr::core::vector3df eye = camera.getOrbitPosition();
+            camera.setOrbitMinHeight(tideHeight + getWaveHeight(eye.X, eye.Z) + 1.5f);
         }
 
         //update the camera position

@@ -73,6 +73,8 @@ class Camera
         void setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingDeg);
         void orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
         void setOrbitMinPitch(irr::f32 minPitchDeg); //lowest the orbit may go (reset by setOrbit)
+        void setOrbitMinHeight(irr::f32 minY);       //lowest world height of the orbiting camera (reset by setOrbit)
+        irr::core::vector3df getOrbitPosition() const;
         void update(irr::f32 deltaTime=0, irr::core::quaternion quat=irr::core::quaternion(0,0,0,1), irr::core::vector3df pos=irr::core::vector3df(0,0,0), irr::core::vector2df lensShift=irr::core::vector2df(0,0), bool vrMode = false);
 
     private:
@@ -103,7 +105,7 @@ class Camera
         //KYARA FEUX EDIT
         bool orbiting;
         irr::core::vector3df orbitCentre;
-        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius, orbitMinPitch;
+        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius, orbitMinPitch, orbitMinHeight;
         void orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const;
 };
 

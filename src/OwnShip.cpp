@@ -3061,8 +3061,8 @@ void OwnShip::measureHullWaterline()
     }
     const irr::core::matrix4 m = ship->getAbsoluteTransformation();
     const irr::f32 stationLength = (hullWlZMax - hullWlZMin) / (irr::f32)(HULL_STATIONS - 1);
-    irr::f32 maxHalf[HULL_STATIONS], minY[HULL_STATIONS];
-    for (int i = 0; i < HULL_STATIONS; i++) { maxHalf[i] = 0.0f; minY[i] = 1e9f; }
+    irr::f32 maxHalf[HULL_STATIONS];
+    for (int i = 0; i < HULL_STATIONS; i++) { maxHalf[i] = 0.0f; }
 
     irr::scene::IMesh* mesh = node->getMesh()->getMesh(0);
     for (irr::u32 b = 0; mesh && b < mesh->getMeshBufferCount(); b++) {
@@ -3078,20 +3078,6 @@ void OwnShip::measureHullWaterline()
                 if (index >= mb->getVertexCount()) { v[k] = irr::core::vector3df(0, 0, 0); continue; }
                 v[k] = mb->getPosition(index);
                 m.transformVect(v[k]);
-            }
-            //Her bottom: the lowest point of the hull at each station the triangle spans
-            for (int e = 0; e < 3; e++) {
-                const irr::core::vector3df& a = v[e];
-                const irr::core::vector3df& c = v[(e + 1) % 3];
-                const irr::f32 za = (a.Z < c.Z) ? a.Z : c.Z, zc = (a.Z < c.Z) ? c.Z : a.Z;
-                const int e0 = (int)ceilf((za - hullWlZMin) / stationLength - 0.001f);
-                const int e1 = (int)floorf((zc - hullWlZMin) / stationLength + 0.001f);
-                for (int st = (e0 < 0 ? 0 : e0); st <= e1 && st < HULL_STATIONS; st++) {
-                    const irr::f32 zs = hullWlZMin + st * stationLength;
-                    const irr::f32 dz = c.Z - a.Z;
-                    const irr::f32 y = (fabsf(dz) > 1e-6f) ? a.Y + (zs - a.Z) / dz * (c.Y - a.Y) : ((a.Y < c.Y) ? a.Y : c.Y);
-                    if (y < minY[st]) { minY[st] = y; }
-                }
             }
             //A triangle cutting the waterline gives a segment of the waterline outline: sample it at
             //every station it spans (a coarse hull has few vertices, so its crossing points alone
@@ -3126,8 +3112,10 @@ void OwnShip::measureHullWaterline()
         if (i > 0 && maxHalf[i - 1] < w) { w = maxHalf[i - 1]; }
         if (i + 1 < HULL_STATIONS && maxHalf[i + 1] < w) { w = maxHalf[i + 1]; }
         hullWlHalf[i] = 0.92f * w;
-        //Back in the node's own frame (it was measured with the node at heightCorrection)
-        hullWlKeel[i] = ((minY[i] < 1e8f) ? minY[i] : box.MinEdge.Y) - heightCorrection;
+        //Her waterline, in the node's own frame (it was measured with the node at heightCorrection).
+        //Only sea rising ABOVE it is hidden: using her keel instead hid the sea beside a V-hull
+        //heeled or lifted clear, where her bottom rises above the keel, and the seabed showed.
+        hullWlKeel[i] = -heightCorrection;
         if (w > 0.0f) { found++; }
     }
     hullWlValid = (found >= 3);
