@@ -176,6 +176,8 @@ struct Exercise {
     bool hasIncident;
     IncidentConfig incident;
     OwnShipFacts ownShip;
+    bool autoDescription;      //description generated from the exercise (description.ini empty or the editor's placeholder)
+    Exercise() : hasIncident(false), autoDescription(false) {}
 };
 
 std::string readWholeFile(const std::string& path)
@@ -205,8 +207,222 @@ OwnShipFacts ownShipFacts(const std::string& model)
     return facts;
 }
 
+//---------------------------------------------------------------------------------------------------
+//Generated description (Kyara): when description.ini is empty or still holds the scenario editor's
+//placeholder, the launcher writes one from the exercise itself. One paragraph per line:
+//  1. type of exercise, area, date and start time
+//  2. own ship and the traffic around her (count, under way, the nearest one)
+//  3. conditions, with what they mean for the watch (night, restricted visibility, heavy weather)
+//  4. fire / SAR timeline when the exercise has an incident.ini
+//  5. the area's "Attention" line from World/<area>/description.txt
+//---------------------------------------------------------------------------------------------------
+
+bool isPlaceholderDescription(const std::wstring& d)
+{
+    const std::wstring l = lower(trimText(d));
+    return l.empty() || l == L"scenario description" || l == L"description du sc\u00E9nario" || l == L"description du scenario"
+        || l == L"description";
+}
+
+std::wstring tPlus(irr::f32 seconds)
+{
+    if (seconds < 0) { seconds = 0; }
+    const int t = (int)(seconds + 0.5f);
+    wchar_t buf[24];
+    swprintf(buf, 24, L"T+%d:%02d", t / 60, t % 60);
+    return buf;
+}
+
+//"2 min", "1 min 30 s", "45 s"
+std::wstring minutesText(irr::f32 seconds, bool french)
+{
+    const int t = (int)(seconds + 0.5f);
+    (void)french;
+    if (t < 60) { return std::to_wstring(t) + L" s"; }
+    return std::to_wstring(t / 60) + L" min" + (t % 60 ? L" " + std::to_wstring(t % 60) + L" s" : std::wstring());
+}
+
+std::wstring countWord(size_t n, const wchar_t* one, const wchar_t* many)
+{
+    return std::to_wstring(n) + L" " + (n == 1 ? one : many);
+}
+
+//Distance (NM) and true bearing from a to b, flat earth (fine at exercise scale).
+void rangeBearing(irr::f32 latA, irr::f32 lonA, irr::f32 latB, irr::f32 lonB, irr::f32& nm, irr::f32& bearing)
+{
+    const double north = (latB - latA) * 60.0;
+    const double east = (lonB - lonA) * 60.0 * std::cos(latA * kPi / 180.0);
+    nm = (irr::f32)std::sqrt(north * north + east * east);
+    double b = std::atan2(east, north) * 180.0 / kPi;
+    if (b < 0) { b += 360.0; }
+    bearing = (irr::f32)b;
+}
+
+//Liferafts and men overboard placed as other ships (by model name).
+bool isSurvivorModel(const std::string& model)
+{
+    const std::wstring m = lower(decodeText(model));
+    return m.find(L"liferaft") != std::wstring::npos || m.find(L"radeau") != std::wstring::npos
+        || m.find(L"manoverboard") != std::wstring::npos || m == L"mob";
+}
+
+//"Attention: ..." line of the area's description.txt (user folder first), without the label.
+std::wstring areaWarning(const std::string& world)
+{
+    if (world.empty()) { return L""; }
+    std::string path = Utilities::getUserDir() + "World/" + world + "/description.txt";
+    if (!Utilities::pathExists(path)) { path = "World/" + world + "/description.txt"; }
+    const std::wstring text = decodeText(readWholeFile(path));
+    std::wstringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        const std::wstring t = trimText(line);
+        if (lower(t).compare(0, 9, L"attention") == 0) {
+            const size_t colon = t.find(L':');
+            return colon == std::wstring::npos ? L"" : trimText(t.substr(colon + 1));
+        }
+    }
+    return L"";
+}
+
+std::wstring generateDescription(const Exercise& e, bool french)
+{
+    const ScenarioData& d = e.data;
+    const OwnShipData& own = d.ownShipData;
+    const std::wstring kn = french ? L" nds" : L" kn";
+    std::wstring out;
+
+    //1. Type, area, date, start
+    const irr::f32 rise = d.sunRise > 0 ? d.sunRise : 6.0f, set = d.sunSet > 0 ? d.sunSet : 18.0f;
+    const bool night = d.startTime < rise - 0.5f || d.startTime > set + 0.5f;
+    const std::wstring area = decodeText(d.worldName);
+    if (french) {
+        out += e.hasIncident ? L"Exercice incendie / SAR" : L"Exercice de navigation";
+        if (!area.empty()) { out += L" dans la zone de " + area; }
+        out += L", le " + dateText(d.startDay, d.startMonth, d.startYear, true) + L", d\u00E9part \u00E0 " + clockTime(d.startTime)
+            + (night ? L" de nuit." : L" de jour.");
+    }
+    else {
+        out += e.hasIncident ? L"Fire / SAR exercise" : L"Navigation exercise";
+        if (!area.empty()) { out += L" in the " + area + L" area"; }
+        out += L", " + dateText(d.startDay, d.startMonth, d.startYear, false) + L", starting at " + clockTime(d.startTime)
+            + (night ? L" by night." : L" by day.");
+    }
+
+    //2. Own ship and traffic
+    out += L"\n";
+    const std::wstring ownName = shipLabel(own.ownShipName);
+    const bool underWay = own.initialSpeed >= 0.5f;
+    if (french) {
+        out += L"Navire de l'exercice : " + ownName + (underWay ? L", en route au " + heading3(own.initialBearing) + L" \u00E0 " + number(own.initialSpeed, 0, true) + kn
+            : L", stopp\u00E9 cap au " + heading3(own.initialBearing)) + L".";
+    }
+    else {
+        out += L"Own ship: " + ownName + (underWay ? L", under way on " + heading3(own.initialBearing) + L" at " + number(own.initialSpeed, 0, false) + kn
+            : L", stopped heading " + heading3(own.initialBearing)) + L".";
+    }
+    size_t ships = 0, moving = 0, survivorObjects = 0;
+    int nearest = -1;
+    irr::f32 nearestNm = 0, nearestBrg = 0;
+    for (size_t i = 0; i < d.otherShipsData.size(); i++) {
+        const OtherShipData& o = d.otherShipsData[i];
+        if (isSurvivorModel(o.shipName)) { survivorObjects++; continue; }
+        ships++;
+        for (size_t l = 0; l < o.legs.size(); l++) { if (o.legs[l].speed > 0 && o.legs[l].distance > 0) { moving++; break; } }
+        irr::f32 nm, brg;
+        rangeBearing(own.initialLat, own.initialLong, o.initialLat, o.initialLong, nm, brg);
+        if (nearest < 0 || nm < nearestNm) { nearest = (int)i; nearestNm = nm; nearestBrg = brg; }
+    }
+    if (ships == 0) {
+        out += french ? L" Aucun autre navire dans la zone." : L" No other ship in the area.";
+    }
+    else {
+        if (french) {
+            out += L" " + countWord(ships, L"autre navire", L"autres navires");
+            out += (moving == 0) ? (ships == 1 ? L", stopp\u00E9" : L", tous stopp\u00E9s") : (moving == ships ? (ships == 1 ? L", en route" : L", tous en route") : L", dont " + std::to_wstring(moving) + L" en route");
+            out += L" ; le plus proche, " + shipLabel(d.otherShipsData[nearest].shipName) + L", \u00E0 " + number(nearestNm, nearestNm < 10 ? 1 : 0, true)
+                + L" NM au " + heading3(nearestBrg) + L".";
+        }
+        else {
+            out += L" " + countWord(ships, L"other ship", L"other ships");
+            out += (moving == 0) ? (ships == 1 ? L", stopped" : L", all stopped") : (moving == ships ? (ships == 1 ? L", under way" : L", all under way") : L", " + std::to_wstring(moving) + L" under way");
+            out += L"; the nearest, " + shipLabel(d.otherShipsData[nearest].shipName) + L", " + number(nearestNm, nearestNm < 10 ? 1 : 0, false)
+                + L" NM bearing " + heading3(nearestBrg) + L".";
+        }
+    }
+    if (survivorObjects > 0) {
+        out += french ? (survivorObjects == 1 ? L" Un radeau ou homme \u00E0 la mer est plac\u00E9 dans la zone." : L" Des radeaux ou hommes \u00E0 la mer sont plac\u00E9s dans la zone.")
+            : (survivorObjects == 1 ? L" A liferaft or man overboard is placed in the area." : L" Liferafts or men overboard are placed in the area.");
+    }
+
+    //3. Conditions and what they ask of the watch
+    out += L"\n";
+    const std::wstring wind = d.windSpeed < 0.5f ? (french ? L"vent calme" : L"calm wind")
+        : (french ? L"vent de " : L"wind ") + compassPoint(d.windDirection, french) + L" " + number(d.windSpeed, 0, french) + kn;
+    const std::wstring sea = d.weather < 0.5f ? (french ? L"mer calme" : L"calm sea") : (french ? L"mer force " : L"sea force ") + number(d.weather, 0, french);
+    const irr::f32 rain = d.rainIntensity;
+    const std::wstring rainText = rain < 0.5f ? L"" : (french ? (rain < 3.5f ? L", pluie faible" : rain < 7 ? L", pluie mod\u00E9r\u00E9e" : L", forte pluie")
+        : (rain < 3.5f ? L", light rain" : rain < 7 ? L", moderate rain" : L", heavy rain"));
+    out += (french ? L"Conditions : " : L"Conditions: ") + wind + L", " + sea + L", " + (french ? L"visibilit\u00E9 " : L"visibility ")
+        + (d.visibilityRange > 0 ? number(d.visibilityRange, d.visibilityRange < 2 ? 1 : 0, french) : std::wstring(L"?")) + L" NM" + rainText + L".";
+    std::vector<std::wstring> points;
+    if (d.visibilityRange > 0 && d.visibilityRange < 2.0f) {
+        points.push_back(french ? L"visibilit\u00E9 r\u00E9duite (r\u00E8gle 19 du RIPAM) : veille radar et signaux sonores" : L"restricted visibility (COLREG rule 19): radar watch and sound signals");
+    }
+    if (night) {
+        points.push_back(french ? L"de nuit : identification des navires par leurs feux" : L"night: identify ships by their lights");
+    }
+    if (d.weather >= 6.0f || d.windSpeed >= 28.0f) {
+        points.push_back(french ? L"gros temps : tenue de cap et man\u0153uvres d\u00E9licates" : L"heavy weather: holding a course and manoeuvring are demanding");
+    }
+    for (size_t i = 0; i < points.size(); i++) {
+        std::wstring p = points[i];
+        if (i == 0 && !p.empty()) { p[0] = (wchar_t)std::towupper(p[0]); }
+        out += (i == 0 ? std::wstring(L" ") : std::wstring(french ? L" ; " : L"; ")) + p;
+        if (i + 1 == points.size()) { out += L"."; }
+    }
+
+    //4. Fire / SAR
+    if (e.hasIncident) {
+        const IncidentConfig& c = e.incident;
+        const int cas = c.casualtyShip;
+        const std::wstring casualty = (cas >= 1 && cas <= (int)d.otherShipsData.size()) ? shipLabel(d.otherShipsData[cas - 1].shipName)
+            : (french ? L"le navire le plus proche" : L"the nearest ship");
+        size_t rafts = 0;
+        for (size_t i = 0; i < c.survivors.size(); i++) { if (c.survivors[i].kind != Survivor_MOB) { rafts++; } }
+        const size_t mob = c.survivors.size() - rafts;
+        out += L"\n";
+        if (french) {
+            out += L"Incendie \u00E0 bord de " + casualty + L" (mise \u00E0 feu par l'instructeur, Ctrl+F) : feu g\u00E9n\u00E9ralis\u00E9 \u00E0 " + tPlus(c.fireSpreadTime)
+                + L", abandon \u00E0 " + tPlus(c.abandonTime);
+            if (!c.survivors.empty()) { out += L" (" + countWord(mob, L"naufrag\u00E9", L"naufrag\u00E9s") + L", " + countWord(rafts, L"radeau", L"radeaux") + L")"; }
+            out += L", le navire commence \u00E0 couler \u00E0 " + tPlus(c.sinkStartTime()) + L" si le feu n'est pas ma\u00EEtris\u00E9. ";
+            out += L"Moyens SAR : " + countWord(c.sarBoats.size(), L"vedette", L"vedettes") + L", "
+                + countWord(c.helos.size(), L"h\u00E9licopt\u00E8re", L"h\u00E9licopt\u00E8res");
+            if (!c.helos.empty()) { out += c.heloDelay < 1 ? std::wstring(L" sur zone d\u00E8s l'appel") : L" sur zone " + minutesText(c.heloDelay, true) + L" apr\u00E8s l'appel"; }
+            if (!c.coordinationCentre.empty()) { out += L" au " + decodeText(c.coordinationCentre); }
+            out += L".";
+        }
+        else {
+            out += L"Fire on board " + casualty + L" (lit by the instructor, Ctrl+F): fully involved at " + tPlus(c.fireSpreadTime)
+                + L", abandon ship at " + tPlus(c.abandonTime);
+            if (!c.survivors.empty()) { out += L" (" + countWord(mob, L"survivor", L"survivors") + L", " + countWord(rafts, L"raft", L"rafts") + L")"; }
+            out += L", she starts sinking at " + tPlus(c.sinkStartTime()) + L" unless the fire is under control. ";
+            out += L"SAR units: " + countWord(c.sarBoats.size(), L"boat", L"boats") + L", " + countWord(c.helos.size(), L"helicopter", L"helicopters");
+            if (!c.helos.empty()) { out += c.heloDelay < 1 ? std::wstring(L" on scene as soon as called") : L" on scene " + minutesText(c.heloDelay, false) + L" after the call"; }
+            if (!c.coordinationCentre.empty()) { out += L" to " + decodeText(c.coordinationCentre); }
+            out += L".";
+        }
+    }
+
+    //5. The area's warning
+    const std::wstring warning = areaWarning(d.worldName);
+    if (!warning.empty()) { out += L"\n" + std::wstring(french ? L"Zone : " : L"Area: ") + warning; }
+    return out;
+}
+
 //Every exercise folder (not the _mp multiplayer ones), sorted by name.
-std::vector<Exercise> loadExercises(irr::IrrlichtDevice* device, const std::string& scenarioPath)
+std::vector<Exercise> loadExercises(irr::IrrlichtDevice* device, const std::string& scenarioPath, bool french)
 {
     std::vector<Exercise> list;
     irr::io::IFileSystem* fileSystem = device->getFileSystem();
@@ -241,6 +457,10 @@ std::vector<Exercise> loadExercises(irr::IrrlichtDevice* device, const std::stri
         e.hasIncident = e.incident.load(dir + "/incident.ini");
         e.ownShip = ownShipFacts(e.data.ownShipData.ownShipName);
         e.searchText = lower(e.name + L" " + decodeText(e.data.worldName));
+        if (isPlaceholderDescription(e.description)) {
+            e.description = generateDescription(e, french);
+            e.autoDescription = true;
+        }
         list.push_back(e);
     }
     std::sort(list.begin(), list.end(), [](const Exercise& a, const Exercise& b) { return lower(a.name) < lower(b.name); });
@@ -1405,13 +1625,28 @@ private:
         const irr::f32 x0 = descCard.UpperLeftCorner.X + 18 * s, x1 = descCard.LowerRightCorner.X - 18 * s;
         irr::f32 y = descCard.UpperLeftCorner.Y + 12 * s;
         Ui::drawText(fonts.tiny, french ? L"DESCRIPTION" : L"DESCRIPTION", irr::core::rect<irr::f32>(x0, y, x1, y + 20 * s), Ui::accentHi, Ui::Left, &clip);
+        if (e.autoDescription) {
+            Ui::drawText(fonts.tiny, french ? L"g\u00E9n\u00E9r\u00E9e automatiquement" : L"generated automatically",
+                irr::core::rect<irr::f32>(x0, y, x1, y + 20 * s), Ui::textFaint, Ui::Right, &clip);
+        }
         y += 28 * s;
         if (e.description.empty()) {
             Ui::drawText(fonts.text, french ? L"Pas de description pour cet exercice (\u00E0 ajouter dans l'\u00E9diteur de sc\u00E9nario)."
                 : L"No description for this exercise (it can be added in the scenario editor).", irr::core::rect<irr::f32>(x0, y, x1, y + 24 * s), Ui::textFaint, Ui::Left, &clip);
             return;
         }
-        const std::vector<std::wstring> lines = Ui::wrap(fonts.text, e.description, x1 - x0);
+        //One paragraph per line of the text, each wrapped to the card
+        std::vector<std::wstring> lines;
+        {
+            std::wstringstream paragraphs(e.description);
+            std::wstring paragraph;
+            while (std::getline(paragraphs, paragraph)) {
+                paragraph = trimText(paragraph);
+                if (paragraph.empty()) { continue; }
+                const std::vector<std::wstring> wrapped = Ui::wrap(fonts.text, paragraph, x1 - x0);
+                lines.insert(lines.end(), wrapped.begin(), wrapped.end());
+            }
+        }
         const irr::f32 lh = Ui::textHeight(fonts.text) + 3 * s;
         for (size_t i = 0; i < lines.size(); i++) {
             if (y + lh > descCard.LowerRightCorner.Y - 8 * s) {
@@ -1579,7 +1814,7 @@ void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& host
     for (int i = 0; i < irr::gui::EGDC_COUNT; i++) { kept[i] = skin->getColor((irr::gui::EGUI_DEFAULT_COLOR)i); }
     Ui::applySkin(skin);
 
-    std::vector<Exercise> exercises = loadExercises(device, scenarioPath);
+    std::vector<Exercise> exercises = loadExercises(device, scenarioPath, french);
     const std::string lastExercise = IniFile::iniFileToString(lastExerciseFile(), "Scenario");
 
     std::wstring wHostname;
