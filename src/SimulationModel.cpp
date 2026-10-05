@@ -10,6 +10,7 @@
 #include "Sound.hpp"
 
 #include "IniFile.hpp"
+#include "OtherShip.hpp"
 #include "Constants.hpp"
 #include "Utilities.hpp"
 
@@ -18,6 +19,8 @@
 #include <cctype>
 #include <queue>
 #include <algorithm>
+#include <sstream> //Numbers written to boat.ini
+#include <locale>
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
 #else
@@ -1084,6 +1087,7 @@ ShipLights* SimulationModel::getShipLights(int vessel) {
 bool SimulationModel::beginLightEdit(int vessel)
 {
     if (lightEditVessel != -2) { endLightEdit(); }
+    if (sizeEditVessel != -2) { endSizeEdit(); }
     setFreeView(false); //the lamp editor has its own orbit
     ShipLights* lights = getShipLights(vessel);
     if (!lights) { return false; }
@@ -1120,6 +1124,259 @@ int SimulationModel::getLightEditVessel() const
 void SimulationModel::lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor)
 {
     camera.orbitBy(dYawDeg, dPitchDeg, zoomFactor);
+}
+
+//Size and waterline editor ----------------------------------------------------------------------
+namespace
+{
+    std::string iniNumber(irr::f32 v)
+    {
+        //Always a '.', whatever the PC's language: the ini reader wants one
+        std::ostringstream os;
+        os.imbue(std::locale::classic());
+        os.precision(6);
+        os << v;
+        return os.str();
+    }
+
+    std::string iniKeyOf(const std::string& line)
+    {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) { return ""; }
+        std::string k = line.substr(0, eq);
+        const size_t a = k.find_first_not_of(" \t");
+        if (a == std::string::npos) { return ""; }
+        const size_t b = k.find_last_not_of(" \t");
+        k = k.substr(a, b - a + 1);
+        for (size_t i = 0; i < k.size(); i++) { k[i] = (char)std::tolower((unsigned char)k[i]); }
+        return k;
+    }
+
+    //Rewrites the ScaleFactor and YCorrection lines of a boat.ini and leaves every other line as
+    //it was. Keeps boat.ini.bak (the file as it first was) and boat.ini.prev (before this save).
+    bool writeSizeToBoatIni(const std::string& path, irr::f32 scale, irr::f32 yCorrection, std::wstring& message)
+    {
+        const std::wstring wpath(path.begin(), path.end());
+        std::ifstream in(path.c_str(), std::ios::binary);
+        if (!in.is_open()) { message = L"Impossible de lire " + wpath; return false; }
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        const bool crlf = content.find("\r\n") != std::string::npos;
+        const std::string nl = crlf ? "\r\n" : "\n";
+        const std::string bom = "\xEF\xBB\xBF";
+        const bool hasBom = content.compare(0, bom.size(), bom) == 0;
+        if (hasBom) { content.erase(0, bom.size()); }
+
+        std::vector<std::string> lines;
+        size_t start = 0;
+        while (start <= content.size()) {
+            const size_t end = content.find('\n', start);
+            std::string line = content.substr(start, (end == std::string::npos) ? std::string::npos : end - start);
+            if (!line.empty() && line[line.size() - 1] == '\r') { line.erase(line.size() - 1); }
+            lines.push_back(line);
+            if (end == std::string::npos) { break; }
+            start = end + 1;
+        }
+        //A file ending in a newline leaves one empty piece behind; it comes back with the join
+        const bool endsWithNewline = !lines.empty() && lines.back().empty();
+        if (endsWithNewline) { lines.pop_back(); }
+
+        const std::string scaleLine = "ScaleFactor=" + iniNumber(scale);
+        const std::string yLine = "YCorrection=" + iniNumber(yCorrection);
+        bool haveScale = false, haveY = false;
+        int fileNameLine = -1;
+        for (size_t i = 0; i < lines.size(); i++) {
+            const std::string k = iniKeyOf(lines[i]);
+            //Every copy is rewritten: the reader takes the last one, a person reads the first
+            if (k == "scalefactor") { lines[i] = scaleLine; haveScale = true; }
+            else if (k == "ycorrection") { lines[i] = yLine; haveY = true; }
+            else if (k == "filename" && fileNameLine < 0) { fileNameLine = (int)i; }
+        }
+        std::vector<std::string> extra;
+        if (!haveScale) { extra.push_back(scaleLine); }
+        if (!haveY) { extra.push_back(yLine); }
+        lines.insert(lines.begin() + (fileNameLine + 1), extra.begin(), extra.end());
+
+        std::string out = hasBom ? bom : "";
+        for (size_t i = 0; i < lines.size(); i++) {
+            out += lines[i];
+            if (i + 1 < lines.size() || endsWithNewline) { out += nl; }
+        }
+
+        //Backups first, so a failed write can never cost the original
+        {
+            std::ifstream bakTest((path + ".bak").c_str());
+            const bool haveBak = bakTest.is_open();
+            bakTest.close();
+            if (!haveBak) { std::ofstream bak((path + ".bak").c_str(), std::ios::binary); bak << (hasBom ? bom : "") << content; }
+            std::ofstream prev((path + ".prev").c_str(), std::ios::binary);
+            prev << (hasBom ? bom : "") << content;
+        }
+        std::ofstream file(path.c_str(), std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            message = L"Impossible d'\u00E9crire " + wpath + L" (fichier en lecture seule ?)";
+            return false;
+        }
+        file << out;
+        file.close();
+        IniFile::forgetFile(path);
+        message = L"Enregistr\u00E9 dans " + wpath;
+        return true;
+    }
+}
+
+bool SimulationModel::getVesselSize(int vessel, VesselSize& out)
+{
+    irr::scene::ISceneNode* node = 0;
+    if (vessel < 0) {
+        node = ownShip.getSceneNode();
+        out.scale = ownShip.getScaleFactor();
+        out.yCorrection = ownShip.getModelYCorrection();
+        out.iniFile = ownShip.getLights().getIniFilename();
+        out.sharing = 1;
+    }
+    else {
+        OtherShip* ship = otherShips.getShip(vessel);
+        if (!ship) { return false; }
+        node = ship->getSceneNode();
+        out.scale = ship->getModelScale();
+        out.yCorrection = ship->getModelYCorrection();
+        out.iniFile = ship->getBoatIniFile();
+        out.sharing = 0;
+        for (irr::u32 i = 0; i < otherShips.getNumber(); i++) {
+            OtherShip* other = otherShips.getShip((int)i);
+            if (other && other->getBoatIniFile() == out.iniFile) { out.sharing++; }
+        }
+    }
+    if (!node || out.scale <= 0.000001f) { return false; }
+    //The unturned model, scaled and lifted by YCorrection: the same sums as at loading
+    const irr::core::aabbox3df box = node->getBoundingBox();
+    const irr::f32 lift = out.yCorrection * out.scale;
+    out.length = box.getExtent().Z * out.scale;
+    out.breadth = box.getExtent().X * out.scale;
+    out.draught = -(box.MinEdge.Y * out.scale + lift);
+    out.airDraught = box.MaxEdge.Y * out.scale + lift;
+    return true;
+}
+
+void SimulationModel::applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorrection)
+{
+    if (scale <= 0.000001f) { return; }
+    //A big change of size moves the camera in or out with it, so she stays in the picture;
+    //a small one leaves it, so the change can be seen against her neighbours
+    VesselSize before;
+    if (vessel == sizeEditVessel && getVesselSize(vessel, before) && before.scale > 0.000001f) {
+        const irr::f32 grow = scale / before.scale;
+        if (grow > 1.3f || grow < 0.77f) { camera.orbitBy(0.0f, 0.0f, grow); }
+    }
+    if (vessel < 0) {
+        ownShip.setModelSize(scale, yCorrection);
+    }
+    else {
+        OtherShip* ship = otherShips.getShip(vessel);
+        if (!ship) { return; }
+        const std::string ini = ship->getBoatIniFile();
+        for (irr::u32 i = 0; i < otherShips.getNumber(); i++) {
+            OtherShip* other = otherShips.getShip((int)i);
+            if (other && other->getBoatIniFile() == ini) { other->setModelSize(scale, yCorrection); }
+        }
+    }
+    sizeEditRevision++;
+}
+
+bool SimulationModel::beginSizeEdit(int vessel)
+{
+    if (sizeEditVessel != -2) { endSizeEdit(); }
+    if (lightEditVessel != -2) { endLightEdit(); }
+    setFreeView(false); //this editor has its own orbit
+    VesselSize size;
+    if (!getVesselSize(vessel, size)) { return false; }
+    sizeEditVessel = vessel;
+    sizeEditOrigScale = size.scale;
+    sizeEditOrigYCorrection = size.yCorrection;
+    sizeEditRevision++;
+    //Abeam to port and low, so the whole hull and her waterline are in view
+    irr::f32 radius = 1.3f * size.length;
+    if (radius < 15.0f) { radius = 15.0f; }
+    camera.setOrbit(true, radius);
+    camera.orbitBy(-30.0f, -10.0f, 1.0f);
+    device->getLogger()->log(("Size editor: " + size.iniFile).c_str());
+    return true;
+}
+
+void SimulationModel::endSizeEdit()
+{
+    if (sizeEditVessel == -2) { return; }
+    sizeEditVessel = -2;
+    camera.setOrbit(false);
+}
+
+bool SimulationModel::isSizeEditing() const
+{
+    return sizeEditVessel != -2;
+}
+
+int SimulationModel::getSizeEditVessel() const
+{
+    return sizeEditVessel;
+}
+
+int SimulationModel::getSizeEditRevision() const
+{
+    return sizeEditRevision;
+}
+
+void SimulationModel::sizeEditSetLength(irr::f32 metres)
+{
+    VesselSize size;
+    if (sizeEditVessel == -2 || !getVesselSize(sizeEditVessel, size) || size.length < 0.01f) { return; }
+    if (metres < 0.5f) { metres = 0.5f; }
+    if (metres > 800.0f) { metres = 800.0f; }
+    //Scaling keeps YCorrection, so the draught grows with the ship
+    applyVesselSize(sizeEditVessel, size.scale * metres / size.length, size.yCorrection);
+}
+
+void SimulationModel::sizeEditStepLength(irr::f32 deltaMetres)
+{
+    VesselSize size;
+    if (sizeEditVessel == -2 || !getVesselSize(sizeEditVessel, size)) { return; }
+    sizeEditSetLength(size.length + deltaMetres);
+}
+
+void SimulationModel::sizeEditSetDraught(irr::f32 metres)
+{
+    VesselSize size;
+    if (sizeEditVessel == -2 || !getVesselSize(sizeEditVessel, size)) { return; }
+    const irr::f32 hullHeight = size.draught + size.airDraught;
+    if (metres < 0.0f) { metres = 0.0f; }
+    if (metres > hullHeight) { metres = hullHeight; }
+    //draught = -(lowest point * scale + YCorrection * scale)
+    applyVesselSize(sizeEditVessel, size.scale, size.yCorrection + (size.draught - metres) / size.scale);
+}
+
+void SimulationModel::sizeEditStepDraught(irr::f32 deltaMetres)
+{
+    VesselSize size;
+    if (sizeEditVessel == -2 || !getVesselSize(sizeEditVessel, size)) { return; }
+    sizeEditSetDraught(size.draught + deltaMetres);
+}
+
+void SimulationModel::sizeEditRevert()
+{
+    if (sizeEditVessel == -2) { return; }
+    applyVesselSize(sizeEditVessel, sizeEditOrigScale, sizeEditOrigYCorrection);
+}
+
+bool SimulationModel::sizeEditSave(std::wstring& message)
+{
+    VesselSize size;
+    if (sizeEditVessel == -2 || !getVesselSize(sizeEditVessel, size)) {
+        message = L"Aucun navire en cours de r\u00E9glage.";
+        return false;
+    }
+    const bool ok = writeSizeToBoatIni(size.iniFile, size.scale, size.yCorrection, message);
+    device->getLogger()->log(ok ? ("Size editor: saved " + size.iniFile).c_str() : "Size editor: SAVE FAILED");
+    return ok;
 }
 
 void SimulationModel::setOwnShipDeckLights(bool on) {
@@ -1802,7 +2059,7 @@ void SimulationModel::changeView()
         setFreeView(false);
         camera.setView(0);
     }
-    else if (lightEditVessel == -2 && camera.getView() + 1 >= camera.getViewCount()) {
+    else if (lightEditVessel == -2 && sizeEditVessel == -2 && camera.getView() + 1 >= camera.getViewCount()) {
         setFreeView(true);
         return;
     }
@@ -1826,7 +2083,7 @@ bool SimulationModel::isFreeView() const
 
 void SimulationModel::setFreeView(bool on)
 {
-    if (on == freeView || (on && lightEditVessel != -2)) { return; }
+    if (on == freeView || (on && (lightEditVessel != -2 || sizeEditVessel != -2))) { return; }
     freeView = on;
     if (on) {
         //Far enough out to see the whole ship, whatever her size
@@ -4767,6 +5024,23 @@ void SimulationModel::update()
             irr::core::vector3df centre;
             if (lights && node && lights->getSelectedWorldPosition(centre)) {
                 camera.setOrbitCentre(centre, node->getRotation().Y - lights->getAngleCorrection());
+            }
+        }
+
+        //Circle the vessel being sized, centred on her waterline, turning with her
+        if (sizeEditVessel != -2) {
+            irr::scene::ISceneNode* node = (sizeEditVessel < 0) ? ownShip.getSceneNode()
+                                                                 : otherShips.getSceneNode(sizeEditVessel);
+            OtherShip* other = (sizeEditVessel < 0) ? 0 : otherShips.getShip(sizeEditVessel);
+            ShipLights* lights = getShipLights(sizeEditVessel);
+            if (node && (sizeEditVessel < 0 || other)) {
+                const irr::f32 lift = (sizeEditVessel < 0) ? ownShip.getHeightCorrection() : other->getHeightCorrection();
+                irr::core::vector3df centre = node->getTransformedBoundingBox().getCenter();
+                centre.Y = node->getAbsolutePosition().Y - lift;
+                camera.setOrbitCentre(centre, node->getRotation().Y - (lights ? lights->getAngleCorrection() : 0.0f));
+                //Low enough to look along her waterline, never under a wave
+                const irr::core::vector3df eye = camera.getOrbitPosition();
+                camera.setOrbitMinHeight(tideHeight + getWaveHeight(eye.X, eye.Z) + 0.5f);
             }
         }
 

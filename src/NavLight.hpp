@@ -40,6 +40,8 @@ public:
     void setEditVisible(int mode);
     irr::core::vector3df getLocalPosition() const; //in the parent ship's model units
     void remove();                                 //take the lamp out of the scene for good
+    //The ship it hangs on was rescaled by this factor; keep the lamp the same size
+    void parentScaleChanged(irr::f32 factor);
 
 private:
     irr::scene::ISceneManager* smgr;
@@ -55,6 +57,7 @@ private:
     irr::f32 timeOffset;
     bool enabled;                           // KYARA FEUX
     int editVisible;                        // KYARA FEUX EDIT: -1 normal, 0 hidden, 1 shown
+    irr::f32 parentScaleFix;                // Undoes a rescale of the ship since loading
     irr::u16 currentAlpha; //Note that this is u16 not u8 so we can indicate an initial implausible value.
     //bool setAlpha(irr::u8 alpha, irr::video::ITexture* tex);
     //irr::f32 lightLevel;

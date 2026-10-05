@@ -1166,11 +1166,26 @@ bool ShipLights::saveToIni(std::wstring& message)
     }
     out << kept << block;
     out.close();
+    IniFile::forgetFile(iniFile); //a later read sees the new lamps, not the cached ones
     message = L"Enregistr\u00E9 : " + std::to_wstring(n) + L" feux + signaux dans " + wpath;
     return true;
 }
 
 int ShipLights::getEditRevision() const { return editRevision; }
+
+void ShipLights::rescale(irr::f32 newLengthMetres, irr::f32 modelUnitsPerMetre, irr::f32 waterlineModelY)
+{
+    if (modelUnitsPerMetre <= 0.0f) { return; }
+    //The node's scale went up by this much, and every lamp on it grew with it
+    const irr::f32 factor = mupm / modelUnitsPerMetre;
+    for (size_t i = 0; i < lamps.size(); i++) {
+        if (lamps[i].light) { lamps[i].light->parentScaleChanged(factor); }
+    }
+    lengthMetres = newLengthMetres;
+    mupm = modelUnitsPerMetre;
+    waterlineY = waterlineModelY;
+    restackSignals();
+}
 
 void ShipLights::cycleSelectedRole(int direction)
 {

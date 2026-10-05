@@ -298,6 +298,19 @@ public:
         GUI_ID_LEDIT_CLOSE,
         GUI_ID_LEDIT_ROLE,
         GUI_ID_LEDIT_DELETE,
+        //The "Taille et flottaison" window
+        GUI_ID_SIZE_EDIT_BUTTON,
+        GUI_ID_SEDIT_LENGTH_BOX,
+        GUI_ID_SEDIT_LENGTH_APPLY,
+        GUI_ID_SEDIT_LENGTH_MINUS,
+        GUI_ID_SEDIT_LENGTH_PLUS,
+        GUI_ID_SEDIT_DRAUGHT_BOX,
+        GUI_ID_SEDIT_DRAUGHT_APPLY,
+        GUI_ID_SEDIT_RAISE,
+        GUI_ID_SEDIT_LOWER,
+        GUI_ID_SEDIT_SAVE,
+        GUI_ID_SEDIT_REVERT,
+        GUI_ID_SEDIT_CLOSE,
 
     };
 
@@ -335,6 +348,12 @@ public:
     void closeLightEditor();
     void refreshLightEditor();
     void setLightEditorStatus(const std::wstring& text, bool isError);
+    //The "Taille et flottaison" window
+    void openSizeEditor(int vessel);
+    void closeSizeEditor();
+    void refreshSizeEditor();
+    void setSizeEditorStatus(const std::wstring& text, bool isError);
+    bool getSizeEditorValue(int boxId, irr::f32& out) const; //false if the box holds no number
     irr::s32 adjustMagnification(irr::s32 delta); //Returns the new raw scrollbar position
     void toggleShow2dInterface();
     void show2dInterface();
@@ -692,6 +711,13 @@ private:
     irr::gui::IGUIStaticText* lightEditSpacingText = 0;
     irr::gui::IGUIStaticText* lightEditStatus = 0;
     int lightEditRevision = -1;
+    //Size and waterline window
+    irr::gui::IGUIWindow* sizeEditWindow = 0;
+    irr::gui::IGUIStaticText* sizeEditReadout = 0;
+    irr::gui::IGUIEditBox* sizeEditLengthBox = 0;
+    irr::gui::IGUIEditBox* sizeEditDraughtBox = 0;
+    irr::gui::IGUIStaticText* sizeEditStatus = 0;
+    int sizeEditShownRevision = -1;
 
     //Different locations for heading indicator depending on GUI visibility
     irr::core::rect<irr::s32> stdHdgIndicatorPos;

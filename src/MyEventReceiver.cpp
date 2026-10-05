@@ -185,7 +185,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                if (model->isLightEditing() || model->isFreeView()) {
+                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing()) {
                     //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp (or the ship, in free view)
                     model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
                 }
@@ -208,7 +208,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 return true;
             }
             //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
-            if (model->isLightEditing() || model->isFreeView()) {
+            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing()) {
                 model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
                 return true;
             }
@@ -266,6 +266,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         // (including EGET_ELEMENT_HOVERED / EGET_ELEMENT_LEFT), so they toggled on hover.
         // They are now handled in the EGET_BUTTON_CLICKED block below, so they only
         // respond to an actual click.
+
+        //A length or draught typed in, then Enter
+        if (event.GUIEvent.EventType == irr::gui::EGET_EDITBOX_ENTER && model->isSizeEditing() &&
+            (id == GUIMain::GUI_ID_SEDIT_LENGTH_BOX || id == GUIMain::GUI_ID_SEDIT_DRAUGHT_BOX))
+        {
+            applySizeEditorBox(id);
+            return true;
+        }
 
         if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED)
         {
@@ -615,6 +623,48 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_STORM_PRESET_BUTTON)
             {
                 model->setBadWeatherPreset();
+            }
+
+            //Size and waterline of the vessel picked in the Feux tab
+            if (id == GUIMain::GUI_ID_SIZE_EDIT_BUTTON)
+            {
+                const int vessel = gui->getLightsVessel();
+                if (model->beginSizeEdit(vessel)) {
+                    gui->openSizeEditor(vessel);
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isSizeEditing() && id >= GUIMain::GUI_ID_SEDIT_LENGTH_BOX && id <= GUIMain::GUI_ID_SEDIT_CLOSE)
+            {
+                switch (id) {
+                case GUIMain::GUI_ID_SEDIT_LENGTH_APPLY: applySizeEditorBox(GUIMain::GUI_ID_SEDIT_LENGTH_BOX); break;
+                case GUIMain::GUI_ID_SEDIT_DRAUGHT_APPLY: applySizeEditorBox(GUIMain::GUI_ID_SEDIT_DRAUGHT_BOX); break;
+                case GUIMain::GUI_ID_SEDIT_LENGTH_MINUS: model->sizeEditStepLength(-1.0f); break;
+                case GUIMain::GUI_ID_SEDIT_LENGTH_PLUS: model->sizeEditStepLength(1.0f); break;
+                case GUIMain::GUI_ID_SEDIT_RAISE: model->sizeEditStepDraught(-0.1f); break;
+                case GUIMain::GUI_ID_SEDIT_LOWER: model->sizeEditStepDraught(0.1f); break;
+                case GUIMain::GUI_ID_SEDIT_SAVE: {
+                    std::wstring msg;
+                    const bool ok = model->sizeEditSave(msg);
+                    if (ok && model->getSizeEditVessel() < 0) {
+                        msg += L"\nRelancez le sc\u00E9nario pour la passerelle, le radar et la physique.";
+                    }
+                    gui->setSizeEditorStatus(msg, !ok);
+                    break;
+                }
+                case GUIMain::GUI_ID_SEDIT_REVERT:
+                    model->sizeEditRevert();
+                    gui->setSizeEditorStatus(L"Taille et flottaison de l'ouverture r\u00E9tablies (rien n'est enregistr\u00E9).", false);
+                    break;
+                case GUIMain::GUI_ID_SEDIT_CLOSE:
+                    model->endSizeEdit();
+                    gui->closeSizeEditor();
+                    break;
+                default: break;
+                }
+                device->getGUIEnvironment()->setFocus(0); //keys go back to sizing the ship
+                return true;
             }
 
             //KYARA FEUX EDIT: the placement editor
@@ -1206,6 +1256,38 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             cancelShutdown();
         }
         return true;
+    }
+
+    //While sizing a vessel, Up / Down change her length and Page Up / Down lift or sink
+    //her; A/D, W/S, Q/E turn and zoom the camera. Taken here so none of them also steers the ship.
+    irr::gui::IGUIElement* sizeFocus = device->getGUIEnvironment()->getFocus();
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSizeEditing() &&
+        !(sizeFocus && sizeFocus->getType() == irr::gui::EGUIET_EDIT_BOX)) //typing in a box wins
+    {
+        const irr::EKEY_CODE k = event.KeyInput.Key;
+        const bool ours = (k == irr::KEY_UP || k == irr::KEY_DOWN || k == irr::KEY_PRIOR || k == irr::KEY_NEXT ||
+            k == irr::KEY_KEY_A || k == irr::KEY_KEY_D || k == irr::KEY_KEY_W || k == irr::KEY_KEY_S ||
+            k == irr::KEY_KEY_Q || k == irr::KEY_KEY_E);
+        if (ours) {
+            if (event.KeyInput.PressedDown) {
+                const irr::f32 lenStep = event.KeyInput.Shift ? 0.1f : (event.KeyInput.Control ? 10.0f : 1.0f);
+                const irr::f32 wlStep = event.KeyInput.Shift ? 0.01f : (event.KeyInput.Control ? 0.5f : 0.05f);
+                switch (k) {
+                case irr::KEY_UP:    model->sizeEditStepLength(lenStep); break;
+                case irr::KEY_DOWN:  model->sizeEditStepLength(-lenStep); break;
+                case irr::KEY_PRIOR: model->sizeEditStepDraught(-wlStep); break; //up out of the water
+                case irr::KEY_NEXT:  model->sizeEditStepDraught(wlStep); break;
+                case irr::KEY_KEY_A: model->lightEditOrbit(-5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_D: model->lightEditOrbit(5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_W: model->lightEditOrbit(0.0f, 5.0f, 1.0f); break;
+                case irr::KEY_KEY_S: model->lightEditOrbit(0.0f, -5.0f, 1.0f); break;
+                case irr::KEY_KEY_Q: model->lightEditOrbit(0.0f, 0.0f, 0.9f); break;
+                case irr::KEY_KEY_E: model->lightEditOrbit(0.0f, 0.0f, 1.1f); break;
+                default: break;
+                }
+            }
+            return true; //the key-up too, so nothing downstream sees half a key press
+        }
     }
 
     //KYARA FEUX EDIT: while placing lamps, the arrows / Page keys move the selected lamp in the
@@ -2503,6 +2585,21 @@ bool MyEventReceiver::IsButtonPressed(irr::u32 button, irr::u32 buttonBitmap) co
         return false;
 
     return (buttonBitmap & (1 << button)) ? true : false;
+}
+
+void MyEventReceiver::applySizeEditorBox(int boxId)
+{
+    irr::f32 metres = 0.0f;
+    if (!gui->getSizeEditorValue(boxId, metres)) {
+        gui->setSizeEditorStatus(L"Valeur illisible : tapez un nombre en m\u00E8tres, par exemple 42,5", true);
+    }
+    else if (boxId == GUIMain::GUI_ID_SEDIT_LENGTH_BOX) {
+        model->sizeEditSetLength(metres);
+    }
+    else {
+        model->sizeEditSetDraught(metres);
+    }
+    device->getGUIEnvironment()->setFocus(0); //so the box takes the new value, and the keys work again
 }
 
 void MyEventReceiver::startShutdown()

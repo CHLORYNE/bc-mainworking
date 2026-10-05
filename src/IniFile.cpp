@@ -42,6 +42,12 @@ public:
     irr::s32 getSIntValue(const std::string &fileName, const std::string &key, irr::s32 defValue = 0);
     irr::f32 getFloatValue(const std::string &fileName, const std::string &key, irr::f32 defValue = 0.f);
 
+    void forget(const std::string &fileName)
+    {
+        m_stringData.erase(fileName);
+        m_wstringData.erase(fileName);
+    }
+
 private:
     bool readFile(const std::string &fileName);
 
@@ -311,6 +317,12 @@ namespace IniFile
     irr::f32 iniFileTof32(const std::string &fileName, const std::string &key, irr::f32 defValue)
     {
         return g_iniCache.getFloatValue(fileName, key, defValue);
+    }
+
+    //Drop a file from the cache, so the next read sees what was just written to it
+    void forgetFile(const std::string &fileName)
+    {
+        g_iniCache.forget(fileName);
     }
 
 }

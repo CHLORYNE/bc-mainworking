@@ -1076,6 +1076,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
         guienv->addButton(cell(6, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
             L"Placer les feux", L"Placer les feux de ce navire \u00E0 la main et les enregistrer dans son boat.ini");
+        //The same vessel's size and waterline
+        guienv->addButton(cell(5, cC0, cD1), tabFeux, GUI_ID_SIZE_EDIT_BUTTON,
+            L"Taille et flottaison",
+            L"R\u00E9gler la longueur et la ligne de flottaison de ce navire en direct, puis les enregistrer dans son boat.ini");
     }
 #endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays
 
@@ -3240,6 +3244,10 @@ void GUIMain::drawGUI()
     if (lightEditWindow) {
         refreshLightEditor();
     }
+    //The readout follows every change of size
+    if (sizeEditWindow) {
+        refreshSizeEditor();
+    }
 
     // Update lines display
     if (model && model->getLines()) {
@@ -4278,6 +4286,7 @@ void GUIMain::shutdownConsoleWindow()
 void GUIMain::openLightEditor(int vessel)
 {
     closeLightEditor();
+    closeSizeEditor(); //one editor at a time: they share the camera
     if (!model) { return; }
     ShipLights* lights = model->getShipLights(vessel);
     if (!lights) { return; }
@@ -4295,8 +4304,11 @@ void GUIMain::openLightEditor(int vessel)
     const irr::s32 helpH = fh * 9;
     const irr::s32 h = 2 * fh + listH + readH + 6 * (rowH + pad) + fh * 3 + helpH + 3 * pad;
     const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
+    const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
     const irr::s32 x = sw - w - fh;
-    const irr::s32 y = fh * 3;
+    //Low on the right, clear of the instrument console along the top
+    irr::s32 y = sh - h - fh * 4;
+    if (y < fh * 3) { y = fh * 3; }
 
     std::wstring title = L"Placement des feux - ";
     if (vessel < 0) { title += L"navire propre"; }
@@ -4418,4 +4430,198 @@ void GUIMain::setLightEditorStatus(const std::wstring& text, bool isError)
     lightEditStatus->setText(text.c_str());
     lightEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
                                               : irr::video::SColor(255, 140, 230, 140));
+}
+
+//=================================================================================================
+//The "Taille et flottaison" window
+//=================================================================================================
+namespace
+{
+    //French decimals for the readout: 12,50
+    std::wstring metresFr(irr::f32 v, int decimals)
+    {
+        wchar_t buf[48];
+        std::swprintf(buf, 48, L"%.*f", decimals, v);
+        std::wstring t(buf);
+        for (size_t i = 0; i < t.size(); i++) { if (t[i] == L'.') { t[i] = L','; } }
+        return t;
+    }
+}
+
+void GUIMain::openSizeEditor(int vessel)
+{
+    closeSizeEditor();
+    closeLightEditor(); //one editor at a time: they share the camera
+    if (!model) { return; }
+    SimulationModel::VesselSize size;
+    if (!model->getVesselSize(vessel, size)) { return; }
+
+    //Sized from the font, like the lamp editor
+    irr::s32 fh = 16;
+    if (guienv->getSkin() && guienv->getSkin()->getFont()) {
+        fh = (irr::s32)guienv->getSkin()->getFont()->getDimension(L"Ag").Height;
+    }
+    const irr::s32 pad = fh / 2;
+    const irr::s32 rowH = fh + 10;
+    const irr::s32 w = fh * 28;
+    const irr::s32 readH = fh * 8;
+    const irr::s32 statusH = fh * 3;
+    const irr::s32 helpH = fh * 6;
+    const irr::s32 h = 2 * fh + readH + pad + 5 * (rowH + pad) + statusH + pad + helpH + pad;
+    const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
+    const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
+    const irr::s32 x = sw - w - fh;
+    //Low on the right, clear of the instrument console along the top
+    irr::s32 y = sh - h - fh * 4;
+    if (y < fh * 3) { y = fh * 3; }
+
+    std::wstring title = L"Taille et flottaison - ";
+    if (vessel < 0) { title += L"navire propre"; }
+    else {
+        const std::string n = model->getOtherShipName(vessel);
+        title += std::wstring(n.begin(), n.end());
+    }
+    sizeEditWindow = guienv->addWindow(irr::core::rect<irr::s32>(x, y, x + w, y + h), false, title.c_str());
+    if (sizeEditWindow->getCloseButton()) { sizeEditWindow->getCloseButton()->setVisible(false); }
+
+    irr::s32 cy = 2 * fh;
+    sizeEditReadout = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + readH),
+        true, true, sizeEditWindow);
+    cy += readH + pad;
+
+    //A value row: label, box, OK
+    const irr::s32 labelX1 = pad + (irr::s32)(w * 0.42f);
+    const irr::s32 okW = fh * 3;
+    const irr::s32 boxX1 = w - pad - okW - pad;
+    auto valueRow = [&](const wchar_t* label, int boxId, int okId, const wchar_t* tip) -> irr::gui::IGUIEditBox* {
+        irr::gui::IGUIStaticText* lab = guienv->addStaticText(label,
+            irr::core::rect<irr::s32>(pad, cy, labelX1, cy + rowH), false, false, sizeEditWindow);
+        lab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        irr::gui::IGUIEditBox* box = guienv->addEditBox(L"",
+            irr::core::rect<irr::s32>(labelX1 + pad, cy, boxX1, cy + rowH), true, sizeEditWindow, boxId);
+        box->setToolTipText(tip);
+        guienv->addButton(irr::core::rect<irr::s32>(w - pad - okW, cy, w - pad, cy + rowH), sizeEditWindow,
+            okId, L"OK", tip);
+        cy += rowH + pad;
+        return box;
+    };
+    const irr::s32 half = (w - 3 * pad) / 2;
+    auto buttonPair = [&](int idA, const wchar_t* a, const wchar_t* tipA, int idB, const wchar_t* b, const wchar_t* tipB) {
+        guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + half, cy + rowH), sizeEditWindow, idA, a, tipA);
+        guienv->addButton(irr::core::rect<irr::s32>(2 * pad + half, cy, w - pad, cy + rowH), sizeEditWindow, idB, b, tipB);
+        cy += rowH + pad;
+    };
+
+    sizeEditLengthBox = valueRow(L"Longueur hors tout (m) :", GUI_ID_SEDIT_LENGTH_BOX, GUI_ID_SEDIT_LENGTH_APPLY,
+        L"Taper la vraie longueur du navire, puis Entr\u00E9e ou OK");
+    buttonPair(GUI_ID_SEDIT_LENGTH_MINUS, L"- 1 m", L"Raccourcir de 1 m (fl\u00E8che bas)",
+        GUI_ID_SEDIT_LENGTH_PLUS, L"+ 1 m", L"Allonger de 1 m (fl\u00E8che haut)");
+    sizeEditDraughtBox = valueRow(L"Tirant d'eau (m) :", GUI_ID_SEDIT_DRAUGHT_BOX, GUI_ID_SEDIT_DRAUGHT_APPLY,
+        L"De la ligne de flottaison au point le plus bas du mod\u00E8le, puis Entr\u00E9e ou OK");
+    buttonPair(GUI_ID_SEDIT_RAISE, L"Monter 10 cm", L"Sortir le navire de l'eau de 10 cm (Pg.Pr\u00E9c : 5 cm)",
+        GUI_ID_SEDIT_LOWER, L"Descendre 10 cm", L"Enfoncer le navire de 10 cm (Pg.Suiv : 5 cm)");
+
+    const irr::s32 third = (w - 4 * pad) / 3;
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + third, cy + rowH), sizeEditWindow,
+        GUI_ID_SEDIT_SAVE, L"Enregistrer", L"\u00C9crire ScaleFactor et YCorrection dans le boat.ini du navire (copie .bak / .prev)");
+    guienv->addButton(irr::core::rect<irr::s32>(2 * pad + third, cy, 2 * pad + 2 * third, cy + rowH), sizeEditWindow,
+        GUI_ID_SEDIT_REVERT, L"Annuler", L"Revenir \u00E0 la taille et \u00E0 la flottaison de l'ouverture");
+    guienv->addButton(irr::core::rect<irr::s32>(3 * pad + 2 * third, cy, w - pad, cy + rowH), sizeEditWindow,
+        GUI_ID_SEDIT_CLOSE, L"Terminer", L"Fermer et revenir \u00E0 la passerelle (ce qui n'est pas enregistr\u00E9 reste jusqu'\u00E0 la fin du sc\u00E9nario)");
+    cy += rowH + pad;
+
+    sizeEditStatus = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + statusH),
+        false, true, sizeEditWindow);
+    cy += statusH + pad;
+    if (vessel < 0) {
+        sizeEditStatus->setText(L"Navire propre : la coque suit en direct. Apr\u00E8s l'enregistrement, "
+            L"relancez le sc\u00E9nario pour que la passerelle, le radar et la physique suivent aussi.");
+    }
+    else {
+        sizeEditStatus->setText(L"Non enregistr\u00E9.");
+    }
+
+    guienv->addStaticText(
+        L"Fl\u00E8ches haut / bas : longueur \u00B11 m (Maj : 10 cm, Ctrl : 10 m)\n"
+        L"Pg.Pr\u00E9c / Pg.Suiv : monter / descendre de 5 cm (Maj : 1 cm, Ctrl : 50 cm)\n"
+        L"Ou taper une valeur, puis Entr\u00E9e\n"
+        L"Tourner autour : glisser dans la vue, ou A / D et W / S\n"
+        L"Zoom : molette, ou Q / E",
+        irr::core::rect<irr::s32>(pad, cy, w - pad, cy + helpH), false, true, sizeEditWindow);
+
+    sizeEditShownRevision = -1; //fill the boxes on the first refresh
+    refreshSizeEditor();
+}
+
+void GUIMain::closeSizeEditor()
+{
+    if (sizeEditWindow) { sizeEditWindow->remove(); }
+    sizeEditWindow = 0;
+    sizeEditReadout = 0;
+    sizeEditLengthBox = 0;
+    sizeEditDraughtBox = 0;
+    sizeEditStatus = 0;
+}
+
+void GUIMain::refreshSizeEditor()
+{
+    if (!sizeEditWindow || !model || !model->isSizeEditing()) { return; }
+    SimulationModel::VesselSize size;
+    if (!model->getVesselSize(model->getSizeEditVessel(), size)) { return; }
+
+    if (sizeEditReadout) {
+        std::wstring t = L"Longueur hors tout : " + metresFr(size.length, 2) + L" m\n";
+        t += L"Largeur : " + metresFr(size.breadth, 2) + L" m\n";
+        t += L"Tirant d'eau : " + metresFr(size.draught, 2) + L" m (jusqu'au point le plus bas : quille, safran, h\u00E9lice)\n";
+        t += L"Tirant d'air : " + metresFr(size.airDraught, 2) + L" m\n";
+        wchar_t buf[96];
+        std::swprintf(buf, 96, L"ScaleFactor = %g    YCorrection = %g\n", size.scale, size.yCorrection);
+        t += buf;
+        if (size.sharing > 1) {
+            t += L"M\u00EAme mod\u00E8le pour " + std::to_wstring(size.sharing) +
+                L" navires du sc\u00E9nario : ils changent ensemble.\n";
+        }
+        t += std::wstring(size.iniFile.begin(), size.iniFile.end());
+        sizeEditReadout->setText(t.c_str());
+    }
+    //The boxes follow the ship, except one being typed in
+    if (sizeEditShownRevision != model->getSizeEditRevision()) {
+        sizeEditShownRevision = model->getSizeEditRevision();
+        irr::gui::IGUIElement* focus = guienv->getFocus();
+        if (sizeEditLengthBox && focus != sizeEditLengthBox) {
+            sizeEditLengthBox->setText(metresFr(size.length, 2).c_str());
+        }
+        if (sizeEditDraughtBox && focus != sizeEditDraughtBox) {
+            sizeEditDraughtBox->setText(metresFr(size.draught, 2).c_str());
+        }
+    }
+}
+
+void GUIMain::setSizeEditorStatus(const std::wstring& text, bool isError)
+{
+    if (!sizeEditStatus) { return; }
+    sizeEditStatus->setText(text.c_str());
+    sizeEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
+                                             : irr::video::SColor(255, 140, 230, 140));
+}
+
+bool GUIMain::getSizeEditorValue(int boxId, irr::f32& out) const
+{
+    const irr::gui::IGUIEditBox* box = (boxId == GUI_ID_SEDIT_LENGTH_BOX) ? sizeEditLengthBox
+        : (boxId == GUI_ID_SEDIT_DRAUGHT_BOX) ? sizeEditDraughtBox : 0;
+    if (!box || !box->getText()) { return false; }
+    //"12,5", "12.5" and "12,5 m" all read as 12.5
+    std::string t;
+    for (const wchar_t* c = box->getText(); *c; c++) {
+        if (*c == L',' || *c == L'.') { t += '.'; }
+        else if ((*c >= L'0' && *c <= L'9') || *c == L'-') { t += (char)*c; }
+        else if (*c == L' ' || *c == L'm' || *c == L'M') { continue; }
+        else { return false; }
+    }
+    if (t.empty()) { return false; }
+    const char* end = 0;
+    const irr::f32 v = irr::core::fast_atof(t.c_str(), &end);
+    if (!end || *end != 0) { return false; }
+    out = v;
+    return true;
 }

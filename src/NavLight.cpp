@@ -27,6 +27,7 @@ NavLight::NavLight(irr::scene::ISceneNode* parent, irr::scene::ISceneManager* sm
 
     //Store the scene manager, so we can find the active camera
     this->smgr = smgr;
+    parentScaleFix = 1.0f;
     // KYARA CHANGE NAV LIGHT SIZE 
     irr::f32 lightSize = 0.3;
     if (parent && parent->getScale().X > 0) {
@@ -172,6 +173,7 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
     irr::f32 zoomFactor = std::pow(zoom, 0.25f);
     irr::f32 s = SIZE_AT_REF * std::pow(dClamped / REF_DIST, SIZE_POWER) * REF_DIST * 0.0035f * zoomFactor;
 
+    s *= parentScaleFix;
     lightNode->setScale(irr::core::vector3df(s, s, s));
 
     //set light visibility depending on range
@@ -302,4 +304,9 @@ void NavLight::moveNode(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ)
     irr::f32 newPosZ = currentPos.Z + deltaZ;
 
     lightNode->setPosition(irr::core::vector3df(newPosX, newPosY, newPosZ));
+}
+
+void NavLight::parentScaleChanged(irr::f32 factor)
+{
+    if (factor > 0.0f) { parentScaleFix /= factor; }
 }

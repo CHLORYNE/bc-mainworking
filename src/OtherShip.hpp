@@ -64,6 +64,11 @@ public:
     //FIREFIGHTING 
     void startSinking(irr::f32 secondsToGoUnder = 18.0f); // Kyara FIRE: begin foundering; fully under after secondsToGoUnder
     bool isSunk() const;     // Kyara FIRE: fully under
+    //Size and waterline, changed live by the "Taille et flottaison" window
+    const std::string& getBoatIniFile() const;
+    irr::f32 getModelScale() const;
+    irr::f32 getModelYCorrection() const;
+    void setModelSize(irr::f32 newScale, irr::f32 newYCorrection);
 
 protected:
 private:
@@ -82,6 +87,10 @@ private:
 
     // KYARA HOULE: heave / pitch / roll on the sea, same model as the own ship (3 x 3 samples)
     HullMotion hullMotion;
+    void initHullMotion();     // from the current length, breadth and draught
+    std::string boatIniFile;   // The boat.ini she was loaded from
+    irr::f32 modelScale;       // ScaleFactor in use
+    irr::f32 modelYCorrection; // YCorrection in use
     // Apply heave + attitude and place the scene node. baseY = tide + heightCorrection (+sinking).
     // extraIrrRoll = extra roll in Irrlicht sign (the fire list), added on top.
     void placeOnSea(irr::f32 deltaTime, irr::f32 baseY, irr::f32 extraIrrRoll, bool withMotion);

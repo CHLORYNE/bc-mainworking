@@ -139,6 +139,14 @@ void OtherShips::enableAllTriangleSelectors()
     }
 }
 
+OtherShip* OtherShips::getShip(int number)
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        return otherShips.at(number);
+    }
+    return 0;
+}
+
 irr::scene::ISceneNode* OtherShips::getSceneNode(int number)
 {
     if (number < (int)otherShips.size() && number >= 0) {

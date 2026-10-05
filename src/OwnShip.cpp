@@ -200,6 +200,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     // Scale
     scaleFactor = IniFile::iniFileTof32(shipIniFilename, "ScaleFactor");
     irr::f32 yCorrection = IniFile::iniFileTof32(shipIniFilename, "YCorrection");
+    modelYCorrection = yCorrection;
     angleCorrection = IniFile::iniFileTof32(shipIniFilename, "AngleCorrection");
     // DEE_DEC22 vvvv
     angleCorrectionRoll = 0;  // default value
@@ -1824,6 +1825,36 @@ irr::f32 OwnShip::getShipMass() const
 irr::f32 OwnShip::getScaleFactor() const
 {
     return scaleFactor;
+}
+
+//Size and waterline editor ----------------------------------------------------------------------
+irr::f32 OwnShip::getModelYCorrection() const
+{
+    return modelYCorrection;
+}
+
+void OwnShip::setModelSize(irr::f32 newScale, irr::f32 newYCorrection)
+{
+    if (!ship || newScale <= 0.000001f || scaleFactor <= 0.000001f) { return; }
+    const irr::f32 oldHeightCorrection = heightCorrection;
+    scaleFactor = newScale;
+    modelYCorrection = newYCorrection;
+    heightCorrection = newYCorrection * newScale; //update() places her with this every frame
+    ship->setScale(irr::core::vector3df(newScale, newScale, newScale));
+
+    //The hull mask is measured with the node where it was at load: at the origin, unturned
+    const irr::core::vector3df pos = ship->getPosition();
+    const irr::core::vector3df rot = ship->getRotation();
+    ship->setPosition(irr::core::vector3df(0, heightCorrection, 0));
+    ship->setRotation(irr::core::vector3df(0, 0, 0));
+    ship->updateAbsolutePosition();
+    measureHullWaterline();
+    const irr::f32 newLength = ship->getTransformedBoundingBox().getExtent().Z;
+    ship->setPosition(pos + irr::core::vector3df(0, heightCorrection - oldHeightCorrection, 0));
+    ship->setRotation(rot);
+    ship->updateAbsolutePosition();
+
+    shipLights.rescale(newLength, 1.0f / newScale, -newYCorrection);
 }
 
 irr::f32 OwnShip::requiredEngineProportion(irr::f32 speed)

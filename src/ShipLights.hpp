@@ -153,6 +153,11 @@ public:
     bool deleteSelected();                     //drop a junk lamp (not the signal stack)
     int getEditRevision() const;               //changes whenever the list's labels change
 
+    //The ship was resized live (ScaleFactor / YCorrection). The lamps ride on the
+    //ship's node, so they follow by themselves; this keeps the metre-based rules and the 2 m
+    //signal spacing right, and the lamps their usual size.
+    void rescale(irr::f32 lengthMetres, irr::f32 modelUnitsPerMetre, irr::f32 waterlineModelY);
+
 private:
     struct Lamp
     {

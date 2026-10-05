@@ -300,6 +300,31 @@ public:
     bool isLightEditing() const;
     int getLightEditVessel() const;
     void lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+    //Size (ScaleFactor) and waterline (YCorrection) of a vessel, changed live and
+    //written back to her boat.ini. -1 = own ship. Other ships using the same boat.ini are the
+    //same model, so they all change together.
+    struct VesselSize {
+        std::string iniFile;
+        irr::f32 scale = 1.0f;
+        irr::f32 yCorrection = 0.0f;
+        irr::f32 length = 0.0f;     //overall, metres
+        irr::f32 breadth = 0.0f;
+        irr::f32 draught = 0.0f;    //waterline down to the lowest point of the model
+        irr::f32 airDraught = 0.0f; //waterline up to the highest point
+        int sharing = 1;            //vessels in this scenario drawn from that boat.ini
+    };
+    bool beginSizeEdit(int vessel);
+    void endSizeEdit();
+    bool isSizeEditing() const;
+    int getSizeEditVessel() const;
+    bool getVesselSize(int vessel, VesselSize& out);
+    void sizeEditSetLength(irr::f32 metres);
+    void sizeEditStepLength(irr::f32 deltaMetres);
+    void sizeEditSetDraught(irr::f32 metres);
+    void sizeEditStepDraught(irr::f32 deltaMetres); //positive = deeper in the water
+    void sizeEditRevert();                          //back to the values at opening
+    bool sizeEditSave(std::wstring& message);
+    int getSizeEditRevision() const;                //changes whenever the size does
     //Free view: a camera circling the own ship (mouse drag turns, wheel zooms), for any ship
     //without views in boat.ini. It comes after the last boat.ini view in the "change view" cycle.
     bool isFreeView() const;
@@ -579,6 +604,11 @@ private:
     LandLights landLights;
     Camera camera;
     int lightEditVessel = -2; //KYARA FEUX EDIT: -2 = not editing
+    int sizeEditVessel = -2;  //size and waterline editor: -2 = not editing
+    irr::f32 sizeEditOrigScale = 1.0f;
+    irr::f32 sizeEditOrigYCorrection = 0.0f;
+    int sizeEditRevision = 0;
+    void applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorrection);
     bool freeView = false;
     Camera radarCamera;
     Water water;

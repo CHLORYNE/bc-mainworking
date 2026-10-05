@@ -199,6 +199,7 @@ private:
     std::wstring f32To3dp(irr::f32 value, bool stripZeros = false);
     bool IsButtonPressed(irr::u32 button, irr::u32 buttonBitmap) const;
     void handleMooringLines(irr::core::line3df rayForLines);
+    void applySizeEditorBox(int boxId); //The value typed in a box of the size window
 
     SimulationModel* model;
     GUIMain* gui;

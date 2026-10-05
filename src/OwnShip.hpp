@@ -202,6 +202,10 @@ public:
 
     irr::f32 getShipMass() const;
     irr::f32 getScaleFactor() const;
+    //Live preview of a new size / waterline. Only the hull, its lamps and the hull
+    //mask follow; views, radar screen and physics are set up at load (restart the scenario).
+    irr::f32 getModelYCorrection() const;
+    void setModelSize(irr::f32 newScale, irr::f32 newYCorrection);
 
     void enableTriangleSelector(bool selectorEnabled);
 
@@ -224,6 +228,7 @@ private:
     bool is360textureShip;
     bool showDebugData;
     irr::f32 scaleFactor;
+    irr::f32 modelYCorrection; //YCorrection in use
     irr::f32 rollPeriod;       // Roll period (s)  DEE this should be dynamically loaded
     irr::f32 rollAngle;        // Roll Angle (deg)
     irr::f32 pitchPeriod;      // Roll period (s)

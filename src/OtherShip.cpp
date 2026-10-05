@@ -73,6 +73,9 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     irr::f32 scaleFactor = IniFile::iniFileTof32(iniFilename, "Scalefactor", 1.f);
 
     irr::f32 yCorrection = IniFile::iniFileTof32(iniFilename, "YCorrection");
+    boatIniFile = iniFilename;
+    modelScale = scaleFactor;
+    modelYCorrection = yCorrection;
     angleCorrection = IniFile::iniFileTof32(iniFilename, "AngleCorrection");
     // Kyara FIRE: certified rescue/fire-fighting vessel (SAR craft, fire-tug). FireFighting=1 in
 // boat.ini. Such vessels are never set alight as the casualty and may carry a monitor.
@@ -118,19 +121,7 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
 
     // KYARA HOULE: seakeeping for this vessel (periods estimated from its size; RollPeriod /
     // PitchPeriod / HeavePeriod / Freeboard in its boat.ini are used if present)
-    {
-        HullMotion::Params hp;
-        hp.length = length;
-        hp.breadth = breadth;
-        hp.draught = draught;
-        hp.rollPeriod = IniFile::iniFileTof32(iniFilename, "RollPeriod");
-        hp.pitchPeriod = IniFile::iniFileTof32(iniFilename, "PitchPeriod");
-        hp.heavePeriod = IniFile::iniFileTof32(iniFilename, "HeavePeriod");
-        hp.freeboard = IniFile::iniFileTof32(iniFilename, "Freeboard");
-        hp.nLong = 3;
-        hp.nTrans = 3;
-        hullMotion.init(hp);
-    }
+    initHullMotion();
 
     rcs = 0.005 * std::pow(length, 3); //Default RCS, base radar cross section on length^3 (following RCS table Ship_RCS_table.pdf)
     std::string logMessage = "Loading '";
@@ -190,6 +181,48 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
 
     //store leg information
     legs = legsLoaded;
+}
+
+void OtherShip::initHullMotion()
+{
+    HullMotion::Params hp;
+    hp.length = length;
+    hp.breadth = breadth;
+    hp.draught = draught;
+    hp.rollPeriod = IniFile::iniFileTof32(boatIniFile, "RollPeriod");
+    hp.pitchPeriod = IniFile::iniFileTof32(boatIniFile, "PitchPeriod");
+    hp.heavePeriod = IniFile::iniFileTof32(boatIniFile, "HeavePeriod");
+    hp.freeboard = IniFile::iniFileTof32(boatIniFile, "Freeboard");
+    hp.nLong = 3;
+    hp.nTrans = 3;
+    hullMotion.init(hp);
+}
+
+//Size and waterline editor ----------------------------------------------------------------------
+const std::string& OtherShip::getBoatIniFile() const { return boatIniFile; }
+irr::f32 OtherShip::getModelScale() const { return modelScale; }
+irr::f32 OtherShip::getModelYCorrection() const { return modelYCorrection; }
+
+//Same sums as loading: the box of the unrotated model, scaled and lifted by YCorrection.
+void OtherShip::setModelSize(irr::f32 newScale, irr::f32 newYCorrection)
+{
+    if (!ship || newScale <= 0.000001f || modelScale <= 0.000001f) { return; }
+    const irr::f32 factor = newScale / modelScale;
+    modelScale = newScale;
+    modelYCorrection = newYCorrection;
+    heightCorrection = newYCorrection * newScale; //update() places her with this every frame
+    ship->setScale(irr::core::vector3df(newScale, newScale, newScale));
+
+    const irr::core::aabbox3df box = ship->getBoundingBox(); //model units
+    length = box.getExtent().Z * newScale;
+    breadth = box.getExtent().X * newScale;
+    height = box.getExtent().Y * newScale * 0.75f;
+    draught = -(box.MinEdge.Y * newScale + heightCorrection);
+    airDraught = box.MaxEdge.Y * newScale + heightCorrection;
+    solidHeight *= factor;
+    rcs = 0.005 * std::pow(length, 3);
+    initHullMotion();
+    shipLights.rescale(length, 1.0f / newScale, -newYCorrection);
 }
 
 OtherShip::~OtherShip()

@@ -77,6 +77,7 @@ public:
     int getLightSituation(int number);
     void setDeckLights(int number, bool on);
     ShipLights* getLights(int number); //KYARA FEUX TAB: 0 if no such vessel
+    OtherShip* getShip(int number);    //0 if no such vessel
 
 private:
     std::vector<OtherShip*> otherShips;
