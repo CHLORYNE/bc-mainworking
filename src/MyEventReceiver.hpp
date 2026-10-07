@@ -200,6 +200,7 @@ private:
     bool IsButtonPressed(irr::u32 button, irr::u32 buttonBitmap) const;
     void handleMooringLines(irr::core::line3df rayForLines);
     void applySizeEditorBox(int boxId); //The value typed in a box of the size window
+    irr::s32 pressX = 0, pressY = 0;     //where the left button went down: a click, not a drag, picks
 
     SimulationModel* model;
     GUIMain* gui;

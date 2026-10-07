@@ -1120,6 +1120,14 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         interiorStatusText = guienv->addStaticText(L"",
             irr::core::rect<irr::s32>(labelX0, rowY(2), valueX1, rowY(4) + rowH), false, true, tabBord);
         interiorStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
+
+        //Row 5: which screens and gauges glow (hidden from trainees with show_instrument_tool=0)
+        if (showInstrumentTool) {
+            guienv->addButton(irr::core::rect<irr::s32>(labelX0, rowY(5), valueX1, rowY(5) + rowH),
+                tabBord, GUI_ID_INSTR_EDIT_BUTTON, L"Choisir les \u00E9crans \u00E9clair\u00E9s",
+                L"Cliquer sur les \u00E9crans et cadrans de la passerelle pour choisir ceux qui s'\u00E9clairent la nuit, "
+                L"puis les enregistrer dans le boat.ini du navire");
+        }
     }
 
     //=== Taille tab: size and waterline of any vessel, saved to her boat.ini =====================
@@ -3288,6 +3296,9 @@ void GUIMain::drawGUI()
     if (sizeEditWindow) {
         refreshSizeEditor();
     }
+    if (instrEditWindow) {
+        refreshInstrumentEditor();
+    }
 
     // Update lines display
     if (model && model->getLines()) {
@@ -3972,8 +3983,11 @@ void GUIMain::refreshLightsTab()
         if (model->getOwnShipInstrumentMaterialCount() == 0) {
             //Without this line the buttons look broken on a model whose textures match none of
             //the keywords - which is a data problem, not a code one.
-            info = L"Aucun \u00E9cran d\u00E9tect\u00E9 sur ce mod\u00E8le : renseigner "
-                L"InstrumentMaterials= dans boat.ini (indices list\u00E9s dans le journal).";
+            info = showInstrumentTool
+                ? L"Aucun \u00E9cran \u00E9clair\u00E9 sur ce mod\u00E8le : les choisir avec "
+                  L"\u00AB Choisir les \u00E9crans \u00E9clair\u00E9s \u00BB ci-dessous."
+                : L"Aucun \u00E9cran d\u00E9tect\u00E9 sur ce mod\u00E8le : renseigner "
+                  L"InstrumentMaterials= dans boat.ini (indices list\u00E9s dans le journal).";
         }
         else {
             info = std::to_wstring(model->getOwnShipInstrumentMaterialCount());
@@ -4327,6 +4341,7 @@ void GUIMain::openLightEditor(int vessel)
 {
     closeLightEditor();
     closeSizeEditor(); //one editor at a time: they share the camera
+    closeInstrumentEditor();
     if (!model) { return; }
     ShipLights* lights = model->getShipLights(vessel);
     if (!lights) { return; }
@@ -4492,6 +4507,7 @@ void GUIMain::openSizeEditor(int vessel)
 {
     closeSizeEditor();
     closeLightEditor(); //one editor at a time: they share the camera
+    closeInstrumentEditor();
     if (!model) { return; }
     SimulationModel::VesselSize size;
     if (!model->getVesselSize(vessel, size)) { return; }
@@ -4599,10 +4615,11 @@ int GUIMain::getSizeVessel() const
     return sizeVesselBox->getSelected() - 1; //item 0 is the own ship
 }
 
-void GUIMain::setInstructorTools(bool colregTab, bool sizeTool)
+void GUIMain::setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool)
 {
     showColregTab = colregTab;
     showSizeTool = sizeTool;
+    showInstrumentTool = instrumentTool;
 }
 
 void GUIMain::closeSizeEditor()
@@ -4676,4 +4693,126 @@ bool GUIMain::getSizeEditorValue(int boxId, irr::f32& out) const
     if (!end || *end != 0) { return false; }
     out = v;
     return true;
+}
+
+//=================================================================================================
+//The "Écrans éclairés" window
+//=================================================================================================
+void GUIMain::openInstrumentEditor()
+{
+    closeInstrumentEditor();
+    closeLightEditor();
+    closeSizeEditor();
+    if (!model) { return; }
+
+    irr::s32 fh = 16;
+    if (guienv->getSkin() && guienv->getSkin()->getFont()) {
+        fh = (irr::s32)guienv->getSkin()->getFont()->getDimension(L"Ag").Height;
+    }
+    const irr::s32 pad = fh / 2;
+    const irr::s32 rowH = fh + 10;
+    const irr::s32 w = fh * 26;
+    const irr::s32 helpH = fh * 5;
+    const irr::s32 listH = fh * 16;
+    const irr::s32 statusH = fh * 3;
+    const irr::s32 h = 2 * fh + helpH + pad + rowH + pad + listH + pad + 2 * (rowH + pad) + statusH + pad;
+    const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
+    const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
+    const irr::s32 x = sw - w - fh;
+    //Low on the right, clear of the instrument console along the top
+    irr::s32 y = sh - h - fh * 4;
+    if (y < fh * 3) { y = fh * 3; }
+
+    instrEditWindow = guienv->addWindow(irr::core::rect<irr::s32>(x, y, x + w, y + h), false,
+        L"\u00C9crans \u00E9clair\u00E9s - navire propre");
+    if (instrEditWindow->getCloseButton()) { instrEditWindow->getCloseButton()->setVisible(false); }
+
+    irr::s32 cy = 2 * fh;
+    guienv->addStaticText(
+        L"Cliquez sur un \u00E9cran ou un cadran dans la vue : il s'allume ou s'\u00E9teint, et clignote un "
+        L"instant pour montrer ce qui a \u00E9t\u00E9 choisi. Un second clic l'annule.\n"
+        L"Glisser dans la vue : regarder autour. \u00C0 essayer de nuit, \u00E9clairage \u00AB Pleins feux \u00BB.",
+        irr::core::rect<irr::s32>(pad, cy, w - pad, cy + helpH), false, true, instrEditWindow);
+    cy += helpH + pad;
+
+    instrEditCount = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH),
+        false, false, instrEditWindow);
+    instrEditCount->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+    cy += rowH + pad;
+
+    //Every material of the model: [x] = lit at night
+    instrEditList = guienv->addListBox(irr::core::rect<irr::s32>(pad, cy, w - pad, cy + listH),
+        instrEditWindow, GUI_ID_IEDIT_LIST, true);
+    cy += listH + pad;
+
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH), instrEditWindow,
+        GUI_ID_IEDIT_TOGGLE, L"Allumer / \u00E9teindre la ligne choisie",
+        L"Pour ce qui est difficile \u00E0 cliquer dans la vue");
+    cy += rowH + pad;
+
+    const irr::s32 third = (w - 4 * pad) / 3;
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + third, cy + rowH), instrEditWindow,
+        GUI_ID_IEDIT_SAVE, L"Enregistrer", L"\u00C9crire la liste (InstrumentMaterials) dans le boat.ini du navire (copie .bak / .prev)");
+    guienv->addButton(irr::core::rect<irr::s32>(2 * pad + third, cy, 2 * pad + 2 * third, cy + rowH), instrEditWindow,
+        GUI_ID_IEDIT_REVERT, L"Annuler", L"Revenir aux \u00E9crans \u00E9clair\u00E9s de l'ouverture");
+    guienv->addButton(irr::core::rect<irr::s32>(3 * pad + 2 * third, cy, w - pad, cy + rowH), instrEditWindow,
+        GUI_ID_IEDIT_CLOSE, L"Terminer", L"Fermer (ce qui n'est pas enregistr\u00E9 reste jusqu'\u00E0 la fin du sc\u00E9nario)");
+    cy += rowH + pad;
+
+    instrEditStatus = guienv->addStaticText(L"Non enregistr\u00E9.", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + statusH),
+        false, true, instrEditWindow);
+
+    instrEditShownRevision = -1;
+    refreshInstrumentEditor();
+}
+
+void GUIMain::closeInstrumentEditor()
+{
+    if (instrEditWindow) { instrEditWindow->remove(); }
+    instrEditWindow = 0;
+    instrEditList = 0;
+    instrEditStatus = 0;
+    instrEditCount = 0;
+}
+
+void GUIMain::refreshInstrumentEditor()
+{
+    if (!instrEditWindow || !instrEditList || !model || !model->isInstrumentEditing()) { return; }
+    if (instrEditShownRevision == model->getInstrumentEditRevision()) { return; }
+    instrEditShownRevision = model->getInstrumentEditRevision();
+
+    const irr::u32 count = model->getOwnShipMaterialCount();
+    int lit = 0;
+    const irr::s32 scroll = instrEditList->getVerticalScrollBar() ? instrEditList->getVerticalScrollBar()->getPos() : 0;
+    instrEditList->clear();
+    for (irr::u32 i = 0; i < count; i++) {
+        const bool on = model->isOwnShipInstrumentMaterial(i);
+        if (on) { lit++; }
+        std::string tex = model->getOwnShipMaterialTexture(i);
+        std::wstring label = on ? L"[x]  " : L"[  ]  ";
+        label += std::to_wstring(i) + L"   ";
+        label += tex.empty() ? std::wstring(L"(couleur unie, sans image)") : std::wstring(tex.begin(), tex.end());
+        instrEditList->addItem(label.c_str());
+    }
+    if (instrEditList->getVerticalScrollBar()) { instrEditList->getVerticalScrollBar()->setPos(scroll); }
+    const int selected = model->getInstrumentEditSelected();
+    if (selected >= 0 && selected < (int)count) { instrEditList->setSelected(selected); }
+    if (instrEditCount) {
+        std::wstring t = std::to_wstring(lit) + L" \u00E9clair\u00E9(s) sur " + std::to_wstring(count) + L" mat\u00E9riaux du mod\u00E8le";
+        instrEditCount->setText(t.c_str());
+    }
+}
+
+void GUIMain::setInstrumentEditorStatus(const std::wstring& text, bool isError)
+{
+    if (!instrEditStatus) { return; }
+    instrEditStatus->setText(text.c_str());
+    instrEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
+                                              : irr::video::SColor(255, 140, 230, 140));
+}
+
+void GUIMain::instrumentEditorListPicked()
+{
+    if (!instrEditList || !model) { return; }
+    model->instrumentEditSelect(instrEditList->getSelected());
 }

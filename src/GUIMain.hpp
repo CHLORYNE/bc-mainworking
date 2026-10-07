@@ -311,6 +311,13 @@ public:
         GUI_ID_SEDIT_SAVE,
         GUI_ID_SEDIT_REVERT,
         GUI_ID_SEDIT_CLOSE,
+        //The "Écrans éclairés" window
+        GUI_ID_INSTR_EDIT_BUTTON,
+        GUI_ID_IEDIT_LIST,
+        GUI_ID_IEDIT_TOGGLE,
+        GUI_ID_IEDIT_SAVE,
+        GUI_ID_IEDIT_REVERT,
+        GUI_ID_IEDIT_CLOSE,
 
     };
 
@@ -351,9 +358,15 @@ public:
     //The "Taille et flottaison" window
     void openSizeEditor(int vessel);
     int getSizeVessel() const;     //ship picked in the Taille tab: -1 = own ship, 0.. = other ship
-    //bc5.ini show_colreg_tab / show_size_tool: hide the Feux and Taille tabs from trainees.
-    //Called before load().
-    void setInstructorTools(bool colregTab, bool sizeTool);
+    //bc5.ini show_colreg_tab / show_size_tool / show_instrument_tool: hide the Feux and Taille
+    //tabs and the lit-instruments tool from trainees. Called before load().
+    void setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool);
+    //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
+    void openInstrumentEditor();
+    void closeInstrumentEditor();
+    void refreshInstrumentEditor();
+    void setInstrumentEditorStatus(const std::wstring& text, bool isError);
+    void instrumentEditorListPicked(); //a line of the list was chosen
     void closeSizeEditor();
     void refreshSizeEditor();
     void setSizeEditorStatus(const std::wstring& text, bool isError);
@@ -720,6 +733,12 @@ private:
     irr::gui::IGUIComboBox* sizeVesselBox = 0;
     bool showColregTab = true;
     bool showSizeTool = true;
+    bool showInstrumentTool = true;
+    irr::gui::IGUIWindow* instrEditWindow = 0;
+    irr::gui::IGUIListBox* instrEditList = 0;
+    irr::gui::IGUIStaticText* instrEditStatus = 0;
+    irr::gui::IGUIStaticText* instrEditCount = 0;
+    int instrEditShownRevision = -1;
     irr::gui::IGUIStaticText* sizeEditReadout = 0;
     irr::gui::IGUIEditBox* sizeEditLengthBox = 0;
     irr::gui::IGUIEditBox* sizeEditDraughtBox = 0;

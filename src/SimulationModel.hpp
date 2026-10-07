@@ -325,6 +325,21 @@ public:
     void sizeEditRevert();                          //back to the values at opening
     bool sizeEditSave(std::wstring& message);
     int getSizeEditRevision() const;                //changes whenever the size does
+    //Instrument lighting editor (own ship): click a screen or gauge in the view to light it at
+    //night; saved as InstrumentMaterials= in her boat.ini.
+    bool beginInstrumentEdit();
+    void endInstrumentEdit();
+    bool isInstrumentEditing() const;
+    int instrumentEditPick(const irr::core::line3df& ray); //lights or darkens what was clicked; its material, or -1
+    void instrumentEditToggle(int material);
+    void instrumentEditSelect(int material);              //flashes it for a moment
+    int getInstrumentEditSelected() const;
+    void instrumentEditRevert();                          //back to the list at opening
+    bool instrumentEditSave(std::wstring& message);
+    int getInstrumentEditRevision() const;
+    irr::u32 getOwnShipMaterialCount() const;
+    std::string getOwnShipMaterialTexture(irr::u32 material) const;
+    bool isOwnShipInstrumentMaterial(irr::u32 material) const;
     //Free view: a camera circling the own ship (mouse drag turns, wheel zooms), for any ship
     //without views in boat.ini. It comes after the last boat.ini view in the "change view" cycle.
     bool isFreeView() const;
@@ -609,6 +624,12 @@ private:
     irr::f32 sizeEditOrigYCorrection = 0.0f;
     int sizeEditRevision = 0;
     void applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorrection);
+    bool instrumentEditOpen = false;
+    std::vector<irr::u32> instrumentEditSnapshot;
+    int instrumentEditSavedLevel = 0;
+    int instrumentEditSelected = -1;
+    irr::u32 instrumentFlashEnd = 0;  //real time (ms) the flash of the selected material stops
+    int instrumentEditRevision = 0;
     bool freeView = false;
     Camera radarCamera;
     Water water;

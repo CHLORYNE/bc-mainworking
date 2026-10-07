@@ -3021,7 +3021,7 @@ void OwnShip::findInstrumentMaterials(const std::string& shipIniFilename)
     //Words that turn up on the faces of bridge equipment. Matched case-insensitively.
     const char* keywords[] = { "radar", "furuno", "gps", "plotter", "ecdis", "screen", "display",
                                "gauge", "instrument", "panel", "sounder", "sondeur", "ais",
-                               "console", "monitor", "vhf", "ecran", 0 };
+                               "console", "monitor", "vhf", "ecran", "sonar", "radio", "opencpn", 0 };
 
     std::string materialLog = "Own ship materials:";
     for (irr::u32 i = 0; i < ship->getMaterialCount(); i++) {
@@ -3076,6 +3076,111 @@ int OwnShip::getInstrumentLights() const
 int OwnShip::getInstrumentMaterialCount() const //KYARA FEUX TAB
 {
     return (int)instrumentMaterials.size();
+}
+
+//Instrument lighting editor ----------------------------------------------------------------------
+irr::u32 OwnShip::getModelMaterialCount() const
+{
+    return ship ? ship->getMaterialCount() : 0;
+}
+
+std::string OwnShip::getModelMaterialTexture(irr::u32 material) const
+{
+    if (!ship || material >= ship->getMaterialCount()) { return ""; }
+    irr::video::ITexture* tex = ship->getMaterial(material).getTexture(0);
+    if (!tex) { return ""; }
+    const std::string path = tex->getName().getPath().c_str();
+    const size_t slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+bool OwnShip::isInstrumentMaterial(irr::u32 material) const
+{
+    for (size_t i = 0; i < instrumentMaterials.size(); i++) {
+        if (instrumentMaterials[i] == material) { return true; }
+    }
+    return false;
+}
+
+void OwnShip::setInstrumentMaterial(irr::u32 material, bool lit)
+{
+    if (!ship || material >= ship->getMaterialCount() || lit == isInstrumentMaterial(material)) { return; }
+    if (lit) { instrumentMaterials.push_back(material); }
+    else {
+        for (size_t i = 0; i < instrumentMaterials.size(); i++) {
+            if (instrumentMaterials[i] == material) { instrumentMaterials.erase(instrumentMaterials.begin() + i); break; }
+        }
+    }
+    ship->getMaterial(material).EmissiveColor = instrumentGlow(material);
+}
+
+std::vector<irr::u32> OwnShip::getInstrumentMaterialList() const
+{
+    return instrumentMaterials;
+}
+
+void OwnShip::setInstrumentMaterialList(const std::vector<irr::u32>& materials)
+{
+    if (!ship) { return; }
+    std::vector<irr::u32> previous = instrumentMaterials;
+    instrumentMaterials = materials;
+    for (size_t i = 0; i < previous.size(); i++) {
+        if (previous[i] < ship->getMaterialCount()) { ship->getMaterial(previous[i]).EmissiveColor = instrumentGlow(previous[i]); }
+    }
+    setInstrumentLights(instrumentLightLevel);
+}
+
+irr::video::SColor OwnShip::instrumentGlow(irr::u32 material) const
+{
+    if (instrumentLightLevel == 0 || !isInstrumentMaterial(material)) { return irr::video::SColor(255, 0, 0, 0); }
+    const irr::f32 strength = (instrumentLightLevel == 1) ? 0.45f : 0.95f;
+    return irr::video::SColor(255,
+        (irr::u32)(strength * 255.0f), (irr::u32)(strength * 245.0f), (irr::u32)(strength * 225.0f));
+}
+
+//The ray is taken into the model's own frame, then every triangle of every mesh buffer is tried;
+//buffer n is drawn with material n.
+int OwnShip::pickModelMaterial(const irr::core::line3df& worldRay) const
+{
+    irr::scene::IAnimatedMeshSceneNode* node = (irr::scene::IAnimatedMeshSceneNode*)ship;
+    if (!node || !node->getMesh()) { return -1; }
+    irr::scene::IMesh* mesh = node->getMesh()->getMesh(0);
+    if (!mesh) { return -1; }
+    irr::core::matrix4 toModel;
+    if (!ship->getAbsoluteTransformation().getInverse(toModel)) { return -1; }
+    irr::core::line3df ray;
+    toModel.transformVect(ray.start, worldRay.start);
+    toModel.transformVect(ray.end, worldRay.end);
+
+    int best = -1;
+    irr::f32 bestDistSq = 0.0f;
+    for (irr::u32 b = 0; b < mesh->getMeshBufferCount(); b++) {
+        const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+        if (!mb || mb->getIndexCount() < 3 || !mb->getBoundingBox().intersectsWithLine(ray)) { continue; }
+        const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+        const irr::u16* i16 = mb->getIndices();
+        const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+        const irr::u32 vertexCount = mb->getVertexCount();
+        for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+            const irr::u32 a = idx32 ? i32[t] : i16[t];
+            const irr::u32 c = idx32 ? i32[t + 1] : i16[t + 1];
+            const irr::u32 d = idx32 ? i32[t + 2] : i16[t + 2];
+            if (a >= vertexCount || c >= vertexCount || d >= vertexCount) { continue; }
+            const irr::core::triangle3df tri(mb->getPosition(a), mb->getPosition(c), mb->getPosition(d));
+            irr::core::vector3df hit;
+            if (!tri.getIntersectionWithLimitedLine(ray, hit)) { continue; }
+            const irr::f32 distSq = hit.getDistanceFromSQ(ray.start);
+            if (best < 0 || distSq < bestDistSq) { best = (int)b; bestDistSq = distSq; }
+        }
+    }
+    return best;
+}
+
+void OwnShip::flashInstrumentMaterial(int material, bool on)
+{
+    if (!ship || material < 0 || (irr::u32)material >= ship->getMaterialCount()) { return; }
+    ship->getMaterial((irr::u32)material).EmissiveColor = on ? irr::video::SColor(255, 0, 210, 255)
+                                                            : instrumentGlow((irr::u32)material);
 }
 
 ShipLights& OwnShip::getLights()

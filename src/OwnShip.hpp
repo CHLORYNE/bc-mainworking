@@ -73,6 +73,15 @@ public:
     void setInstrumentLights(int level);
     int getInstrumentLights() const;
     int getInstrumentMaterialCount() const; //KYARA FEUX TAB: 0 = the dim/bright buttons do nothing
+    //Instrument lighting editor: choose by hand which materials of the model glow
+    irr::u32 getModelMaterialCount() const;
+    std::string getModelMaterialTexture(irr::u32 material) const; //texture file name, "" if none
+    bool isInstrumentMaterial(irr::u32 material) const;
+    void setInstrumentMaterial(irr::u32 material, bool lit);
+    std::vector<irr::u32> getInstrumentMaterialList() const;
+    void setInstrumentMaterialList(const std::vector<irr::u32>& materials);
+    int pickModelMaterial(const irr::core::line3df& worldRay) const; //nearest material hit, -1 if none
+    void flashInstrumentMaterial(int material, bool on);           //show where a material is
 
     //KYARA SLAM: the wheelhouse glass the spray lands on (model units, like RadarScreenX/Y/Z)
     irr::core::vector3df getWindscreenPosition() const;
@@ -394,6 +403,7 @@ private:
     std::vector<irr::u32> instrumentMaterials;
     int instrumentLightLevel;
     void findInstrumentMaterials(const std::string& shipIniFilename);
+    irr::video::SColor instrumentGlow(irr::u32 material) const; //what it shows at the current level
 
     //KYARA SLAM: windscreen pane
     irr::core::vector3df windscreenPosition;

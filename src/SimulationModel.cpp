@@ -1089,6 +1089,7 @@ bool SimulationModel::beginLightEdit(int vessel)
 {
     if (lightEditVessel != -2) { endLightEdit(); }
     if (sizeEditVessel != -2) { endSizeEdit(); }
+    endInstrumentEdit();
     setFreeView(false); //the lamp editor has its own orbit
     ShipLights* lights = getShipLights(vessel);
     if (!lights) { return false; }
@@ -1153,9 +1154,9 @@ namespace
         return k;
     }
 
-    //Rewrites the given keys of a boat.ini (ScaleFactor, YCorrection...) and leaves every other line
+    //Rewrites the given keys of a boat.ini (ScaleFactor, InstrumentMaterials...) and leaves every other line
     //as it was. Keeps boat.ini.bak (the file as it first was) and boat.ini.prev (before this save).
-    bool writeSizeToBoatIni(const std::string& path, const std::vector<std::pair<std::string, irr::f32> >& values,
+    bool writeKeysToBoatIni(const std::string& path, const std::vector<std::pair<std::string, std::string> >& values,
         std::wstring& message)
     {
         const std::wstring wpath(path.begin(), path.end());
@@ -1189,7 +1190,7 @@ namespace
         }
         std::vector<std::string> extra;
         for (size_t v = 0; v < values.size(); v++) {
-            const std::string newLine = values[v].first + "=" + iniNumber(values[v].second);
+            const std::string newLine = values[v].first + "=" + values[v].second;
             std::string wanted = values[v].first;
             for (size_t c = 0; c < wanted.size(); c++) { wanted[c] = (char)std::tolower((unsigned char)wanted[c]); }
             bool found = false;
@@ -1304,6 +1305,7 @@ bool SimulationModel::beginSizeEdit(int vessel)
 {
     if (sizeEditVessel != -2) { endSizeEdit(); }
     if (lightEditVessel != -2) { endLightEdit(); }
+    endInstrumentEdit();
     setFreeView(false); //this editor has its own orbit
     VesselSize size;
     if (!getVesselSize(vessel, size)) { return false; }
@@ -1390,19 +1392,129 @@ bool SimulationModel::sizeEditSave(std::wstring& message)
         message = L"Aucun navire en cours de r\u00E9glage.";
         return false;
     }
-    std::vector<std::pair<std::string, irr::f32> > values;
-    values.push_back(std::make_pair(std::string("ScaleFactor"), size.scale));
-    values.push_back(std::make_pair(std::string("YCorrection"), size.yCorrection));
+    std::vector<std::pair<std::string, std::string> > values;
+    values.push_back(std::make_pair(std::string("ScaleFactor"), iniNumber(size.scale)));
+    values.push_back(std::make_pair(std::string("YCorrection"), iniNumber(size.yCorrection)));
     //Own ship: her wheel and levers grew with her bridge; keep them that size after a restart
     if (sizeEditVessel < 0 && ownShip.getLoadScaleFactor() > 0.000001f &&
         fabs(size.scale - ownShip.getLoadScaleFactor()) > 0.000001f * ownShip.getLoadScaleFactor()) {
         const irr::f32 grown = size.scale / ownShip.getLoadScaleFactor();
-        values.push_back(std::make_pair(std::string("WheelScale"), ownShip.getWheelControlScale() * grown));
-        values.push_back(std::make_pair(std::string("ThrottleScale"), ownShip.getThrottleScale() * grown));
+        values.push_back(std::make_pair(std::string("WheelScale"), iniNumber(ownShip.getWheelControlScale() * grown)));
+        values.push_back(std::make_pair(std::string("ThrottleScale"), iniNumber(ownShip.getThrottleScale() * grown)));
     }
-    const bool ok = writeSizeToBoatIni(size.iniFile, values, message);
+    const bool ok = writeKeysToBoatIni(size.iniFile, values, message);
     device->getLogger()->log(ok ? ("Size editor: saved " + size.iniFile).c_str() : "Size editor: SAVE FAILED");
     return ok;
+}
+
+//Instrument lighting editor ----------------------------------------------------------------------
+bool SimulationModel::beginInstrumentEdit()
+{
+    if (instrumentEditOpen) { return true; }
+    if (lightEditVessel != -2) { endLightEdit(); }
+    if (sizeEditVessel != -2) { endSizeEdit(); }
+    instrumentEditOpen = true;
+    instrumentEditSnapshot = ownShip.getInstrumentMaterialList();
+    //Fully lit while choosing, so each choice shows as it will look at night
+    instrumentEditSavedLevel = ownShip.getInstrumentLights();
+    ownShip.setInstrumentLights(2);
+    instrumentEditSelected = -1;
+    instrumentEditRevision++;
+    return true;
+}
+
+void SimulationModel::endInstrumentEdit()
+{
+    if (!instrumentEditOpen) { return; }
+    ownShip.flashInstrumentMaterial(instrumentEditSelected, false);
+    instrumentEditOpen = false;
+    instrumentEditSelected = -1;
+    ownShip.setInstrumentLights(instrumentEditSavedLevel);
+}
+
+bool SimulationModel::isInstrumentEditing() const
+{
+    return instrumentEditOpen;
+}
+
+int SimulationModel::instrumentEditPick(const irr::core::line3df& ray)
+{
+    if (!instrumentEditOpen) { return -1; }
+    const int material = ownShip.pickModelMaterial(ray);
+    if (material >= 0) {
+        instrumentEditToggle(material);
+        instrumentEditSelect(material);
+    }
+    return material;
+}
+
+void SimulationModel::instrumentEditToggle(int material)
+{
+    if (!instrumentEditOpen || material < 0 || (irr::u32)material >= ownShip.getModelMaterialCount()) { return; }
+    ownShip.setInstrumentMaterial((irr::u32)material, !ownShip.isInstrumentMaterial((irr::u32)material));
+    instrumentEditRevision++;
+}
+
+void SimulationModel::instrumentEditSelect(int material)
+{
+    if (!instrumentEditOpen) { return; }
+    if (instrumentEditSelected != material) { ownShip.flashInstrumentMaterial(instrumentEditSelected, false); }
+    instrumentEditSelected = material;
+    instrumentFlashEnd = device->getTimer()->getRealTime() + 1200;
+    instrumentEditRevision++;
+}
+
+int SimulationModel::getInstrumentEditSelected() const
+{
+    return instrumentEditSelected;
+}
+
+void SimulationModel::instrumentEditRevert()
+{
+    if (!instrumentEditOpen) { return; }
+    ownShip.flashInstrumentMaterial(instrumentEditSelected, false);
+    ownShip.setInstrumentMaterialList(instrumentEditSnapshot);
+    instrumentEditRevision++;
+}
+
+bool SimulationModel::instrumentEditSave(std::wstring& message)
+{
+    if (!instrumentEditOpen) { return false; }
+    std::vector<irr::u32> lit = ownShip.getInstrumentMaterialList();
+    std::sort(lit.begin(), lit.end());
+    //"none" rather than empty: an empty value would bring back the guess from the texture names
+    std::string list;
+    for (size_t i = 0; i < lit.size(); i++) {
+        if (i > 0) { list += ","; }
+        list += std::to_string(lit[i]);
+    }
+    if (list.empty()) { list = "none"; }
+    std::vector<std::pair<std::string, std::string> > values;
+    values.push_back(std::make_pair(std::string("InstrumentMaterials"), list));
+    const std::string iniFile = ownShip.getLights().getIniFilename();
+    const bool ok = writeKeysToBoatIni(iniFile, values, message);
+    device->getLogger()->log(ok ? ("Instrument editor: saved " + iniFile).c_str() : "Instrument editor: SAVE FAILED");
+    return ok;
+}
+
+int SimulationModel::getInstrumentEditRevision() const
+{
+    return instrumentEditRevision;
+}
+
+irr::u32 SimulationModel::getOwnShipMaterialCount() const
+{
+    return ownShip.getModelMaterialCount();
+}
+
+std::string SimulationModel::getOwnShipMaterialTexture(irr::u32 material) const
+{
+    return ownShip.getModelMaterialTexture(material);
+}
+
+bool SimulationModel::isOwnShipInstrumentMaterial(irr::u32 material) const
+{
+    return ownShip.isInstrumentMaterial(material);
 }
 
 void SimulationModel::setOwnShipDeckLights(bool on) {
@@ -5050,6 +5162,17 @@ void SimulationModel::update()
             irr::core::vector3df centre;
             if (lights && node && lights->getSelectedWorldPosition(centre)) {
                 camera.setOrbitCentre(centre, node->getRotation().Y - lights->getAngleCorrection());
+            }
+        }
+
+        //Instrument editor: the chosen material blinks for a moment, so it can be found in the view
+        if (instrumentEditOpen && instrumentEditSelected >= 0) {
+            const irr::u32 now = device->getTimer()->getRealTime();
+            if (now >= instrumentFlashEnd) {
+                ownShip.flashInstrumentMaterial(instrumentEditSelected, false);
+            }
+            else {
+                ownShip.flashInstrumentMaterial(instrumentEditSelected, ((now / 150) % 2) == 0);
             }
         }
 

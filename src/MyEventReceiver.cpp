@@ -17,6 +17,7 @@
 #include "MyEventReceiver.hpp"
 
 #include <string>
+#include <cstdlib> //abs
 
 #include "GUIMain.hpp"
 #include "SimulationModel.hpp"
@@ -137,10 +138,31 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             // Log position of mouse click, so we can track relative movement
             mouseClickX = event.MouseInput.X;
             mouseClickY = event.MouseInput.Y;
+            pressX = event.MouseInput.X;
+            pressY = event.MouseInput.Y;
         }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_LEFT_UP)
         {
             leftMouseDown = false;
+            //Instrument editor: a click in the view (not a drag to look round) lights what is under it
+            if (model->isInstrumentEditing() &&
+                abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
+            {
+                irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+                irr::gui::IGUIElement* clickElement = rootGUIElement->getElementFromPoint(irr::core::position2d<irr::s32>(pressX, pressY));
+                if (clickElement == rootGUIElement)
+                {
+                    const irr::core::line3df ray = model->getMooringRay(pressX, pressY, gui->getCompact3dView());
+                    const int material = model->instrumentEditPick(ray);
+                    if (material >= 0) {
+                        const std::string tex = model->getOwnShipMaterialTexture((irr::u32)material);
+                        std::wstring msg = model->isOwnShipInstrumentMaterial((irr::u32)material) ? L"Allum\u00E9 : " : L"\u00C9teint : ";
+                        msg += std::to_wstring(material) + L"  " + (tex.empty() ? std::wstring(L"(sans image)") : std::wstring(tex.begin(), tex.end()));
+                        msg += L"  - non enregistr\u00E9.";
+                        gui->setInstrumentEditorStatus(msg, false);
+                    }
+                }
+            }
         }
 
         if (event.MouseInput.Event == irr::EMIE_RMOUSE_PRESSED_DOWN)
@@ -277,6 +299,13 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED)
         {
+            //Instrument editor: a line of the list flashes its material in the view
+            if (id == GUIMain::GUI_ID_IEDIT_LIST && model->isInstrumentEditing())
+            {
+                gui->instrumentEditorListPicked();
+                device->getGUIEnvironment()->setFocus(0);
+            }
+
             //KYARA FEUX EDIT: lamp picked in the placement window
             if (id == GUIMain::GUI_ID_LEDIT_LIST && model->isLightEditing())
             {
@@ -623,6 +652,41 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_STORM_PRESET_BUTTON)
             {
                 model->setBadWeatherPreset();
+            }
+
+            //Which screens and gauges of the own ship glow at night
+            if (id == GUIMain::GUI_ID_INSTR_EDIT_BUTTON)
+            {
+                if (model->beginInstrumentEdit()) {
+                    gui->openInstrumentEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isInstrumentEditing() && id >= GUIMain::GUI_ID_IEDIT_TOGGLE && id <= GUIMain::GUI_ID_IEDIT_CLOSE)
+            {
+                if (id == GUIMain::GUI_ID_IEDIT_TOGGLE) {
+                    const int material = model->getInstrumentEditSelected();
+                    if (material >= 0) {
+                        model->instrumentEditToggle(material);
+                        model->instrumentEditSelect(material);
+                    }
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_SAVE) {
+                    std::wstring msg;
+                    const bool ok = model->instrumentEditSave(msg);
+                    gui->setInstrumentEditorStatus(msg, !ok);
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_REVERT) {
+                    model->instrumentEditRevert();
+                    gui->setInstrumentEditorStatus(L"\u00C9crans \u00E9clair\u00E9s de l'ouverture r\u00E9tablis (rien n'est enregistr\u00E9).", false);
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_CLOSE) {
+                    model->endInstrumentEdit();
+                    gui->closeInstrumentEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
             }
 
             //Size and waterline of the vessel picked in the Taille tab
