@@ -21,13 +21,20 @@
 
 namespace bridge
 {
-    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2 };
+    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2, MODE_DIGITAL = 3, MODE_COUNT = 4 };
 
     //The palette in use, shared by the skin, the console, the engine levers and the command bar
     inline int& currentMode()
     {
         static int mode = MODE_DUSK;
         return mode;
+    }
+
+    //How strongly the lit instruments glow, 0 (none) to 100; 50 is the normal backlight
+    inline int& glowLevel()
+    {
+        static int level = 50;
+        return level;
     }
 
     struct Palette
@@ -47,7 +54,7 @@ namespace bridge
     inline const Palette& palette(int mode = -1)
     {
         using irr::video::SColor;
-        static Palette p[3];
+        static Palette p[MODE_COUNT];
         static bool made = false;
         if (!made) {
             made = true;
@@ -111,8 +118,28 @@ namespace bridge
             p[MODE_NIGHT].error = SColor(255, 220, 110, 80);
             p[MODE_NIGHT].portText = SColor(255, 190, 70, 55);
             p[MODE_NIGHT].stbdText = SColor(255, 80, 160, 90);
+            //Digital: the radar's colours - black, phosphor green, yellow captions
+            p[MODE_DIGITAL].band = SColor(255, 0, 0, 0);
+            p[MODE_DIGITAL].panelTop = SColor(255, 6, 13, 7);
+            p[MODE_DIGITAL].panelBottom = SColor(255, 2, 6, 3);
+            p[MODE_DIGITAL].edge = SColor(255, 22, 74, 30);
+            p[MODE_DIGITAL].raised = SColor(255, 8, 20, 10);
+            p[MODE_DIGITAL].key = SColor(255, 5, 14, 7);
+            p[MODE_DIGITAL].keyHover = SColor(255, 12, 34, 16);
+            p[MODE_DIGITAL].text = SColor(255, 92, 232, 104);
+            p[MODE_DIGITAL].textDim = SColor(255, 214, 192, 56);
+            p[MODE_DIGITAL].textFaint = SColor(255, 34, 100, 42);
+            p[MODE_DIGITAL].accent = SColor(255, 60, 214, 82);
+            p[MODE_DIGITAL].accentText = SColor(255, 0, 18, 4);
+            p[MODE_DIGITAL].field = SColor(255, 0, 4, 1);
+            p[MODE_DIGITAL].danger = SColor(255, 120, 30, 24);
+            p[MODE_DIGITAL].dangerText = SColor(255, 255, 222, 206);
+            p[MODE_DIGITAL].ok = SColor(255, 120, 245, 130);
+            p[MODE_DIGITAL].error = SColor(255, 255, 110, 80);
+            p[MODE_DIGITAL].portText = SColor(255, 240, 72, 60);
+            p[MODE_DIGITAL].stbdText = SColor(255, 92, 236, 110);
         }
-        if (mode < 0 || mode > 2) { mode = currentMode(); }
+        if (mode < 0 || mode >= MODE_COUNT) { mode = currentMode(); }
         return p[mode];
     }
 

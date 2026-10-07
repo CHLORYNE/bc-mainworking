@@ -572,6 +572,10 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 model->setStreamOverrideSpeed(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos());
             }
+            if (id == GUIMain::GUI_ID_GLOW_SCROLL_BAR)
+            {
+                gui->setGlowLevel(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos());
+            }
             if (id == GUIMain::GUI_ID_MAGNIFICATION_SCROLL_BAR)
             {
                 irr::s32 rawZoomLevel = ((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos();
@@ -654,7 +658,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 model->setBadWeatherPreset();
             }
 
-            //Command bar: day / dusk / night / auto colours
+            //Command bar: day / dusk / night / digital / auto colours
             if (id >= GUIMain::GUI_ID_PALETTE_DAY && id <= GUIMain::GUI_ID_PALETTE_AUTO)
             {
                 gui->setPaletteChoice(id == GUIMain::GUI_ID_PALETTE_AUTO ? -1 : (int)(id - GUIMain::GUI_ID_PALETTE_DAY));

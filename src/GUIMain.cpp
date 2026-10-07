@@ -20,6 +20,7 @@
 
 #include "GUIMain.hpp"
 #include "BridgeSkin.hpp"
+#include <cctype>
 
 #include "Constants.hpp"
 #include "Utilities.hpp"
@@ -1852,20 +1853,38 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
     //Command bar: the day / dusk / night switch, then every key in its place
     if (commandBar) {
-        const wchar_t* paletteNames[4] = { L"JOUR", L"CR\u00C9P.", L"NUIT", L"AUTO" };
-        const wchar_t* paletteTips[4] = {
+        const wchar_t* paletteNames[PALETTE_KEYS] = { L"JOUR", L"CR\u00C9P.", L"NUIT", L"DIGITAL", L"AUTO" };
+        const wchar_t* paletteTips[PALETTE_KEYS] = {
             L"Couleurs de jour : cadrans clairs, lisibles au soleil",
             L"Couleurs de cr\u00E9puscule : cadrans sombres, graduations blanches",
             L"Couleurs de nuit : noir et ambre att\u00E9nu\u00E9, pour garder la vision de nuit",
-            L"Suit la lumi\u00E8re du sc\u00E9nario" };
-        for (int i = 0; i < 4; i++) {
+            L"Couleurs digitales : noir et vert, comme l'\u00E9cran radar",
+            L"Suit la lumi\u00E8re du sc\u00E9nario (jour, cr\u00E9puscule, nuit)" };
+        for (int i = 0; i < PALETTE_KEYS; i++) {
             paletteButton[i] = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_PALETTE_DAY + i,
                 paletteNames[i], paletteTips[i]);
             paletteButton[i]->setIsPushButton(true);
             bridgeSkin->setKeyStyle(GUI_ID_PALETTE_DAY + i, bridge::BridgeSkin::KEY_BAR);
         }
+        //Glow of the lit instruments
+        glowScrollbar = guienv->addScrollBar(true, irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_GLOW_SCROLL_BAR);
+        glowScrollbar->setMin(0);
+        glowScrollbar->setMax(100);
+        glowScrollbar->setSmallStep(5);
+        glowScrollbar->setLargeStep(10);
         layoutCommandBar();
-        setPaletteChoice(-1);
+
+        //Start-up colours and glow from bc5.ini: palette=auto|jour|crepuscule|nuit|digital, instrument_glow=0..100
+        std::string startPalette = IniFile::iniFileToString(iniFilename, "palette");
+        for (size_t k = 0; k < startPalette.size(); k++) { startPalette[k] = (char)tolower((unsigned char)startPalette[k]); }
+        int choice = -1;
+        if (startPalette == "jour" || startPalette == "day") { choice = bridge::MODE_DAY; }
+        else if (startPalette == "crepuscule" || startPalette == "dusk") { choice = bridge::MODE_DUSK; }
+        else if (startPalette == "nuit" || startPalette == "night") { choice = bridge::MODE_NIGHT; }
+        else if (startPalette == "digital") { choice = bridge::MODE_DIGITAL; }
+        setPaletteChoice(choice);
+        const std::string glowKey = IniFile::iniFileToString(iniFilename, "instrument_glow");
+        setGlowLevel(glowKey.empty() ? 50 : (int)IniFile::iniFileTou32(iniFilename, "instrument_glow"));
     }
 
     // --- TOGGLE CONTROLS: top-left of large radar screen (clear of the circular display) ---
@@ -2314,7 +2333,8 @@ void GUIMain::updateVisibility()
     if (commandBar) {
         commandBar->setVisible(showDisplayControls);
         commandBar->setCaptionsVisible(showPrimary);
-        for (int i = 0; i < 4; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(showDisplayControls); } }
+        for (int i = 0; i < PALETTE_KEYS; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(showDisplayControls); } }
+        if (glowScrollbar) { glowScrollbar->setVisible(showDisplayControls); }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -4778,7 +4798,7 @@ void GUIMain::layoutCommandBar()
         const irr::s32 capZoomW = textW(L"ZOOM") + 8;
         commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + capZoomW, y1), L"ZOOM", true);
         x += capZoomW + 4;
-        const irr::s32 sliderW = (attempt == 0) ? irr::core::max_((irr::s32)(0.07f * bar.getWidth()), 100) : 90;
+        const irr::s32 sliderW = (attempt == 0) ? 100 : 80;
         if (magnificationScrollbar) {
             const irr::s32 sh2 = irr::core::min_(keyH, 18);
             magnificationScrollbar->setRelativePosition(irr::core::rect<irr::s32>(x, (y0 + y1 - sh2) / 2, x + sliderW, (y0 + y1 + sh2) / 2));
@@ -4796,8 +4816,19 @@ void GUIMain::layoutCommandBar()
             lightingTimeBox->setRelativePosition(irr::core::rect<irr::s32>(x, y0 + 2, x + boxW, y1 - 2));
             x += boxW + 8;
         }
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < PALETTE_KEYS; i++) {
             key(paletteButton[i], x, false, paletteButton[i] ? paletteButton[i]->getText() : L"", 0, bridge::ICON_NONE, bridge::BridgeSkin::KEY_BAR);
+        }
+        separator(x, false);
+        const irr::s32 capGlowW = textW(L"LUEUR") + 8;
+        commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + capGlowW, y1), L"LUEUR", true);
+        x += capGlowW + 4;
+        if (glowScrollbar) {
+            //The arrow buttons take a slider's height at each end: wide and slim leaves the knob room to travel
+            const irr::s32 glowW = (attempt == 0) ? 140 : 110;
+            const irr::s32 sh2 = irr::core::min_(keyH, 14);
+            glowScrollbar->setRelativePosition(irr::core::rect<irr::s32>(x, (y0 + y1 - sh2) / 2, x + glowW, (y0 + y1 + sh2) / 2));
+            x += glowW + 4;
         }
         const irr::s32 leftEnd = x;
 
@@ -4821,13 +4852,25 @@ void GUIMain::layoutCommandBar()
 
 void GUIMain::setPaletteChoice(int choice)
 {
-    if (choice < -1 || choice > 2) { choice = -1; }
+    if (choice < -1 || choice >= bridge::MODE_COUNT) { choice = -1; }
     paletteChoice = choice;
-    const int pressed = (choice < 0) ? 3 : choice;
-    for (int i = 0; i < 4; i++) {
+    const int pressed = (choice < 0) ? PALETTE_KEYS - 1 : choice;
+    for (int i = 0; i < PALETTE_KEYS; i++) {
         if (paletteButton[i]) { paletteButton[i]->setPressed(i == pressed); }
     }
     applyPaletteMode(choice >= 0 ? choice : paletteAutoMode);
+}
+
+void GUIMain::setGlowLevel(int level)
+{
+    level = irr::core::clamp(level, 0, 100);
+    bridge::glowLevel() = level;
+    if (glowScrollbar) {
+        if (glowScrollbar->getPos() != level) { glowScrollbar->setPos(level); }
+        wchar_t tip[96];
+        swprintf(tip, 96, L"Lueur des instruments \u00E9clair\u00E9s : %d %% (cr\u00E9puscule, nuit, digital)", level);
+        glowScrollbar->setToolTipText(tip);
+    }
 }
 
 void GUIMain::applyPaletteMode(int mode)

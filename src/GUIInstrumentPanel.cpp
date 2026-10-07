@@ -60,58 +60,60 @@ namespace irr
             video::SColor BAND_PORT, BAND_STBD, BAND_ASTERN, LUBBER, COG_MARK, ORDER_MARK, LCD_BG, LCD_EDGE;
             video::SColor LCD_HEADER, DIGIT_WHITE, DIGIT_RED, DIGIT_GREEN, DIGIT_AMBER, NAV_LABEL, NAV_VALUE, HULL_MARK;
             video::SColor WIND_BARB, SHIP_HULL, SHIP_HOUSE, SCREW_HI, SCREW_LO, SCREW_SLOT, STATUS_BG;
-            //Backlight: 0 by day (printed dial), up to 1 at night - markings, needles and digits glow.
+            //Backlight: 0 by day (printed dial), 1 at night and in digital. GLOW = that base x the
+            //glow setting of the command bar (bridge::glowLevel, 50 = x1, 100 = x2).
+            f32 GLOW_BASE = 0.0f;
             f32 GLOW = 0.0f;
 
             void applyPalette(int mode)
             {
-                if (mode < 0 || mode > 2) { mode = bridge::MODE_DUSK; }
-                const u32 c[][3][3] = {
-                    { {227, 232, 238}, {28, 42, 60}, {15, 23, 34} }, //PANEL_TOP
-                    { {211, 218, 226}, {22, 33, 48}, {11, 17, 26} }, //PANEL_BOTTOM
-                    { {245, 247, 250}, {52, 70, 94}, {29, 40, 54} }, //PANEL_EDGE_HI
-                    { {160, 172, 186}, {8, 12, 18}, {3, 5, 8} }, //PANEL_EDGE_LO
-                    { {214, 220, 228}, {122, 134, 150}, {52, 58, 68} }, //BEZEL_TOP
-                    { {140, 150, 162}, {40, 48, 60}, {18, 22, 28} }, //BEZEL_BOTTOM
-                    { {110, 120, 132}, {10, 12, 16}, {4, 5, 7} }, //BEZEL_INNER
-                    { {252, 252, 253}, {38, 44, 54}, {26, 19, 12} }, //FACE_CENTRE
-                    { {230, 234, 239}, {8, 10, 14}, {2, 3, 4} }, //FACE_EDGE
-                    { {20, 26, 34}, {246, 249, 253}, {255, 180, 76} }, //SCALE_WHITE
-                    { {52, 62, 74}, {222, 228, 238}, {236, 162, 78} }, //TEXT_TITLE
-                    { {96, 108, 122}, {150, 162, 176}, {168, 120, 66} }, //TEXT_DIM
-                    { {224, 82, 0}, {255, 150, 24}, {255, 118, 28} }, //NEEDLE
-                    { {120, 128, 138}, {58, 61, 68}, {40, 36, 30} }, //HUB_OUTER
-                    { {40, 44, 50}, {20, 21, 24}, {10, 9, 8} }, //HUB_INNER
-                    { {210, 40, 40}, {236, 56, 50}, {214, 56, 42} }, //BAND_PORT
-                    { {30, 150, 70}, {52, 210, 92}, {60, 180, 84} }, //BAND_STBD
-                    { {200, 50, 45}, {226, 56, 52}, {204, 54, 42} }, //BAND_ASTERN
-                    { {210, 30, 25}, {255, 64, 48}, {255, 74, 44} }, //LUBBER
-                    { {0, 120, 210}, {90, 214, 255}, {96, 184, 236} }, //COG_MARK
-                    { {220, 150, 0}, {255, 222, 64}, {255, 204, 80} }, //ORDER_MARK
-                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3} }, //LCD_BG
-                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22} }, //LCD_EDGE
-                    { {170, 184, 164}, {26, 34, 40}, {18, 13, 8} }, //LCD_HEADER
-                    { {22, 28, 24}, {246, 250, 255}, {255, 190, 84} }, //DIGIT_WHITE
-                    { {170, 20, 20}, {255, 96, 82}, {255, 98, 66} }, //DIGIT_RED
-                    { {10, 110, 40}, {90, 240, 130}, {130, 226, 104} }, //DIGIT_GREEN
-                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86} }, //DIGIT_AMBER
-                    { {56, 78, 68}, {132, 196, 216}, {206, 148, 80} }, //NAV_LABEL
-                    { {20, 28, 24}, {238, 246, 250}, {255, 190, 100} }, //NAV_VALUE
-                    { {160, 168, 178}, {92, 99, 110}, {60, 52, 40} }, //HULL_MARK
-                    { {0, 110, 200}, {140, 222, 255}, {255, 178, 76} }, //WIND_BARB
-                    { {96, 104, 114}, {166, 174, 186}, {150, 118, 76} }, //SHIP_HULL
-                    { {62, 68, 76}, {220, 226, 234}, {200, 156, 98} }, //SHIP_HOUSE
-                    { {244, 246, 248}, {130, 138, 150}, {60, 62, 66} }, //SCREW_HI
-                    { {150, 158, 168}, {50, 56, 66}, {20, 22, 26} }, //SCREW_LO
-                    { {110, 118, 128}, {24, 28, 34}, {8, 9, 10} }, //SCREW_SLOT
-                    { {200, 207, 215}, {14, 22, 34}, {7, 11, 17} }, //STATUS_BG
+                if (mode < 0 || mode >= bridge::MODE_COUNT) { mode = bridge::MODE_DUSK; }
+                const u32 c[][bridge::MODE_COUNT][3] = {
+                    { {227, 232, 238}, {28, 42, 60}, {15, 23, 34}, {6, 13, 7} }, //PANEL_TOP
+                    { {211, 218, 226}, {22, 33, 48}, {11, 17, 26}, {2, 6, 3} }, //PANEL_BOTTOM
+                    { {245, 247, 250}, {52, 70, 94}, {29, 40, 54}, {24, 62, 30} }, //PANEL_EDGE_HI
+                    { {160, 172, 186}, {8, 12, 18}, {3, 5, 8}, {0, 0, 0} }, //PANEL_EDGE_LO
+                    { {214, 220, 228}, {122, 134, 150}, {52, 58, 68}, {42, 74, 46} }, //BEZEL_TOP
+                    { {140, 150, 162}, {40, 48, 60}, {18, 22, 28}, {10, 24, 12} }, //BEZEL_BOTTOM
+                    { {110, 120, 132}, {10, 12, 16}, {4, 5, 7}, {0, 0, 0} }, //BEZEL_INNER
+                    { {252, 252, 253}, {38, 44, 54}, {26, 19, 12}, {4, 16, 6} }, //FACE_CENTRE
+                    { {230, 234, 239}, {8, 10, 14}, {2, 3, 4}, {0, 0, 0} }, //FACE_EDGE
+                    { {20, 26, 34}, {246, 249, 253}, {255, 180, 76}, {76, 234, 96} }, //SCALE_WHITE
+                    { {52, 62, 74}, {222, 228, 238}, {236, 162, 78}, {232, 206, 60} }, //TEXT_TITLE
+                    { {96, 108, 122}, {150, 162, 176}, {168, 120, 66}, {52, 146, 62} }, //TEXT_DIM
+                    { {224, 82, 0}, {255, 150, 24}, {255, 118, 28}, {252, 228, 72} }, //NEEDLE
+                    { {120, 128, 138}, {58, 61, 68}, {40, 36, 30}, {30, 62, 34} }, //HUB_OUTER
+                    { {40, 44, 50}, {20, 21, 24}, {10, 9, 8}, {0, 10, 2} }, //HUB_INNER
+                    { {210, 40, 40}, {236, 56, 50}, {214, 56, 42}, {226, 52, 42} }, //BAND_PORT
+                    { {30, 150, 70}, {52, 210, 92}, {60, 180, 84}, {64, 226, 84} }, //BAND_STBD
+                    { {200, 50, 45}, {226, 56, 52}, {204, 54, 42}, {214, 50, 40} }, //BAND_ASTERN
+                    { {210, 30, 25}, {255, 64, 48}, {255, 74, 44}, {255, 60, 48} }, //LUBBER
+                    { {0, 120, 210}, {90, 214, 255}, {96, 184, 236}, {176, 255, 188} }, //COG_MARK
+                    { {220, 150, 0}, {255, 222, 64}, {255, 204, 80}, {252, 228, 72} }, //ORDER_MARK
+                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //LCD_BG
+                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
+                    { {170, 184, 164}, {26, 34, 40}, {18, 13, 8}, {6, 20, 8} }, //LCD_HEADER
+                    { {22, 28, 24}, {246, 250, 255}, {255, 190, 84}, {96, 255, 116} }, //DIGIT_WHITE
+                    { {170, 20, 20}, {255, 96, 82}, {255, 98, 66}, {255, 92, 72} }, //DIGIT_RED
+                    { {10, 110, 40}, {90, 240, 130}, {130, 226, 104}, {96, 255, 116} }, //DIGIT_GREEN
+                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //DIGIT_AMBER
+                    { {56, 78, 68}, {132, 196, 216}, {206, 148, 80}, {214, 192, 56} }, //NAV_LABEL
+                    { {20, 28, 24}, {238, 246, 250}, {255, 190, 100}, {104, 246, 120} }, //NAV_VALUE
+                    { {160, 168, 178}, {92, 99, 110}, {60, 52, 40}, {30, 72, 34} }, //HULL_MARK
+                    { {0, 110, 200}, {140, 222, 255}, {255, 178, 76}, {252, 228, 72} }, //WIND_BARB
+                    { {96, 104, 114}, {166, 174, 186}, {150, 118, 76}, {60, 152, 70} }, //SHIP_HULL
+                    { {62, 68, 76}, {220, 226, 234}, {200, 156, 98}, {112, 224, 124} }, //SHIP_HOUSE
+                    { {244, 246, 248}, {130, 138, 150}, {60, 62, 66}, {42, 74, 46} }, //SCREW_HI
+                    { {150, 158, 168}, {50, 56, 66}, {20, 22, 26}, {10, 24, 12} }, //SCREW_LO
+                    { {110, 118, 128}, {24, 28, 34}, {8, 9, 10}, {0, 6, 2} }, //SCREW_SLOT
+                    { {200, 207, 215}, {14, 22, 34}, {7, 11, 17}, {0, 6, 2} }, //STATUS_BG
                 };
                 video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG };
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
                     *target[i] = video::SColor(255, c[i][mode][0], c[i][mode][1], c[i][mode][2]);
                 }
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
-                GLOW = (mode == bridge::MODE_NIGHT) ? 1.0f : (mode == bridge::MODE_DUSK ? 0.7f : 0.0f);
+                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : 1.0f);
             }
 
             //Soft light around a stroke from p0 to p1 of width w: fades from 'strength' x GLOW alpha at
@@ -124,6 +126,7 @@ namespace irr
                 if (len < 1e-4f) { return; }
                 d /= len;
                 if (reach <= 0.0f) { reach = core::max_(1.5f, w * 1.2f); }
+                reach *= core::clamp(0.5f + 0.5f * GLOW, 0.5f, 1.6f); //a stronger glow spreads further
                 const core::vector2df n(-d.Y, d.X);
                 const f32 hw = w * 0.5f;
                 const video::SColor in((u32)core::clamp(GLOW * strength * 120.0f, 0.0f, 255.0f), col.getRed(), col.getGreen(), col.getBlue());
@@ -534,7 +537,7 @@ namespace irr
             if (vCentre) { t = (s32)(y - d.Height * 0.5f); }
             //Backlit lettering: a faint copy one pixel out on each side
             if (GLOW > 0.0f && col.getAlpha() == 255) {
-                const video::SColor halo((u32)(GLOW * 42.0f), col.getRed(), col.getGreen(), col.getBlue());
+                const video::SColor halo((u32)core::min_(GLOW * 42.0f, 110.0f), col.getRed(), col.getGreen(), col.getBlue());
                 const s32 ox[4] = { -1, 1, 0, 0 }, oy[4] = { 0, 0, -1, 1 };
                 for (int k = 0; k < 4; k++) {
                     const s32 l2 = l + ox[k], t2 = t + oy[k];
@@ -1343,6 +1346,8 @@ namespace irr
                 paletteShown = bridge::currentMode();
                 applyPalette(paletteShown);
             }
+
+            GLOW = GLOW_BASE * (f32)core::clamp(bridge::glowLevel(), 0, 100) / 50.0f;
 
             video::IVideoDriver* driver = Environment->getVideoDriver();
             IGUISkin* skin = Environment->getSkin();

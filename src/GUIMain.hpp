@@ -325,7 +325,9 @@ public:
         GUI_ID_PALETTE_DAY,
         GUI_ID_PALETTE_DUSK,
         GUI_ID_PALETTE_NIGHT,
+        GUI_ID_PALETTE_DIGITAL,
         GUI_ID_PALETTE_AUTO,
+        GUI_ID_GLOW_SCROLL_BAR,
 
     };
 
@@ -369,8 +371,10 @@ public:
     //bc5.ini show_colreg_tab / show_size_tool / show_instrument_tool: hide the Feux and Taille
     //tabs and the lit-instruments tool from trainees. Called before load().
     void setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool);
-    //Day / dusk / night colours: a bridge::Mode, or -1 to follow the daylight
+    //Day / dusk / night / digital colours: a bridge::Mode, or -1 to follow the daylight
     void setPaletteChoice(int choice);
+    //Glow of the lit instruments, 0..100 (50 = normal)
+    void setGlowLevel(int level);
     //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
     void openInstrumentEditor();
     void closeInstrumentEditor();
@@ -751,7 +755,9 @@ private:
     irr::core::stringw iconSpace;          //leading spaces that leave room for a key's icon
     int paletteChoice = -1;                //-1 = follows the daylight, else bridge::Mode
     int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
-    irr::gui::IGUIButton* paletteButton[4] = {}; //JOUR, CREP., NUIT, AUTO
+    static const int PALETTE_KEYS = 5;
+    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, AUTO
+    irr::gui::IGUIScrollBar* glowScrollbar = 0;             //LUEUR
     void layoutCommandBar();
     void applyPaletteMode(int mode);
     irr::gui::IGUIWindow* instrEditWindow = 0;
