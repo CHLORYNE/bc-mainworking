@@ -60,3 +60,4 @@ src/libs/Irrlicht/irrlicht-svn/source/Irrlicht/tmp/
 *.tmp
 *.bak
 bin/Models/
+bin/Models.zip
