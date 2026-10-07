@@ -528,6 +528,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //  classic_panel=1          old layout back, no rebuild needed
     //  instrument_extra=wind    optional dials: rpm | wind | both | none
     //  instrument_speed_max=20  top of the speed log, knots
+    //  instrument_rudder=1      put the BARRE dial back in the console (hidden by default)
     //  instrument_rot_max=60    rate-of-turn full scale each side, deg/min
     //Which dials appear follows the ship: no rudder dial on azimuth drives, rate of turn only if
     //the ship has one, GPS lines only with GPS, depth only with a sounder.
@@ -537,7 +538,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             (irr::s32)(0.09 * su + azimuthGUIOffsetL), (irr::s32)(0.608 * sh),
             (irr::s32)(0.995 * su + azimuthGUIOffsetR), (irr::s32)(0.910 * sh));
         instrumentPanel = new irr::gui::GUIInstrumentPanel(guienv, guienv->getRootGUIElement(), -1, panelPos);
-        instrumentPanel->setFit(!azimuthDrive, hasRateOfTurnIndicator, hasGPS, hasDepthSounder, maxSounderDepth, showTideHeight);
+        //The rudder angle is read on the bridge itself, so the BARRE dial is off unless asked for.
+        const bool rudderDial = !azimuthDrive && IniFile::iniFileTou32(iniFilename, "instrument_rudder") == 1;
+        instrumentPanel->setFit(rudderDial, hasRateOfTurnIndicator, hasGPS, hasDepthSounder, maxSounderDepth, showTideHeight);
 
         //Shaft tachometer and true wind dial, in the space beside the other gauges.
         instrumentExtraRPM = showRPMDial;
@@ -670,6 +673,16 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     stdHdgIndicatorPos = irr::core::rect<irr::s32>(0.09 * su + azimuthGUIOffsetL, 0.630 * sh, 0.45 * su + azimuthGUIOffsetR, 0.680 * sh); //In normal view
     radHdgIndicatorPos = irr::core::rect<irr::s32>(0.46 * su, 0.96 * sh, 0.82 * su, 0.99 * sh); //In maximised radar view
     maxHdgIndicatorPos = irr::core::rect<irr::s32>(0.46 * su, 0.96 * sh, 0.82 * su, 0.99 * sh); //In maximised 3d view
+    //Slim layout: the command bar fills the bottom strip, so the heading tape and the data box of the
+    //full-screen views sit just above it instead of on top of its keys.
+    if (commandBar && commandBarRect.LowerRightCorner.Y > (irr::s32)(0.95 * sh)) {
+        const irr::s32 bottom = commandBarRect.UpperLeftCorner.Y - irr::core::max_(4, (irr::s32)(0.006 * sh));
+        const irr::s32 top = bottom - (irr::s32)(0.03 * sh);
+        radHdgIndicatorPos = irr::core::rect<irr::s32>((irr::s32)(0.46 * su), top, (irr::s32)(0.82 * su), bottom);
+        maxHdgIndicatorPos = radHdgIndicatorPos;
+        radDataDisplayPos = irr::core::rect<irr::s32>((irr::s32)(0.83 * su), top, (irr::s32)(0.90 * su), bottom);
+        altDataDisplayPos = radDataDisplayPos;
+    }
     headingIndicator = new irr::gui::HeadingIndicator(guienv, guienv->getRootGUIElement(), stdHdgIndicatorPos);
 
     // DEE vvvvv add very basic rate of turn indicator

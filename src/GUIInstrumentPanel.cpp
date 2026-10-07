@@ -60,6 +60,8 @@ namespace irr
             video::SColor BAND_PORT, BAND_STBD, BAND_ASTERN, LUBBER, COG_MARK, ORDER_MARK, LCD_BG, LCD_EDGE;
             video::SColor LCD_HEADER, DIGIT_WHITE, DIGIT_RED, DIGIT_GREEN, DIGIT_AMBER, NAV_LABEL, NAV_VALUE, HULL_MARK;
             video::SColor WIND_BARB, SHIP_HULL, SHIP_HOUSE, SCREW_HI, SCREW_LO, SCREW_SLOT, STATUS_BG;
+            //Backlight: 0 by day (printed dial), up to 1 at night - markings, needles and digits glow.
+            f32 GLOW = 0.0f;
 
             void applyPalette(int mode)
             {
@@ -72,33 +74,33 @@ namespace irr
                     { {214, 220, 228}, {122, 134, 150}, {52, 58, 68} }, //BEZEL_TOP
                     { {140, 150, 162}, {40, 48, 60}, {18, 22, 28} }, //BEZEL_BOTTOM
                     { {110, 120, 132}, {10, 12, 16}, {4, 5, 7} }, //BEZEL_INNER
-                    { {252, 252, 253}, {32, 36, 44}, {12, 13, 15} }, //FACE_CENTRE
+                    { {252, 252, 253}, {38, 44, 54}, {26, 19, 12} }, //FACE_CENTRE
                     { {230, 234, 239}, {8, 10, 14}, {2, 3, 4} }, //FACE_EDGE
-                    { {20, 26, 34}, {232, 235, 240}, {200, 140, 66} }, //SCALE_WHITE
-                    { {52, 62, 74}, {196, 202, 212}, {160, 116, 62} }, //TEXT_TITLE
-                    { {96, 108, 122}, {128, 138, 150}, {110, 82, 50} }, //TEXT_DIM
-                    { {224, 82, 0}, {255, 138, 0}, {230, 120, 20} }, //NEEDLE
+                    { {20, 26, 34}, {246, 249, 253}, {255, 180, 76} }, //SCALE_WHITE
+                    { {52, 62, 74}, {222, 228, 238}, {236, 162, 78} }, //TEXT_TITLE
+                    { {96, 108, 122}, {150, 162, 176}, {168, 120, 66} }, //TEXT_DIM
+                    { {224, 82, 0}, {255, 150, 24}, {255, 118, 28} }, //NEEDLE
                     { {120, 128, 138}, {58, 61, 68}, {40, 36, 30} }, //HUB_OUTER
                     { {40, 44, 50}, {20, 21, 24}, {10, 9, 8} }, //HUB_INNER
-                    { {210, 40, 40}, {205, 40, 40}, {150, 40, 32} }, //BAND_PORT
-                    { {30, 150, 70}, {40, 185, 70}, {40, 120, 60} }, //BAND_STBD
-                    { {200, 50, 45}, {190, 45, 45}, {140, 40, 32} }, //BAND_ASTERN
-                    { {210, 30, 25}, {235, 45, 35}, {180, 50, 30} }, //LUBBER
-                    { {0, 120, 210}, {70, 200, 255}, {70, 130, 160} }, //COG_MARK
-                    { {220, 150, 0}, {255, 215, 40}, {220, 160, 40} }, //ORDER_MARK
+                    { {210, 40, 40}, {236, 56, 50}, {214, 56, 42} }, //BAND_PORT
+                    { {30, 150, 70}, {52, 210, 92}, {60, 180, 84} }, //BAND_STBD
+                    { {200, 50, 45}, {226, 56, 52}, {204, 54, 42} }, //BAND_ASTERN
+                    { {210, 30, 25}, {255, 64, 48}, {255, 74, 44} }, //LUBBER
+                    { {0, 120, 210}, {90, 214, 255}, {96, 184, 236} }, //COG_MARK
+                    { {220, 150, 0}, {255, 222, 64}, {255, 204, 80} }, //ORDER_MARK
                     { {186, 199, 180}, {7, 10, 12}, {8, 6, 3} }, //LCD_BG
                     { {120, 132, 118}, {64, 70, 78}, {40, 32, 22} }, //LCD_EDGE
                     { {170, 184, 164}, {26, 34, 40}, {18, 13, 8} }, //LCD_HEADER
-                    { {22, 28, 24}, {236, 240, 244}, {230, 160, 70} }, //DIGIT_WHITE
-                    { {170, 20, 20}, {255, 80, 70}, {200, 70, 50} }, //DIGIT_RED
-                    { {10, 110, 40}, {70, 225, 110}, {110, 170, 80} }, //DIGIT_GREEN
-                    { {22, 28, 24}, {255, 190, 60}, {240, 170, 70} }, //DIGIT_AMBER
-                    { {56, 78, 68}, {110, 165, 180}, {150, 110, 60} }, //NAV_LABEL
-                    { {20, 28, 24}, {225, 235, 240}, {210, 150, 80} }, //NAV_VALUE
+                    { {22, 28, 24}, {246, 250, 255}, {255, 190, 84} }, //DIGIT_WHITE
+                    { {170, 20, 20}, {255, 96, 82}, {255, 98, 66} }, //DIGIT_RED
+                    { {10, 110, 40}, {90, 240, 130}, {130, 226, 104} }, //DIGIT_GREEN
+                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86} }, //DIGIT_AMBER
+                    { {56, 78, 68}, {132, 196, 216}, {206, 148, 80} }, //NAV_LABEL
+                    { {20, 28, 24}, {238, 246, 250}, {255, 190, 100} }, //NAV_VALUE
                     { {160, 168, 178}, {92, 99, 110}, {60, 52, 40} }, //HULL_MARK
-                    { {0, 110, 200}, {120, 210, 255}, {180, 130, 60} }, //WIND_BARB
-                    { {96, 104, 114}, {150, 158, 170}, {110, 90, 60} }, //SHIP_HULL
-                    { {62, 68, 76}, {205, 210, 218}, {150, 120, 80} }, //SHIP_HOUSE
+                    { {0, 110, 200}, {140, 222, 255}, {255, 178, 76} }, //WIND_BARB
+                    { {96, 104, 114}, {166, 174, 186}, {150, 118, 76} }, //SHIP_HULL
+                    { {62, 68, 76}, {220, 226, 234}, {200, 156, 98} }, //SHIP_HOUSE
                     { {244, 246, 248}, {130, 138, 150}, {60, 62, 66} }, //SCREW_HI
                     { {150, 158, 168}, {50, 56, 66}, {20, 22, 26} }, //SCREW_LO
                     { {110, 118, 128}, {24, 28, 34}, {8, 9, 10} }, //SCREW_SLOT
@@ -109,6 +111,36 @@ namespace irr
                     *target[i] = video::SColor(255, c[i][mode][0], c[i][mode][1], c[i][mode][2]);
                 }
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
+                GLOW = (mode == bridge::MODE_NIGHT) ? 1.0f : (mode == bridge::MODE_DUSK ? 0.7f : 0.0f);
+            }
+
+            //Soft light around a stroke from p0 to p1 of width w: fades from 'strength' x GLOW alpha at
+            //the stroke's edge to nothing a little way out. Nothing by day.
+            void glowHalo(PanelBatch& b, const core::vector2df& p0, const core::vector2df& p1, f32 w, video::SColor col, f32 strength = 1.0f, f32 reach = 0.0f)
+            {
+                if (GLOW <= 0.0f) { return; }
+                core::vector2df d = p1 - p0;
+                const f32 len = d.getLength();
+                if (len < 1e-4f) { return; }
+                d /= len;
+                if (reach <= 0.0f) { reach = core::max_(1.5f, w * 1.2f); }
+                const core::vector2df n(-d.Y, d.X);
+                const f32 hw = w * 0.5f;
+                const video::SColor in((u32)core::clamp(GLOW * strength * 120.0f, 0.0f, 255.0f), col.getRed(), col.getGreen(), col.getBlue());
+                const video::SColor out(0, col.getRed(), col.getGreen(), col.getBlue());
+                const core::vector2df a = p0 - d * reach, e = p1 + d * reach;
+                //Both sides and both ends fade out; nothing under the stroke itself.
+                b.quad(p0 + n * hw, in, p1 + n * hw, in, p1 + n * (hw + reach), out, p0 + n * (hw + reach), out);
+                b.quad(p0 - n * (hw + reach), out, p1 - n * (hw + reach), out, p1 - n * hw, in, p0 - n * hw, in);
+                b.quad(a + n * hw, out, p0 + n * hw, in, p0 - n * hw, in, a - n * hw, out);
+                b.quad(p1 + n * hw, in, e + n * hw, out, e - n * hw, out, p1 - n * hw, in);
+            }
+
+            //A lit marking: the halo, then the stroke itself.
+            void glowLine(PanelBatch& b, const core::vector2df& p0, const core::vector2df& p1, f32 w, video::SColor col)
+            {
+                glowHalo(b, p0, p1, w, col, 0.55f);
+                b.line(p0, p1, w, col);
             }
 
             inline video::SColor ghostOf(video::SColor c) { return video::SColor(20, c.getRed(), c.getGreen(), c.getBlue()); }
@@ -500,6 +532,15 @@ namespace irr
             s32 l = (s32)x, t = (s32)y;
             if (hCentre) { l = (s32)(x - d.Width * 0.5f); }
             if (vCentre) { t = (s32)(y - d.Height * 0.5f); }
+            //Backlit lettering: a faint copy one pixel out on each side
+            if (GLOW > 0.0f && col.getAlpha() == 255) {
+                const video::SColor halo((u32)(GLOW * 42.0f), col.getRed(), col.getGreen(), col.getBlue());
+                const s32 ox[4] = { -1, 1, 0, 0 }, oy[4] = { 0, 0, -1, 1 };
+                for (int k = 0; k < 4; k++) {
+                    const s32 l2 = l + ox[k], t2 = t + oy[k];
+                    font->draw(core::stringw(s), core::rect<s32>(l2, t2, l2 + (s32)d.Width + 2, t2 + (s32)d.Height + 2), halo, false, false, &AbsoluteClippingRect);
+                }
+            }
             font->draw(core::stringw(s), core::rect<s32>(l, t, l + (s32)d.Width + 2, t + (s32)d.Height + 2), col, false, false, &AbsoluteClippingRect);
         }
 
@@ -536,6 +577,22 @@ namespace irr
                 };
             //ghost = true: draw the given segments in the 'off' colour; false: draw them lit.
             auto digit = [&](f32 cx, u8 mask, bool ghost) {
+                //Backlit LCD: each lit segment bleeds a little light around it
+                if (!ghost && GLOW > 0.0f) {
+                    for (int seg = 0; seg < 7; seg++) {
+                        if (!((mask >> seg) & 1)) continue;
+                        const f32 xl = ht + g, xr = w - ht - g;
+                        switch (seg) {
+                        case 0: glowHalo(batch, P(cx, xl, ht), P(cx, xr, ht), t, on, 0.5f); break;
+                        case 1: glowHalo(batch, P(cx, w - ht, ht + g), P(cx, w - ht, h * 0.5f - g), t, on, 0.5f); break;
+                        case 2: glowHalo(batch, P(cx, w - ht, h * 0.5f + g), P(cx, w - ht, h - ht - g), t, on, 0.5f); break;
+                        case 3: glowHalo(batch, P(cx, xl, h - ht), P(cx, xr, h - ht), t, on, 0.5f); break;
+                        case 4: glowHalo(batch, P(cx, ht, h * 0.5f + g), P(cx, ht, h - ht - g), t, on, 0.5f); break;
+                        case 5: glowHalo(batch, P(cx, ht, ht + g), P(cx, ht, h * 0.5f - g), t, on, 0.5f); break;
+                        case 6: glowHalo(batch, P(cx, xl, h * 0.5f), P(cx, xr, h * 0.5f), t, on, 0.5f); break;
+                        }
+                    }
+                }
                 for (int seg = 0; seg < 7; seg++) {
                     if (!((mask >> seg) & 1)) continue;
                     const video::SColor col = ghost ? off : on;
@@ -604,7 +661,7 @@ namespace irr
                 const f32 k = v / major;
                 const bool isMajor = fabsf(k - floorf(k + 0.5f)) < 0.001f;
                 const f32 a = valueToAngle(v, vMin, vMax, a0, a1);
-                batch.line(panelPolar(c, isMajor ? rf * 0.78f : rf * 0.855f, a), panelPolar(c, rOut, a), isMajor ? wMajor : wMinor, SCALE_WHITE);
+                glowLine(batch, panelPolar(c, isMajor ? rf * 0.78f : rf * 0.855f, a), panelPolar(c, rOut, a), isMajor ? wMajor : wMinor, SCALE_WHITE);
             }
         }
 
@@ -639,6 +696,7 @@ namespace irr
             const f32 len = rf * 0.84f, tail = rf * 0.20f;
             const f32 wBase = core::max_(2.5f, rf * 0.050f), wTip = core::max_(0.8f, rf * 0.010f), wTail = rf * 0.034f;
 
+            glowHalo(batch, c - u * tail * 0.6f, c + u * len * 0.92f, wTip * 2.0f, col, 0.45f, wBase * 1.1f);
             for (int pass = 0; pass < 2; pass++) {
                 const core::vector2df off = (pass == 0) ? core::vector2df(rf * 0.018f, rf * 0.030f) : core::vector2df(0, 0);
                 const video::SColor cc = (pass == 0) ? NEEDLE_SHADOW : col;
@@ -679,7 +737,7 @@ namespace irr
                     const bool ten = (b % 10) == 0;
                     const bool thirty = (b % 30) == 0;
                     const f32 r0 = thirty ? rf * 0.76f : (ten ? rf * 0.82f : rf * 0.87f);
-                    batch.line(panelPolar(c, r0, a), panelPolar(c, rf * 0.935f, a), (thirty || ten) ? wMajor : wMinor, SCALE_WHITE);
+                    glowLine(batch, panelPolar(c, r0, a), panelPolar(c, rf * 0.935f, a), (thirty || ten) ? wMajor : wMinor, SCALE_WHITE);
                 }
                 //Digital heading window
                 const f32 p = dh * 0.28f;
@@ -709,7 +767,7 @@ namespace irr
             }
             else {
                 //Lubber line: the ship's head, fixed at 12 o'clock.
-                batch.line(panelPolar(c, rf * 0.70f, 0), panelPolar(c, rf * 0.985f, 0), core::max_(2.0f, rf * 0.022f), LUBBER);
+                glowLine(batch, panelPolar(c, rf * 0.70f, 0), panelPolar(c, rf * 0.985f, 0), core::max_(2.0f, rf * 0.022f), LUBBER);
                 batch.tri(panelPolar(c, rf * 0.985f, -4.5f), panelPolar(c, rf * 0.985f, 4.5f), panelPolar(c, rf * 0.90f, 0), LUBBER);
                 //COG marker - only meaningful when actually making way.
                 if (data.sogKn > 0.3f) {
@@ -944,7 +1002,7 @@ namespace irr
                 const f32 wMinor = core::max_(1.0f, rf * 0.010f);
                 for (int b = 0; b < 360; b += 10) {
                     const bool thirty = (b % 30) == 0;
-                    batch.line(panelPolar(c, thirty ? rf * 0.78f : rf * 0.86f, (f32)b), panelPolar(c, rf * 0.935f, (f32)b),
+                    glowLine(batch, panelPolar(c, thirty ? rf * 0.78f : rf * 0.86f, (f32)b), panelPolar(c, rf * 0.935f, (f32)b),
                         thirty ? wMajor : wMinor, SCALE_WHITE);
                 }
                 //Little ship outline at the centre, so "relative to the bow" needs no explaining.
@@ -993,7 +1051,7 @@ namespace irr
                 const video::SColor wc = WIND_BARB;
                 const core::vector2df tip = panelPolar(c, rf * 0.92f, rel);
                 const core::vector2df base = panelPolar(c, rf * 0.50f, rel);
-                batch.line(base, tip, core::max_(2.0f, rf * 0.045f), wc);
+                glowLine(batch, base, tip, core::max_(2.0f, rf * 0.045f), wc);
                 batch.tri(tip, panelPolar(c, rf * 0.66f, rel - 9.0f), panelPolar(c, rf * 0.66f, rel + 9.0f), wc);
             }
         }
@@ -1174,7 +1232,7 @@ namespace irr
                 drawScale(c, rf, vMin, vMax, a0, a1, 5.0f, 1.0f);
 
                 //fixed horizon reference, on the free left-hand side
-                batch.line(core::vector2df(c.X - rf * 0.78f, c.Y), core::vector2df(c.X - rf * 0.55f, c.Y),
+                glowLine(batch, core::vector2df(c.X - rf * 0.78f, c.Y), core::vector2df(c.X - rf * 0.55f, c.Y),
                     core::max_(1.0f, rf * 0.012f), TEXT_DIM);
 
                 //ship silhouette, side view (x forward, y up), turning with the needle
@@ -1207,11 +1265,11 @@ namespace irr
                 const f32 up = peakValue(0), down = peakValue(1);
                 if (up > 0.2f) {
                     const f32 a = valueToAngle(panelClamp(up, 0.0f, vMax), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 if (down > 0.2f) {
                     const f32 a = valueToAngle(panelClamp(-down, vMin, 0.0f), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 drawNeedle(c, rf, needleA, NEEDLE);
             }
@@ -1265,11 +1323,11 @@ namespace irr
                 const f32 stbd = peakValue(2), port = peakValue(3);
                 if (stbd > 0.3f) {
                     const f32 a = valueToAngle(panelClamp(stbd, 0.0f, vMax), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 if (port > 0.3f) {
                     const f32 a = valueToAngle(panelClamp(-port, vMin, 0.0f), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 drawNeedle(c, rf, needleA, NEEDLE);
             }

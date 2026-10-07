@@ -99,10 +99,10 @@ namespace bridge
             p[MODE_NIGHT].raised = SColor(255, 17, 26, 38);
             p[MODE_NIGHT].key = SColor(255, 14, 22, 33);
             p[MODE_NIGHT].keyHover = SColor(255, 20, 32, 48);
-            p[MODE_NIGHT].text = SColor(255, 201, 154, 94);
-            p[MODE_NIGHT].textDim = SColor(255, 127, 103, 72);
+            p[MODE_NIGHT].text = SColor(255, 224, 170, 100);
+            p[MODE_NIGHT].textDim = SColor(255, 150, 118, 78);
             p[MODE_NIGHT].textFaint = SColor(255, 90, 74, 54);
-            p[MODE_NIGHT].accent = SColor(255, 214, 150, 56);
+            p[MODE_NIGHT].accent = SColor(255, 240, 166, 60);
             p[MODE_NIGHT].accentText = SColor(255, 26, 16, 6);
             p[MODE_NIGHT].field = SColor(255, 7, 11, 17);
             p[MODE_NIGHT].danger = SColor(255, 110, 36, 30);
