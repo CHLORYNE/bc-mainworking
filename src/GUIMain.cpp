@@ -19,6 +19,7 @@
 
 
 #include "GUIMain.hpp"
+#include "BridgeSkin.hpp"
 
 #include "Constants.hpp"
 #include "Utilities.hpp"
@@ -182,55 +183,11 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     col.setAlpha(200);
     guienv->getSkin()->setColor(irr::gui::EGDC_3D_FACE, col);*/
 
-    // Get the existing skin.
-    irr::gui::IGUISkin* skin = guienv->getSkin();
-
-    //KYARA: NORD grey-blue. Lighter and cooler than the near-black navy - reads as clean instrument
-      //panel rather than a dark cockpit. Based on the Nord palette (nord0-nord3 for surfaces, nord6 for
-      //text, nord10 for selection), designed for low eye strain over long sessions - which matters when
-      //a trainee sits in front of it for an hour.
-      //To lighten/darken the WHOLE GUI, shift these three surface colours together and leave the rest.
-    const irr::video::SColor NAVY_FACE(255, 76, 86, 106);    //nord3  - window body / button face
-    const irr::video::SColor NAVY_DEEP(255, 59, 66, 82);     //nord1  - recesses, troughs, edit boxes
-    const irr::video::SColor NAVY_DEEPER(255, 46, 52, 64);   //nord0  - deepest shadow
-    const irr::video::SColor NAVY_RAISED(255, 98, 110, 133); //        - raised edges / focused fields
-    const irr::video::SColor NAVY_LIGHT(255, 67, 76, 94);    //nord2  - inactive borders
-    const irr::video::SColor TEXT_MAIN(255, 236, 239, 244);  //nord6  - primary text
-    const irr::video::SColor TEXT_DIM(255, 150, 160, 178);   //        - disabled text
-    const irr::video::SColor SELECT(255, 94, 129, 172);      //nord10 - selection highlight
-
-    //Panels and surfaces
-    skin->setColor(irr::gui::EGDC_3D_FACE, NAVY_FACE);
-    skin->setColor(irr::gui::EGDC_3D_SHADOW, NAVY_DEEP);
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, NAVY_DEEPER);
-    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, NAVY_RAISED);
-    skin->setColor(irr::gui::EGDC_3D_LIGHT, NAVY_LIGHT);
-    skin->setColor(irr::gui::EGDC_WINDOW, NAVY_FACE);
-    skin->setColor(irr::gui::EGDC_SCROLLBAR, NAVY_DEEP);
-
-    //Editable fields
-    skin->setColor(irr::gui::EGDC_EDITABLE, NAVY_DEEP);
-    skin->setColor(irr::gui::EGDC_FOCUSED_EDITABLE, NAVY_RAISED);
-    skin->setColor(irr::gui::EGDC_GRAY_EDITABLE, NAVY_DEEPER);
-
-    //Borders and captions
-    skin->setColor(irr::gui::EGDC_ACTIVE_BORDER, NAVY_RAISED);
-    skin->setColor(irr::gui::EGDC_INACTIVE_BORDER, NAVY_LIGHT);
-    skin->setColor(irr::gui::EGDC_ACTIVE_CAPTION, TEXT_MAIN);
-    skin->setColor(irr::gui::EGDC_INACTIVE_CAPTION, TEXT_DIM);
-
-    //Text
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, TEXT_MAIN);
-    skin->setColor(irr::gui::EGDC_WINDOW_SYMBOL, TEXT_MAIN);
-    skin->setColor(irr::gui::EGDC_GRAY_TEXT, TEXT_DIM);
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT, SELECT);
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, TEXT_MAIN);
-
-    //Tooltips
-    skin->setColor(irr::gui::EGDC_TOOLTIP, TEXT_MAIN);
-    skin->setColor(irr::gui::EGDC_TOOLTIP_BACKGROUND, NAVY_DEEP);
-    //END DEEP NAVY SKIN -KYARA
-    //=============================================================================================
+    //The bridge look: one flat style for every widget, in day / dusk / night colours (BridgeSkin.hpp).
+    //It wraps the skin main.cpp made, which keeps the fonts, sizes and icons.
+    bridgeSkin = new bridge::BridgeSkin(guienv, guienv->getSkin());
+    guienv->setSkin(bridgeSkin);
+    bridgeSkin->drop(); //the environment holds it now
 
 
     //default to double engine in gui
@@ -622,6 +579,78 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         const irr::f32 fontScale = IniFile::iniFileTof32(iniFilename, "font_scale");
         if (fontScale > 0) { consoleBaseFontSize = (irr::s32)(12 * fontScale + 0.5f); }
     }
+    //=============================================================================================
+    //Slim console layout: the band under the 3D view is only as tall as the dials need, with the
+    //command bar along the bottom; the 3D view gets the rest of the screen (viewProportion3D).
+    //Azimuth-drive ships keep their own arrangement of dials round the console.
+    if (instrumentsEnabled && instrumentPanel) {
+        irr::gui::IGUIFont* barFont = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
+        const irr::s32 fh = barFont ? (irr::s32)barFont->getDimension(L"Ag").Height : 16;
+        const irr::s32 m = irr::core::max_(4, (irr::s32)(0.006 * sh));
+        const irr::s32 barH = irr::core::max_(fh * 2 + 10, (irr::s32)(0.042 * sh));
+        if (!azimuthDrive) {
+            //The dial size the width allows (the panel is still at its old height here), at most a
+            //quarter of the screen
+            irr::f32 D = instrumentPanel->getGaugeDiameter();
+            if (D > 0.24f * sh) { D = 0.24f * sh; }
+            const irr::s32 consoleH = (irr::s32)(D * 1.12f) + 4;
+            irr::s32 bandTop = (irr::s32)sh - (m + consoleH + m + barH + m);
+            if (bandTop < (irr::s32)(0.6 * sh)) { bandTop = (irr::s32)(0.6 * sh); }
+            viewProportion3D() = (irr::f32)bandTop / (irr::f32)sh;
+            const irr::s32 top = bandTop + m;
+            const irr::s32 consoleBottom = (irr::s32)sh - m - barH - m;
+            const irr::core::rect<irr::s32> consoleRect((irr::s32)(0.09 * su), top, (irr::s32)(0.995 * su), consoleBottom);
+            instrumentPanel->setRelativePosition(consoleRect);
+            consolePanelAttachedRect = consoleRect;
+            consoleAttachedGaugeD = instrumentPanel->getGaugeDiameter();
+
+            //Engine levers beside it, their labels on top, the thrusters (if any) underneath
+            const irr::s32 labelH = fh + 4;
+            const irr::s32 thrusterH = (irr::s32)(0.034 * sh);
+            const irr::s32 thrusters = (bowThrusterScrollbar ? 1 : 0) + (sternThrusterScrollbar ? 1 : 0);
+            const irr::s32 leverTop = top + labelH;
+            const irr::s32 leverBottom = consoleBottom - thrusters * (thrusterH + 2);
+            const irr::s32 xa = (irr::s32)(0.008 * su), xb = (irr::s32)(0.045 * su), xc = (irr::s32)(0.085 * su);
+            if (portText) {
+                portText->setRelativePosition(singleEngine ? irr::core::rect<irr::s32>(xa, top, xc, top + labelH)
+                                                           : irr::core::rect<irr::s32>(xa, top, xb, top + labelH));
+            }
+            // One-line labels: the translations carry a line break for the classic tall layout
+            auto oneLine = [](irr::gui::IGUIStaticText* t) {
+                if (!t) { return; }
+                irr::core::stringw text = t->getText();
+                text.replace(L'\n', L' ');
+                t->setText(text.c_str());
+                t->setWordWrap(false);
+            };
+            if (stbdText) { stbdText->setRelativePosition(irr::core::rect<irr::s32>(xb, top, xc, top + labelH)); }
+            oneLine(portText);
+            oneLine(stbdText);
+            if (portScrollbar) {
+                portScrollbar->setRelativePosition(singleEngine ? irr::core::rect<irr::s32>(xa + 2, leverTop, xc - 2, leverBottom)
+                                                                : irr::core::rect<irr::s32>(xa + 2, leverTop, xb - 2, leverBottom));
+            }
+            if (stbdScrollbar) { stbdScrollbar->setRelativePosition(irr::core::rect<irr::s32>(xb + 2, leverTop, xc - 2, leverBottom)); }
+            irr::s32 ty = leverBottom + 2;
+            if (bowThrusterScrollbar) {
+                bowThrusterScrollbar->setRelativePosition(irr::core::rect<irr::s32>(xa, ty, xc, ty + thrusterH));
+                ty += thrusterH + 2;
+            }
+            if (sternThrusterScrollbar) {
+                sternThrusterScrollbar->setRelativePosition(irr::core::rect<irr::s32>(xa, ty, xc, ty + thrusterH));
+            }
+            if (clickForEngineText) { clickForEngineText->setRelativePosition(irr::core::rect<irr::s32>(xa, leverTop, xc, leverBottom)); }
+            commandBarRect = irr::core::rect<irr::s32>((irr::s32)(0.005 * su), (irr::s32)sh - m - barH, (irr::s32)(0.995 * su), (irr::s32)sh - m);
+        }
+        else {
+            commandBarRect = irr::core::rect<irr::s32>((irr::s32)(0.09 * su + azimuthGUIOffsetL), (irr::s32)(0.915 * sh),
+                (irr::s32)(0.995 * su + azimuthGUIOffsetR), (irr::s32)(0.915 * sh) + barH);
+        }
+        //Made before the buttons, so they are drawn on top of it
+        commandBar = new bridge::CommandBar(guienv, guienv->getRootGUIElement(), commandBarRect);
+        commandBar->drop();
+    }
+
     //Row i (0..3) of the status column: 0 = RADAR, 1 = pump 1, 2 = pump 2, 3 = Acquitter.
     //Only called when instrumentPanel exists.
     auto statusRow = [&](int i) -> irr::core::rect<irr::s32> {
@@ -803,7 +832,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             irr::gui::IGUIStaticText* lab = guienv->addStaticText(label,
                 irr::core::rect<irr::s32>(labelX0, y, labelX1, y + rowH), false, true, tab);
             lab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
-            lab->setOverrideColor(colour);
             lab->setToolTipText(tip);
 
             irr::gui::IGUIScrollBar* bar = guienv->addScrollBar(true, //horizontal
@@ -816,7 +844,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             irr::gui::IGUIStaticText* val = guienv->addStaticText(L"",
                 irr::core::rect<irr::s32>(valueX0, y, valueX1, y + rowH), false, false, tab);
             val->setTextAlignment(irr::gui::EGUIA_LOWERRIGHT, irr::gui::EGUIA_CENTER);
-            val->setOverrideColor(colour);
 
             SliderRow r; r.bar = bar; r.value = val;
             return r;
@@ -1184,7 +1211,13 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     const irr::core::rect<irr::s32> magnificationPos = instrumentsEnabled
         ? irr::core::rect<irr::s32>(0.13 * su + azimuthGUIOffsetL, 0.96 * sh, 0.45 * su + azimuthGUIOffsetL, 0.99 * sh)
         : irr::core::rect<irr::s32>(0.24 * su + azimuthGUIOffsetL, 0.92 * sh, 0.45 * su + azimuthGUIOffsetL, 0.95 * sh);
-    magnificationScrollbar = new irr::gui::OutlineScrollBar(true, guienv, guienv->getRootGUIElement(), GUI_ID_MAGNIFICATION_SCROLL_BAR, magnificationPos);
+    if (commandBar) {
+        //A plain slider in the command bar (placed by layoutCommandBar)
+        magnificationScrollbar = guienv->addScrollBar(true, magnificationPos, 0, GUI_ID_MAGNIFICATION_SCROLL_BAR);
+    }
+    else {
+        magnificationScrollbar = new irr::gui::OutlineScrollBar(true, guienv, guienv->getRootGUIElement(), GUI_ID_MAGNIFICATION_SCROLL_BAR, magnificationPos);
+    }
     magnificationScrollbar->setToolTipText(language->translate("magnification").c_str());
 
     magnificationScrollbar->setMax(200); //Divide by 10 to get magnification
@@ -1804,6 +1837,24 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         detachConsoleButton->setToolTipText(L"Instruments dans une fen\u00EAtre s\u00E9par\u00E9e, \u00E0 placer sur un autre \u00E9cran");
     }
 
+    //Command bar: the day / dusk / night switch, then every key in its place
+    if (commandBar) {
+        const wchar_t* paletteNames[4] = { L"JOUR", L"CR\u00C9P.", L"NUIT", L"AUTO" };
+        const wchar_t* paletteTips[4] = {
+            L"Couleurs de jour : cadrans clairs, lisibles au soleil",
+            L"Couleurs de cr\u00E9puscule : cadrans sombres, graduations blanches",
+            L"Couleurs de nuit : noir et ambre att\u00E9nu\u00E9, pour garder la vision de nuit",
+            L"Suit la lumi\u00E8re du sc\u00E9nario" };
+        for (int i = 0; i < 4; i++) {
+            paletteButton[i] = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_PALETTE_DAY + i,
+                paletteNames[i], paletteTips[i]);
+            paletteButton[i]->setIsPushButton(true);
+            bridgeSkin->setKeyStyle(GUI_ID_PALETTE_DAY + i, bridge::BridgeSkin::KEY_BAR);
+        }
+        layoutCommandBar();
+        setPaletteChoice(-1);
+    }
+
     // --- TOGGLE CONTROLS: top-left of large radar screen (clear of the circular display) ---
     // ARPA Buoys / Buoy Trails moved here from the bottom block below, since at the
     // bottom of the radar box the circle's curve extends far enough left to sit underneath
@@ -2066,7 +2117,7 @@ irr::core::vector2di GUIMain::getCursorPositionRadar() const
 irr::core::rect<irr::s32> GUIMain::getSmallRadarRect() const
 {
     irr::u32 graphicsWidth3d = su;
-    irr::u32 graphicsHeight3d = sh * VIEW_PROPORTION_3D;
+    irr::u32 graphicsHeight3d = sh * viewProportion3D();
     return irr::core::rect<irr::s32>(su - (sh - graphicsHeight3d) + azimuthGUIOffsetR, graphicsHeight3d, su + azimuthGUIOffsetR, sh);
 }
 
@@ -2243,7 +2294,14 @@ void GUIMain::updateVisibility()
 
     if (detachConsoleButton) {
         detachConsoleButton->setVisible(showDisplayControls && showInterface);
-        detachConsoleButton->setText(consoleDetached ? L"Rattacher" : L"D\u00E9tacher");
+        if (commandBar) { detachConsoleButton->setText((iconSpace + (consoleDetached ? L"RATTACHER" : L"D\u00C9TACHER")).c_str()); }
+        else { detachConsoleButton->setText(consoleDetached ? L"Rattacher" : L"D\u00E9tacher"); }
+    }
+    //The command bar shows with its keys; with the controls hidden only "Afficher" stays
+    if (commandBar) {
+        commandBar->setVisible(showDisplayControls);
+        commandBar->setCaptionsVisible(showPrimary);
+        for (int i = 0; i < 4; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(showDisplayControls); } }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -2403,6 +2461,25 @@ void GUIMain::updateGuiData(GUIData* guiData)
     }
 
     guiDistressTimer = guiData->distressTimer;
+
+    //Day / dusk / night: "auto" follows the scene's light, with a margin so it does not flicker
+    {
+        const irr::u32 L = guiData->lightLevel;
+        int m = paletteAutoMode;
+        if (m == bridge::MODE_DAY && L < 160) { m = bridge::MODE_DUSK; }
+        if (m == bridge::MODE_NIGHT && L >= 80) { m = bridge::MODE_DUSK; }
+        if (m == bridge::MODE_DUSK) {
+            if (L >= 175) { m = bridge::MODE_DAY; }
+            else if (L < 65) { m = bridge::MODE_NIGHT; }
+        }
+        paletteAutoMode = m;
+        if (paletteChoice < 0) { applyPaletteMode(m); }
+    }
+    if (commandBar && magnificationScrollbar) {
+        wchar_t zoomText[16];
+        std::swprintf(zoomText, 16, L"\u00D7%.1f", (irr::f32)magnificationScrollbar->getPos() / 10.0f);
+        commandBar->setCaptionText(1, zoomText);
+    }
 
     // TODO: Check the scroll bars exist!
 
@@ -2709,6 +2786,9 @@ void GUIMain::updateGuiData(GUIData* guiData)
     else {
         pump2On->setBackgroundColor(irr::video::SColor(255, 128, 0, 0));
     }
+    // Light text on the green/red lamps, whatever the palette
+    pump1On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));
+    pump2On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));
 }
 
 void GUIMain::showLogWindow()
@@ -2782,7 +2862,7 @@ void GUIMain::drawGUI()
         //old radar hole shows the scene clear colour, since that viewport is no longer rendered.)
         //With the console in its own window the bridge view fills the screen: nothing to paint.
         if (!consoleDetached) {
-            driver->draw2DRectangle(uiBgColor, irr::core::rect<irr::s32>(0, (irr::s32)(sh * VIEW_PROPORTION_3D), su, sh));
+            driver->draw2DRectangle(bridge::palette().band, irr::core::rect<irr::s32>(0, (irr::s32)(sh * viewProportion3D()), su, sh));
         }
     }
     else if (showInterface) {
@@ -3932,8 +4012,8 @@ void GUIMain::refreshLightsTab()
 
     const irr::video::SColor SELECTED(255, 245, 190, 66); //amber, like the other toggles
     const irr::video::SColor NONE(0, 0, 0, 0);
-    const irr::video::SColor TEXT_OK(255, 236, 239, 244);
-    const irr::video::SColor TEXT_ERR(255, 255, 110, 90);
+    const irr::video::SColor TEXT_OK = bridge::palette().text;
+    const irr::video::SColor TEXT_ERR = bridge::palette().error;
 
     //--- Feux tab: selected vessel (absent when the feature is switched off) ---
     ShipLights* lights = lightsStatusText ? model->getShipLights(getLightsVessel()) : 0;
@@ -4007,7 +4087,10 @@ void GUIMain::togglePrimaryControls()
     showPrimaryControls = !showPrimaryControls;
 
     // Change the button text depending on the state
-    if (showPrimaryControls) {
+    if (commandBar) {
+        togglePrimaryControlsButton->setText((iconSpace + (showPrimaryControls ? L"MASQUER" : L"AFFICHER")).c_str());
+    }
+    else if (showPrimaryControls) {
         togglePrimaryControlsButton->setText(L"Hide Controls");
     }
     else {
@@ -4483,8 +4566,7 @@ void GUIMain::setLightEditorStatus(const std::wstring& text, bool isError)
 {
     if (!lightEditStatus) { return; }
     lightEditStatus->setText(text.c_str());
-    lightEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
-                                              : irr::video::SColor(255, 140, 230, 140));
+    lightEditStatus->setOverrideColor(isError ? bridge::palette().error : bridge::palette().ok);
 }
 
 //=================================================================================================
@@ -4622,6 +4704,132 @@ void GUIMain::setInstructorTools(bool colregTab, bool sizeTool, bool instrumentT
     showInstrumentTool = instrumentTool;
 }
 
+//=================================================================================================
+//The command bar and the day / dusk / night colours
+//=================================================================================================
+
+//Every key of the bar in one row, grouped: view keys on the left, zoom, lighting and the palette
+//switch in the middle, the tools on the right and Quitter apart at the far end. Sized from the
+//labels; if they do not all fit, the icons go first.
+void GUIMain::layoutCommandBar()
+{
+    if (!commandBar || !bridgeSkin || !guienv->getSkin()) { return; }
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) { return; }
+    const irr::core::rect<irr::s32> bar = commandBarRect;
+    const irr::s32 keyH = bar.getHeight() - 10;
+    const irr::s32 y0 = bar.UpperLeftCorner.Y + 5, y1 = y0 + keyH;
+    const irr::s32 iconSize = bridge::BridgeSkin::iconSizeFor(irr::core::rect<irr::s32>(0, 0, 10, keyH));
+    const irr::s32 spaceW = irr::core::max_(1, (irr::s32)font->getDimension(L" ").Width);
+
+    //Roomy with icons; tighter with icons; tight without them
+    for (int attempt = 0; attempt < 3; attempt++) {
+        const bool icons = (attempt < 2);
+        const irr::s32 keyPad = (attempt == 0) ? 22 : 12;
+        iconSpace = L"";
+        for (irr::s32 w = 0; icons && w < iconSize + 6; w += spaceW) { iconSpace += L" "; }
+        commandBar->clearMarks();
+
+        auto textW = [&](const irr::core::stringw& t) { return (irr::s32)font->getDimension(t.c_str()).Width; };
+        //A key: its label (with room for the icon) and its width, the widest of its labels
+        auto key = [&](irr::gui::IGUIButton* b, irr::s32& x, bool fromRight, const wchar_t* label, const wchar_t* longest,
+            bridge::Icon icon, bridge::BridgeSkin::KeyStyle style) {
+            if (!b) { return; }
+            const irr::core::stringw prefix = (icon != bridge::ICON_NONE) ? iconSpace : irr::core::stringw(L"");
+            const irr::s32 w = textW(prefix + irr::core::stringw(longest ? longest : label)) + keyPad;
+            b->setText((prefix + irr::core::stringw(label)).c_str());
+            if (fromRight) { x -= w; b->setRelativePosition(irr::core::rect<irr::s32>(x, y0, x + w, y1)); x -= 2; }
+            else { b->setRelativePosition(irr::core::rect<irr::s32>(x, y0, x + w, y1)); x += w + 2; }
+            bridgeSkin->setKeyStyle(b->getID(), style, icons ? icon : bridge::ICON_NONE);
+        };
+        auto separator = [&](irr::s32& x, bool fromRight) {
+            if (fromRight) { x -= 6; commandBar->addSeparator(x); x -= 7; }
+            else { x += 6; commandBar->addSeparator(x); x += 7; }
+        };
+
+        //--- left: view ---
+        irr::s32 x = bar.UpperLeftCorner.X + 6;
+        key(togglePrimaryControlsButton, x, false, showPrimaryControls ? L"MASQUER" : L"AFFICHER", L"AFFICHER",
+            bridge::ICON_HIDE, bridge::BridgeSkin::KEY_BAR);
+        separator(x, false);
+        const irr::s32 ifaceX = x;
+        key(hideInterfaceButton, x, false, L"PLEIN \u00C9CRAN", L"PLEIN \u00C9CRAN", bridge::ICON_INTERFACE, bridge::BridgeSkin::KEY_BAR);
+        irr::s32 xi = ifaceX;
+        key(showInterfaceButton, xi, false, L"INTERFACE", L"PLEIN \u00C9CRAN", bridge::ICON_INTERFACE, bridge::BridgeSkin::KEY_BAR);
+        key(binosButton, x, false, L"JUMELLES", 0, bridge::ICON_BINOCULARS, bridge::BridgeSkin::KEY_BAR);
+        key(bearingButton, x, false, L"REL\u00C8VEMENT", 0, bridge::ICON_BEARING, bridge::BridgeSkin::KEY_BAR);
+        key(changeViewButton, x, false, L"VUE", 0, bridge::ICON_VIEW, bridge::BridgeSkin::KEY_BAR);
+        separator(x, false);
+
+        //--- middle: zoom, lighting time, palette ---
+        const irr::s32 capZoomW = textW(L"ZOOM") + 8;
+        commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + capZoomW, y1), L"ZOOM", true);
+        x += capZoomW + 4;
+        const irr::s32 sliderW = (attempt == 0) ? irr::core::max_((irr::s32)(0.07f * bar.getWidth()), 100) : 90;
+        if (magnificationScrollbar) {
+            const irr::s32 sh2 = irr::core::min_(keyH, 18);
+            magnificationScrollbar->setRelativePosition(irr::core::rect<irr::s32>(x, (y0 + y1 - sh2) / 2, x + sliderW, (y0 + y1 + sh2) / 2));
+        }
+        x += sliderW + 4;
+        const irr::s32 valW = textW(L"\u00D720.0") + 8;
+        commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + valW, y1), L"\u00D71.0", false);
+        x += valW;
+        separator(x, false);
+        const irr::s32 capLightW = textW(L"\u00C9CLAIRAGE") + 8;
+        commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + capLightW, y1), L"\u00C9CLAIRAGE", true);
+        x += capLightW + 2;
+        if (lightingTimeBox) {
+            const irr::s32 boxW = textW(L"00:00") + 18;
+            lightingTimeBox->setRelativePosition(irr::core::rect<irr::s32>(x, y0 + 2, x + boxW, y1 - 2));
+            x += boxW + 8;
+        }
+        for (int i = 0; i < 4; i++) {
+            key(paletteButton[i], x, false, paletteButton[i] ? paletteButton[i]->getText() : L"", 0, bridge::ICON_NONE, bridge::BridgeSkin::KEY_BAR);
+        }
+        const irr::s32 leftEnd = x;
+
+        //--- right: tools, then Quitter on its own ---
+        irr::s32 xr = bar.LowerRightCorner.X - 6;
+        key(exitButton, xr, true, L"QUITTER", 0, bridge::ICON_QUIT, bridge::BridgeSkin::KEY_DANGER);
+        separator(xr, true);
+        key(detachConsoleButton, xr, true, consoleDetached ? L"RATTACHER" : L"D\u00C9TACHER", L"RATTACHER",
+            bridge::ICON_DETACH, bridge::BridgeSkin::KEY_BAR);
+        key(pcLogButton, xr, true, L"JOURNAL", 0, bridge::ICON_LOG, bridge::BridgeSkin::KEY_BAR);
+        key(showLinesControlsButton, xr, true, L"AMARRES", 0, bridge::ICON_LINES, bridge::BridgeSkin::KEY_BAR);
+        key(showExtraControlsButton, xr, true, L"CONTR\u00D4LES", 0, bridge::ICON_CONTROLS, bridge::BridgeSkin::KEY_BAR);
+
+        if (leftEnd + 8 <= xr || attempt == 2) { break; }
+    }
+    if (pcLogButton) { pcLogButton->setToolTipText(L"Journal des messages du simulateur"); }
+    if (hideInterfaceButton) { hideInterfaceButton->setToolTipText(L"Vue 3D en plein \u00E9cran (cacher la console)"); }
+    if (showInterfaceButton) { showInterfaceButton->setToolTipText(L"Revenir \u00E0 la console"); }
+    if (togglePrimaryControlsButton) { togglePrimaryControlsButton->setToolTipText(L"Cacher / afficher les commandes et la barre"); }
+}
+
+void GUIMain::setPaletteChoice(int choice)
+{
+    if (choice < -1 || choice > 2) { choice = -1; }
+    paletteChoice = choice;
+    const int pressed = (choice < 0) ? 3 : choice;
+    for (int i = 0; i < 4; i++) {
+        if (paletteButton[i]) { paletteButton[i]->setPressed(i == pressed); }
+    }
+    applyPaletteMode(choice >= 0 ? choice : paletteAutoMode);
+}
+
+void GUIMain::applyPaletteMode(int mode)
+{
+    static bool applied = false;
+    if (applied && mode == bridge::currentMode()) { return; }
+    applied = true;
+    bridge::currentMode() = mode;
+    if (bridgeSkin) { bridgeSkin->applyPalette(); }
+    const bridge::Palette& p = bridge::palette();
+    if (portText && portText->isOverrideColorEnabled()) { portText->setOverrideColor(p.portText); }
+    if (stbdText) { stbdText->setOverrideColor(p.stbdText); }
+    refreshLightsTab();
+}
+
 void GUIMain::closeSizeEditor()
 {
     if (sizeEditWindow) { sizeEditWindow->remove(); }
@@ -4670,8 +4878,7 @@ void GUIMain::setSizeEditorStatus(const std::wstring& text, bool isError)
 {
     if (!sizeEditStatus) { return; }
     sizeEditStatus->setText(text.c_str());
-    sizeEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
-                                             : irr::video::SColor(255, 140, 230, 140));
+    sizeEditStatus->setOverrideColor(isError ? bridge::palette().error : bridge::palette().ok);
 }
 
 bool GUIMain::getSizeEditorValue(int boxId, irr::f32& out) const
@@ -4807,8 +5014,7 @@ void GUIMain::setInstrumentEditorStatus(const std::wstring& text, bool isError)
 {
     if (!instrEditStatus) { return; }
     instrEditStatus->setText(text.c_str());
-    instrEditStatus->setOverrideColor(isError ? irr::video::SColor(255, 255, 110, 90)
-                                              : irr::video::SColor(255, 140, 230, 140));
+    instrEditStatus->setOverrideColor(isError ? bridge::palette().error : bridge::palette().ok);
 }
 
 void GUIMain::instrumentEditorListPicked()

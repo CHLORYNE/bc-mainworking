@@ -36,6 +36,8 @@
 class SimulationModel;
 class ConsoleWindow;
 
+namespace bridge { class BridgeSkin; class CommandBar; }
+
 struct GUIData {
     irr::f32 radarOffsetX, radarOffsetY;
     std::wstring distressTimer;
@@ -66,6 +68,7 @@ struct GUIData {
     irr::f32 depth;
     irr::f32 weather;
     irr::f32 lightningFlash;   // KYARA 0..1
+    irr::u32 lightLevel = 255; //daylight of the scene, 0 (night) .. about 255 (noon), for the palette
     irr::f32 rain;
     irr::f32 visibility;
     irr::f32 windDirection;
@@ -318,6 +321,11 @@ public:
         GUI_ID_IEDIT_SAVE,
         GUI_ID_IEDIT_REVERT,
         GUI_ID_IEDIT_CLOSE,
+        //Command bar: the palette switch
+        GUI_ID_PALETTE_DAY,
+        GUI_ID_PALETTE_DUSK,
+        GUI_ID_PALETTE_NIGHT,
+        GUI_ID_PALETTE_AUTO,
 
     };
 
@@ -361,6 +369,8 @@ public:
     //bc5.ini show_colreg_tab / show_size_tool / show_instrument_tool: hide the Feux and Taille
     //tabs and the lit-instruments tool from trainees. Called before load().
     void setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool);
+    //Day / dusk / night colours: a bridge::Mode, or -1 to follow the daylight
+    void setPaletteChoice(int choice);
     //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
     void openInstrumentEditor();
     void closeInstrumentEditor();
@@ -734,6 +744,16 @@ private:
     bool showColregTab = true;
     bool showSizeTool = true;
     bool showInstrumentTool = true;
+    //Bridge look: the skin, the command bar under the console, and the palette in use
+    bridge::BridgeSkin* bridgeSkin = 0;
+    bridge::CommandBar* commandBar = 0;
+    irr::core::rect<irr::s32> commandBarRect;
+    irr::core::stringw iconSpace;          //leading spaces that leave room for a key's icon
+    int paletteChoice = -1;                //-1 = follows the daylight, else bridge::Mode
+    int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
+    irr::gui::IGUIButton* paletteButton[4] = {}; //JOUR, CREP., NUIT, AUTO
+    void layoutCommandBar();
+    void applyPaletteMode(int mode);
     irr::gui::IGUIWindow* instrEditWindow = 0;
     irr::gui::IGUIListBox* instrEditList = 0;
     irr::gui::IGUIStaticText* instrEditStatus = 0;

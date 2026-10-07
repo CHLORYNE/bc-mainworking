@@ -2586,7 +2586,7 @@ irr::core::line3df SimulationModel::getMooringRay(irr::s32 mouseX, irr::s32 mous
     irr::s32 screenH = (irr::s32)ss.Height;
 
     // Same Y scaling as the legacy path when the interface strip is shown
-    irr::s32 scaledY = showInterface ? (irr::s32)(mouseY / VIEW_PROPORTION_3D) : mouseY;
+    irr::s32 scaledY = showInterface ? (irr::s32)(mouseY / viewProportion3D()) : mouseY;
 
     if (!triScreenMooring) {
         return smgr->getSceneCollisionManager()->getRayFromScreenCoordinates(
@@ -2602,7 +2602,7 @@ irr::core::line3df SimulationModel::getMooringRay(irr::s32 mouseX, irr::s32 mous
     irr::s32 c = mouseX / colW;
     if (c < 0) { c = 0; }
     if (c > 2) { c = 2; }
-    irr::s32 baseH = showInterface ? (irr::s32)(screenH * VIEW_PROPORTION_3D) : screenH;
+    irr::s32 baseH = showInterface ? (irr::s32)(screenH * viewProportion3D()) : screenH;
     irr::f32 colAspect = (irr::f32)colW / (irr::f32)baseH;
     irr::f32 yaw[3] = { -bezelYawMooring, 0.0f, bezelYawMooring };
 
@@ -5294,6 +5294,7 @@ void SimulationModel::update()
             irr::u32 flashView = camera.getView();
             bool flashInside = (flashView == 0 || flashView == 1);
             guiData->lightningFlash = lightningFlash * (flashInside ? 0.6f : 1.0f);
+            guiData->lightLevel = light.getLightLevel();
         }
         guiData->spd = ownShip.getSpeedThroughWater();
         guiData->cog = ownShip.getCOG(); //kyara: instrument console

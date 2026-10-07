@@ -193,6 +193,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\FFTWave.hpp" />
     <ClInclude Include="..\Fire.hpp" />
     <ClInclude Include="..\FireMonitor.hpp" />
+    <ClInclude Include="..\BridgeSkin.hpp" />
     <ClInclude Include="..\GUIEngineLever.hpp" />
     <ClInclude Include="..\GUIMain.hpp" />
     <ClInclude Include="..\GUIPanelDraw.hpp" />

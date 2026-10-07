@@ -6,6 +6,7 @@
      published by the Free Software Foundation. */
 
 #include "GUIInstrumentPanel.hpp"
+#include "BridgeSkin.hpp"
 
 #include "IGUISkin.h"
 #include "IGUIFont.h"
@@ -52,39 +53,63 @@ namespace irr
             const wchar_t* CARDINALS[4] = { L"N", L"E", L"S", L"W" };
 
             //---------------------------------------------------------------------------------------------
-            //Palette. Neutral steel console with black instrument faces - the classic bridge look - so it
-            //sits comfortably next to the Nord-coloured buttons without competing with them.
-            const video::SColor PANEL_TOP(255, 72, 77, 86);
-            const video::SColor PANEL_BOTTOM(255, 43, 47, 54);
-            const video::SColor PANEL_EDGE_HI(255, 112, 118, 130);
-            const video::SColor PANEL_EDGE_LO(255, 18, 20, 24);
-            const video::SColor BEZEL_TOP(255, 186, 191, 199);
-            const video::SColor BEZEL_BOTTOM(255, 62, 66, 73);
-            const video::SColor BEZEL_INNER(255, 16, 17, 20);
-            const video::SColor FACE_CENTRE(255, 36, 39, 45);
-            const video::SColor FACE_EDGE(255, 9, 10, 12);
-            const video::SColor SCALE_WHITE(255, 232, 235, 240);
-            const video::SColor TEXT_TITLE(255, 196, 202, 212);
-            const video::SColor TEXT_DIM(255, 128, 138, 150);
-            const video::SColor NEEDLE(255, 255, 138, 0);          //instrument orange
-            const video::SColor NEEDLE_SHADOW(90, 0, 0, 0);
-            const video::SColor HUB_OUTER(255, 58, 61, 68);
-            const video::SColor HUB_INNER(255, 20, 21, 24);
-            const video::SColor BAND_PORT(255, 205, 40, 40);
-            const video::SColor BAND_STBD(255, 40, 185, 70);
-            const video::SColor BAND_ASTERN(255, 190, 45, 45);
-            const video::SColor LUBBER(255, 235, 45, 35);
-            const video::SColor COG_MARK(255, 70, 200, 255);
-            const video::SColor ORDER_MARK(255, 255, 215, 40);
-            const video::SColor LCD_BG(255, 7, 10, 12);
-            const video::SColor LCD_EDGE(255, 64, 70, 78);
-            const video::SColor LCD_HEADER(255, 26, 34, 40);
-            const video::SColor DIGIT_WHITE(255, 236, 240, 244);
-            const video::SColor DIGIT_RED(255, 255, 80, 70);
-            const video::SColor DIGIT_GREEN(255, 70, 225, 110);
-            const video::SColor DIGIT_AMBER(255, 255, 190, 60);
-            const video::SColor NAV_LABEL(255, 110, 165, 180);
-            const video::SColor NAV_VALUE(255, 225, 235, 240);
+            //Palette: day (light dials, dark figures, LCD readouts), dusk (dark dials, white figures) and
+            //night (black dials, dim amber), switched with bridge::currentMode() - see applyPalette().
+            video::SColor PANEL_TOP, PANEL_BOTTOM, PANEL_EDGE_HI, PANEL_EDGE_LO, BEZEL_TOP, BEZEL_BOTTOM, BEZEL_INNER, FACE_CENTRE;
+            video::SColor FACE_EDGE, SCALE_WHITE, TEXT_TITLE, TEXT_DIM, NEEDLE, NEEDLE_SHADOW, HUB_OUTER, HUB_INNER;
+            video::SColor BAND_PORT, BAND_STBD, BAND_ASTERN, LUBBER, COG_MARK, ORDER_MARK, LCD_BG, LCD_EDGE;
+            video::SColor LCD_HEADER, DIGIT_WHITE, DIGIT_RED, DIGIT_GREEN, DIGIT_AMBER, NAV_LABEL, NAV_VALUE, HULL_MARK;
+            video::SColor WIND_BARB, SHIP_HULL, SHIP_HOUSE, SCREW_HI, SCREW_LO, SCREW_SLOT, STATUS_BG;
+
+            void applyPalette(int mode)
+            {
+                if (mode < 0 || mode > 2) { mode = bridge::MODE_DUSK; }
+                const u32 c[][3][3] = {
+                    { {227, 232, 238}, {28, 42, 60}, {15, 23, 34} }, //PANEL_TOP
+                    { {211, 218, 226}, {22, 33, 48}, {11, 17, 26} }, //PANEL_BOTTOM
+                    { {245, 247, 250}, {52, 70, 94}, {29, 40, 54} }, //PANEL_EDGE_HI
+                    { {160, 172, 186}, {8, 12, 18}, {3, 5, 8} }, //PANEL_EDGE_LO
+                    { {214, 220, 228}, {122, 134, 150}, {52, 58, 68} }, //BEZEL_TOP
+                    { {140, 150, 162}, {40, 48, 60}, {18, 22, 28} }, //BEZEL_BOTTOM
+                    { {110, 120, 132}, {10, 12, 16}, {4, 5, 7} }, //BEZEL_INNER
+                    { {252, 252, 253}, {32, 36, 44}, {12, 13, 15} }, //FACE_CENTRE
+                    { {230, 234, 239}, {8, 10, 14}, {2, 3, 4} }, //FACE_EDGE
+                    { {20, 26, 34}, {232, 235, 240}, {200, 140, 66} }, //SCALE_WHITE
+                    { {52, 62, 74}, {196, 202, 212}, {160, 116, 62} }, //TEXT_TITLE
+                    { {96, 108, 122}, {128, 138, 150}, {110, 82, 50} }, //TEXT_DIM
+                    { {224, 82, 0}, {255, 138, 0}, {230, 120, 20} }, //NEEDLE
+                    { {120, 128, 138}, {58, 61, 68}, {40, 36, 30} }, //HUB_OUTER
+                    { {40, 44, 50}, {20, 21, 24}, {10, 9, 8} }, //HUB_INNER
+                    { {210, 40, 40}, {205, 40, 40}, {150, 40, 32} }, //BAND_PORT
+                    { {30, 150, 70}, {40, 185, 70}, {40, 120, 60} }, //BAND_STBD
+                    { {200, 50, 45}, {190, 45, 45}, {140, 40, 32} }, //BAND_ASTERN
+                    { {210, 30, 25}, {235, 45, 35}, {180, 50, 30} }, //LUBBER
+                    { {0, 120, 210}, {70, 200, 255}, {70, 130, 160} }, //COG_MARK
+                    { {220, 150, 0}, {255, 215, 40}, {220, 160, 40} }, //ORDER_MARK
+                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3} }, //LCD_BG
+                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22} }, //LCD_EDGE
+                    { {170, 184, 164}, {26, 34, 40}, {18, 13, 8} }, //LCD_HEADER
+                    { {22, 28, 24}, {236, 240, 244}, {230, 160, 70} }, //DIGIT_WHITE
+                    { {170, 20, 20}, {255, 80, 70}, {200, 70, 50} }, //DIGIT_RED
+                    { {10, 110, 40}, {70, 225, 110}, {110, 170, 80} }, //DIGIT_GREEN
+                    { {22, 28, 24}, {255, 190, 60}, {240, 170, 70} }, //DIGIT_AMBER
+                    { {56, 78, 68}, {110, 165, 180}, {150, 110, 60} }, //NAV_LABEL
+                    { {20, 28, 24}, {225, 235, 240}, {210, 150, 80} }, //NAV_VALUE
+                    { {160, 168, 178}, {92, 99, 110}, {60, 52, 40} }, //HULL_MARK
+                    { {0, 110, 200}, {120, 210, 255}, {180, 130, 60} }, //WIND_BARB
+                    { {96, 104, 114}, {150, 158, 170}, {110, 90, 60} }, //SHIP_HULL
+                    { {62, 68, 76}, {205, 210, 218}, {150, 120, 80} }, //SHIP_HOUSE
+                    { {244, 246, 248}, {130, 138, 150}, {60, 62, 66} }, //SCREW_HI
+                    { {150, 158, 168}, {50, 56, 66}, {20, 22, 26} }, //SCREW_LO
+                    { {110, 118, 128}, {24, 28, 34}, {8, 9, 10} }, //SCREW_SLOT
+                    { {200, 207, 215}, {14, 22, 34}, {7, 11, 17} }, //STATUS_BG
+                };
+                video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG };
+                for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
+                    *target[i] = video::SColor(255, c[i][mode][0], c[i][mode][1], c[i][mode][2]);
+                }
+                NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
+            }
 
             inline video::SColor ghostOf(video::SColor c) { return video::SColor(20, c.getRed(), c.getGreen(), c.getBlue()); }
 
@@ -924,7 +949,7 @@ namespace irr
                 }
                 //Little ship outline at the centre, so "relative to the bow" needs no explaining.
                 const f32 hl = rf * 0.26f, hw = rf * 0.10f;
-                const video::SColor hull(255, 92, 99, 110);
+                const video::SColor hull = HULL_MARK;
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X + hw, c.Y - hl * 0.25f), core::vector2df(c.X + hw, c.Y + hl * 0.7f), hull);
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X + hw, c.Y + hl * 0.7f), core::vector2df(c.X - hw, c.Y + hl * 0.7f), hull);
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X - hw, c.Y + hl * 0.7f), core::vector2df(c.X - hw, c.Y - hl * 0.25f), hull);
@@ -965,7 +990,7 @@ namespace irr
             }
             else {
                 //Wind barb pointing at the bearing the wind comes from, with the tail towards the centre.
-                const video::SColor wc(255, 120, 210, 255);
+                const video::SColor wc = WIND_BARB;
                 const core::vector2df tip = panelPolar(c, rf * 0.92f, rel);
                 const core::vector2df base = panelPolar(c, rf * 0.50f, rel);
                 batch.line(base, tip, core::max_(2.0f, rf * 0.045f), wc);
@@ -1158,9 +1183,9 @@ namespace irr
                 const f32 hull[] = { 0.0f, -0.02f,  -0.40f, 0.02f,  -0.36f, -0.08f,  0.24f, -0.09f,  0.42f, 0.06f,  0.36f, 0.03f };
                 const f32 house[] = { -0.20f, 0.02f,  -0.31f, 0.02f,  -0.31f, 0.12f,  -0.09f, 0.12f,  -0.09f, 0.02f };
                 const f32 bridge[] = { -0.18f, 0.12f,  -0.28f, 0.12f,  -0.28f, 0.17f,  -0.11f, 0.17f,  -0.11f, 0.12f };
-                drawShape(o, hull, 6, rf * 0.85f, ang, video::SColor(255, 150, 158, 170));
-                drawShape(o, house, 5, rf * 0.85f, ang, video::SColor(255, 205, 210, 218));
-                drawShape(o, bridge, 5, rf * 0.85f, ang, video::SColor(255, 205, 210, 218));
+                drawShape(o, hull, 6, rf * 0.85f, ang, SHIP_HULL);
+                drawShape(o, house, 5, rf * 0.85f, ang, SHIP_HOUSE);
+                drawShape(o, bridge, 5, rf * 0.85f, ang, SHIP_HOUSE);
 
                 const f32 p = dh * 0.28f;
                 batch.rect(core::rect<f32>(c.X - dw * 0.5f - p - 1, wy - p - 1, c.X + dw * 0.5f + p + 1, wy + dh + p + 1), LCD_EDGE);
@@ -1254,6 +1279,13 @@ namespace irr
         {
             if (!IsVisible) { return; }
 
+            //Day, dusk or night colours, whichever the bridge is in
+            static int paletteShown = -1;
+            if (paletteShown != bridge::currentMode()) {
+                paletteShown = bridge::currentMode();
+                applyPalette(paletteShown);
+            }
+
             video::IVideoDriver* driver = Environment->getVideoDriver();
             IGUISkin* skin = Environment->getSkin();
             IGUIFont* font = overrideFont ? overrideFont : (skin ? skin->getFont() : 0);
@@ -1274,15 +1306,15 @@ namespace irr
                     core::vector2df(r.UpperLeftCorner.X + in, r.UpperLeftCorner.Y + in), core::vector2df(r.LowerRightCorner.X - in, r.UpperLeftCorner.Y + in),
                     core::vector2df(r.UpperLeftCorner.X + in, r.LowerRightCorner.Y - in), core::vector2df(r.LowerRightCorner.X - in, r.LowerRightCorner.Y - in) };
                 for (int i = 0; i < 4; i++) {
-                    batch.disc(screws[i], sr, video::SColor(255, 150, 155, 162), video::SColor(255, 70, 74, 80));
-                    batch.line(screws[i] - core::vector2df(sr * 0.6f, sr * 0.6f), screws[i] + core::vector2df(sr * 0.6f, sr * 0.6f), core::max_(1.0f, sr * 0.3f), video::SColor(255, 40, 42, 46));
+                    batch.disc(screws[i], sr, SCREW_HI, SCREW_LO);
+                    batch.line(screws[i] - core::vector2df(sr * 0.6f, sr * 0.6f), screws[i] + core::vector2df(sr * 0.6f, sr * 0.6f), core::max_(1.0f, sr * 0.3f), SCREW_SLOT);
                 }
                 //Recess behind the status column
                 if (statusRect.getWidth() > 0) {
                     const f32 m = (f32)r.getHeight() * 0.02f;
                     const core::rect<f32> sr2((f32)statusRect.UpperLeftCorner.X - m, (f32)statusRect.UpperLeftCorner.Y - m, (f32)statusRect.LowerRightCorner.X + m, (f32)statusRect.LowerRightCorner.Y + m);
                     batch.rect(core::rect<f32>(sr2.UpperLeftCorner.X - 1, sr2.UpperLeftCorner.Y - 1, sr2.LowerRightCorner.X + 1, sr2.LowerRightCorner.Y + 1), PANEL_EDGE_LO);
-                    batch.rect(sr2, video::SColor(255, 34, 37, 43));
+                    batch.rect(sr2, STATUS_BG);
                 }
             }
             for (size_t i = 0; i < slots.size(); i++) {

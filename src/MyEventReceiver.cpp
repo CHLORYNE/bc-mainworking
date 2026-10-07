@@ -654,6 +654,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 model->setBadWeatherPreset();
             }
 
+            //Command bar: day / dusk / night / auto colours
+            if (id >= GUIMain::GUI_ID_PALETTE_DAY && id <= GUIMain::GUI_ID_PALETTE_AUTO)
+            {
+                gui->setPaletteChoice(id == GUIMain::GUI_ID_PALETTE_AUTO ? -1 : (int)(id - GUIMain::GUI_ID_PALETTE_DAY));
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+
             //Which screens and gauges of the own ship glow at night
             if (id == GUIMain::GUI_ID_INSTR_EDIT_BUTTON)
             {

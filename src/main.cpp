@@ -1159,7 +1159,7 @@ int main(int argc, char** argv)
     graphicsWidth = su;
     graphicsHeight = sh;
     irr::u32 graphicsWidth3d = su;
-    irr::u32 graphicsHeight3d = sh * VIEW_PROPORTION_3D;
+    irr::u32 graphicsHeight3d = sh * viewProportion3D();
     irr::f32 aspect = (irr::f32)su / (irr::f32)sh;
     irr::f32 aspect3d = (irr::f32)graphicsWidth3d / (irr::f32)graphicsHeight3d;
 
@@ -1498,6 +1498,9 @@ int main(int argc, char** argv)
                                IniFile::iniFileTou32(iniFilename, "show_size_tool", 1) == 1,
                                IniFile::iniFileTou32(iniFilename, "show_instrument_tool", 1) == 1);
     guiMain.load(device, &language, &logMessages, &model, model.isSingleEngine(), model.isAzimuthDrive(), hideEngineAndRudder, model.hasDepthSounder(), model.getMaxSounderDepth(), model.hasGPS(), showTideHeight, model.hasBowThruster(), model.hasSternThruster(), model.hasTurnIndicator(), showCollided, vr3dMode);
+    //The console layout decides how much of the screen the 3D view gets (GUIMain::load)
+    graphicsHeight3d = sh * viewProportion3D();
+    aspect3d = (irr::f32)graphicsWidth3d / (irr::f32)graphicsHeight3d;
 
     //Give the network class a pointer to the model
     network->setModel(&model);
