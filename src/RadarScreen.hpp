@@ -40,6 +40,7 @@ public:
     void update(irr::video::IImage* radarImage);
     irr::scene::ISceneNode* getSceneNode() const;
     void setDisplayOffset(irr::f32 x, irr::f32 y);
+    void rescale(irr::f32 factor); //the ship was resized live: keep the screen where it was on her
 
 private:
     irr::video::IVideoDriver* driver;

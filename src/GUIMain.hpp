@@ -350,6 +350,10 @@ public:
     void setLightEditorStatus(const std::wstring& text, bool isError);
     //The "Taille et flottaison" window
     void openSizeEditor(int vessel);
+    int getSizeVessel() const;     //ship picked in the Taille tab: -1 = own ship, 0.. = other ship
+    //bc5.ini show_colreg_tab / show_size_tool: hide the Feux and Taille tabs from trainees.
+    //Called before load().
+    void setInstructorTools(bool colregTab, bool sizeTool);
     void closeSizeEditor();
     void refreshSizeEditor();
     void setSizeEditorStatus(const std::wstring& text, bool isError);
@@ -713,6 +717,9 @@ private:
     int lightEditRevision = -1;
     //Size and waterline window
     irr::gui::IGUIWindow* sizeEditWindow = 0;
+    irr::gui::IGUIComboBox* sizeVesselBox = 0;
+    bool showColregTab = true;
+    bool showSizeTool = true;
     irr::gui::IGUIStaticText* sizeEditReadout = 0;
     irr::gui::IGUIEditBox* sizeEditLengthBox = 0;
     irr::gui::IGUIEditBox* sizeEditDraughtBox = 0;

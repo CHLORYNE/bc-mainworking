@@ -1493,6 +1493,9 @@ int main(int argc, char** argv)
     }
 
     loadingScreen.setStage(0.86f, "Interface et instruments");
+    //Instructor tools: 0 in bc5.ini hides them from trainees
+    guiMain.setInstructorTools(IniFile::iniFileTou32(iniFilename, "show_colreg_tab", 1) == 1,
+                               IniFile::iniFileTou32(iniFilename, "show_size_tool", 1) == 1);
     guiMain.load(device, &language, &logMessages, &model, model.isSingleEngine(), model.isAzimuthDrive(), hideEngineAndRudder, model.hasDepthSounder(), model.getMaxSounderDepth(), model.hasGPS(), showTideHeight, model.hasBowThruster(), model.hasSternThruster(), model.hasTurnIndicator(), showCollided, vr3dMode);
 
     //Give the network class a pointer to the model

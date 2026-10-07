@@ -27,7 +27,7 @@
 
 RadarScreen::RadarScreen()
 {
-
+    radarScreen = 0;
 }
 
 RadarScreen::~RadarScreen()
@@ -55,6 +55,13 @@ void RadarScreen::setRadarDisplayRadius(irr::u32 radiusPx)
     radarRadiusPx = radiusPx;
 }
 void RadarScreen::setDisplayOffset(irr::f32 x, irr::f32 y) { displayOffsetX = x; displayOffsetY = y; }
+
+void RadarScreen::rescale(irr::f32 factor)
+{
+    if (factor <= 0.0f) { return; }
+    offset *= factor;
+    if (radarScreen) { radarScreen->setScale(radarScreen->getScale() * factor); }
+}
 void RadarScreen::update(irr::video::IImage* radarImage)
 {
 #ifdef WITH_PROFILING

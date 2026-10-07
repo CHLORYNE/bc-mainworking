@@ -139,6 +139,8 @@ public:
     irr::core::vector3df getStbdEngineControlPosition() const;
     irr::core::vector3df getWheelControlPosition() const;
     irr::f32 getWheelControlScale() const;
+    irr::f32 getThrottleScale() const;  //ThrottleScale in boat.ini (default 1): size of the levers
+    irr::f32 getLoadScaleFactor() const; //ScaleFactor as loaded, before any live resize
     bool isSingleEngine() const;
     bool isAzimuthDrive() const;
     bool isAzimuthAsternAllowed() const;
@@ -202,8 +204,8 @@ public:
 
     irr::f32 getShipMass() const;
     irr::f32 getScaleFactor() const;
-    //Live preview of a new size / waterline. Only the hull, its lamps and the hull
-    //mask follow; views, radar screen and physics are set up at load (restart the scenario).
+    //Live change of size / waterline: hull, lamps, hull mask, views and radar screen follow.
+    //Her handling (mass, inertia, drag) is set up at load: restart the scenario for that.
     irr::f32 getModelYCorrection() const;
     void setModelSize(irr::f32 newScale, irr::f32 newYCorrection);
 
@@ -419,6 +421,8 @@ private:
     irr::core::vector3df stbdThrottlePosition;
     irr::core::vector3df wheelControlPosition;
     irr::f32 wheelControlScale;
+    irr::f32 throttleScale;
+    irr::f32 loadScaleFactor;
 
     bool buoyCollision;
     bool otherShipCollision;

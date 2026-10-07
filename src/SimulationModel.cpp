@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <sstream> //Numbers written to boat.ini
 #include <locale>
+#include <utility>
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
 #else
@@ -408,14 +409,14 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     if (loadingScreen) { loadingScreen->setStage(0.82f, "Commandes de la passerelle"); } //KYARA CHARGEMENT
     //Set up 3d engine/wheel controls/visualisation
     if (isAzimuthDrive()) {
-        portEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getPortEngineControlPosition(), 1.0 / ownShip.getScaleFactor(), 1, 2); // 2=schottel base
-        stbdEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getStbdEngineControlPosition(), 1.0 / ownShip.getScaleFactor(), 1, 2);
+        portEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getPortEngineControlPosition(), ownShip.getThrottleScale() / ownShip.getScaleFactor(), 1, 2); // 2=schottel base
+        stbdEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getStbdEngineControlPosition(), ownShip.getThrottleScale() / ownShip.getScaleFactor(), 1, 2);
         portAzimuthThrottleVisual.load(smgr, portEngineVisual.getSceneNode(), irr::core::vector3df(0, 0, 0), 1.0, 0, 3); // 3 = schottel lever
         stbdAzimuthThrottleVisual.load(smgr, stbdEngineVisual.getSceneNode(), irr::core::vector3df(0, 0, 0), 1.0, 0, 3);
     }
     else {
-        portEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getPortEngineControlPosition(), 1.0 / ownShip.getScaleFactor(), 0, 0); // 0 = regular throttle
-        stbdEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getStbdEngineControlPosition(), 1.0 / ownShip.getScaleFactor(), 0, 0);
+        portEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getPortEngineControlPosition(), ownShip.getThrottleScale() / ownShip.getScaleFactor(), 0, 0); // 0 = regular throttle
+        stbdEngineVisual.load(smgr, ownShip.getSceneNode(), ownShip.getStbdEngineControlPosition(), ownShip.getThrottleScale() / ownShip.getScaleFactor(), 0, 0);
         wheelVisual.load(smgr, ownShip.getSceneNode(), ownShip.getWheelControlPosition(), ownShip.getWheelControlScale() / ownShip.getScaleFactor(), 2, 1); // 1 = wheel
     }
 
@@ -1152,9 +1153,10 @@ namespace
         return k;
     }
 
-    //Rewrites the ScaleFactor and YCorrection lines of a boat.ini and leaves every other line as
-    //it was. Keeps boat.ini.bak (the file as it first was) and boat.ini.prev (before this save).
-    bool writeSizeToBoatIni(const std::string& path, irr::f32 scale, irr::f32 yCorrection, std::wstring& message)
+    //Rewrites the given keys of a boat.ini (ScaleFactor, YCorrection...) and leaves every other line
+    //as it was. Keeps boat.ini.bak (the file as it first was) and boat.ini.prev (before this save).
+    bool writeSizeToBoatIni(const std::string& path, const std::vector<std::pair<std::string, irr::f32> >& values,
+        std::wstring& message)
     {
         const std::wstring wpath(path.begin(), path.end());
         std::ifstream in(path.c_str(), std::ios::binary);
@@ -1181,20 +1183,22 @@ namespace
         const bool endsWithNewline = !lines.empty() && lines.back().empty();
         if (endsWithNewline) { lines.pop_back(); }
 
-        const std::string scaleLine = "ScaleFactor=" + iniNumber(scale);
-        const std::string yLine = "YCorrection=" + iniNumber(yCorrection);
-        bool haveScale = false, haveY = false;
         int fileNameLine = -1;
         for (size_t i = 0; i < lines.size(); i++) {
-            const std::string k = iniKeyOf(lines[i]);
-            //Every copy is rewritten: the reader takes the last one, a person reads the first
-            if (k == "scalefactor") { lines[i] = scaleLine; haveScale = true; }
-            else if (k == "ycorrection") { lines[i] = yLine; haveY = true; }
-            else if (k == "filename" && fileNameLine < 0) { fileNameLine = (int)i; }
+            if (iniKeyOf(lines[i]) == "filename") { fileNameLine = (int)i; break; }
         }
         std::vector<std::string> extra;
-        if (!haveScale) { extra.push_back(scaleLine); }
-        if (!haveY) { extra.push_back(yLine); }
+        for (size_t v = 0; v < values.size(); v++) {
+            const std::string newLine = values[v].first + "=" + iniNumber(values[v].second);
+            std::string wanted = values[v].first;
+            for (size_t c = 0; c < wanted.size(); c++) { wanted[c] = (char)std::tolower((unsigned char)wanted[c]); }
+            bool found = false;
+            for (size_t i = 0; i < lines.size(); i++) {
+                //Every copy is rewritten: the reader takes the last one, a person reads the first
+                if (iniKeyOf(lines[i]) == wanted) { lines[i] = newLine; found = true; }
+            }
+            if (!found) { extra.push_back(newLine); }
+        }
         lines.insert(lines.begin() + (fileNameLine + 1), extra.begin(), extra.end());
 
         std::string out = hasBom ? bom : "";
@@ -1270,7 +1274,19 @@ void SimulationModel::applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorr
         if (grow > 1.3f || grow < 0.77f) { camera.orbitBy(0.0f, 0.0f, grow); }
     }
     if (vessel < 0) {
+        const irr::f32 oldScale = ownShip.getScaleFactor();
         ownShip.setModelSize(scale, yCorrection);
+        //What was placed in metres at load follows her: the views, the radar screen and its camera.
+        //Wheel and levers hang on her node, so they grow with her bridge by themselves (saving
+        //writes WheelScale / ThrottleScale to match, so a restart gives the same picture).
+        if (oldScale > 0.000001f) {
+            const irr::f32 factor = scale / oldScale;
+            camera.scaleViews(factor);
+            radarCamera.scaleViews(factor);
+            radarCamera.setNearValue(0.8f * 0.5f * ownShip.getScreenDisplaySize());
+            radarCamera.setFarValue(1.2f * 0.5f * ownShip.getScreenDisplaySize());
+            radarScreen.rescale(factor);
+        }
     }
     else {
         OtherShip* ship = otherShips.getShip(vessel);
@@ -1374,7 +1390,17 @@ bool SimulationModel::sizeEditSave(std::wstring& message)
         message = L"Aucun navire en cours de r\u00E9glage.";
         return false;
     }
-    const bool ok = writeSizeToBoatIni(size.iniFile, size.scale, size.yCorrection, message);
+    std::vector<std::pair<std::string, irr::f32> > values;
+    values.push_back(std::make_pair(std::string("ScaleFactor"), size.scale));
+    values.push_back(std::make_pair(std::string("YCorrection"), size.yCorrection));
+    //Own ship: her wheel and levers grew with her bridge; keep them that size after a restart
+    if (sizeEditVessel < 0 && ownShip.getLoadScaleFactor() > 0.000001f &&
+        fabs(size.scale - ownShip.getLoadScaleFactor()) > 0.000001f * ownShip.getLoadScaleFactor()) {
+        const irr::f32 grown = size.scale / ownShip.getLoadScaleFactor();
+        values.push_back(std::make_pair(std::string("WheelScale"), ownShip.getWheelControlScale() * grown));
+        values.push_back(std::make_pair(std::string("ThrottleScale"), ownShip.getThrottleScale() * grown));
+    }
+    const bool ok = writeSizeToBoatIni(size.iniFile, values, message);
     device->getLogger()->log(ok ? ("Size editor: saved " + size.iniFile).c_str() : "Size editor: SAVE FAILED");
     return ok;
 }

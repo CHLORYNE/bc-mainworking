@@ -61,6 +61,7 @@ class Camera
         void setView(irr::u32 view);
         irr::u32 getView() const;
         irr::u32 getViewCount() const; //views from boat.ini
+        void scaleViews(irr::f32 factor); //the ship was resized live: every view moves with her
         void setNearValue(irr::f32 zn);
         void setFarValue(irr::f32 zf);
         void setFrozen(bool frozen);

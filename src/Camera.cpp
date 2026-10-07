@@ -603,3 +603,9 @@ irr::core::line3df Camera::getPickRay(irr::f32 ndcX, irr::f32 ndcY, irr::f32 col
     irr::f32 rayLength = 20000.0f;
     return irr::core::line3df(origin, origin + dir * rayLength);
 }
+
+void Camera::scaleViews(irr::f32 factor)
+{
+    if (factor <= 0.0f) { return; }
+    for (size_t i = 0; i < views.size(); i++) { views[i] *= factor; }
+}

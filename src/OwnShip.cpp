@@ -201,6 +201,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     scaleFactor = IniFile::iniFileTof32(shipIniFilename, "ScaleFactor");
     irr::f32 yCorrection = IniFile::iniFileTof32(shipIniFilename, "YCorrection");
     modelYCorrection = yCorrection;
+    loadScaleFactor = scaleFactor;
     angleCorrection = IniFile::iniFileTof32(shipIniFilename, "AngleCorrection");
     // DEE_DEC22 vvvv
     angleCorrectionRoll = 0;  // default value
@@ -284,6 +285,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     wheelControlPosition.Y = IniFile::iniFileTof32(shipIniFilename, "WheelY", -999);
     wheelControlPosition.Z = IniFile::iniFileTof32(shipIniFilename, "WheelZ", -999);
     wheelControlScale = IniFile::iniFileTof32(shipIniFilename, "WheelScale", 1);
+    throttleScale = IniFile::iniFileTof32(shipIniFilename, "ThrottleScale", 1);
 
     // Kyara FIRE: optional fire-monitor mount point (raw model units, same space as WheelX/Y/Z).
     // If absent, SimulationModel falls back to a bounding-box estimate. Not scaled here - it's used
@@ -1522,6 +1524,16 @@ irr::core::vector3df OwnShip::getWheelControlPosition() const
     return wheelControlPosition;
 }
 
+irr::f32 OwnShip::getThrottleScale() const
+{
+    return throttleScale;
+}
+
+irr::f32 OwnShip::getLoadScaleFactor() const
+{
+    return loadScaleFactor;
+}
+
 irr::f32 OwnShip::getWheelControlScale() const
 {
     return wheelControlScale;
@@ -1837,6 +1849,11 @@ void OwnShip::setModelSize(irr::f32 newScale, irr::f32 newYCorrection)
 {
     if (!ship || newScale <= 0.000001f || scaleFactor <= 0.000001f) { return; }
     const irr::f32 oldHeightCorrection = heightCorrection;
+    //Views and the radar screen are held in metres (ini value x ScaleFactor), so they move with her
+    const irr::f32 factor = newScale / scaleFactor;
+    for (size_t i = 0; i < views.size(); i++) { views[i] *= factor; }
+    screenDisplayPosition *= factor;
+    screenDisplaySize *= factor;
     scaleFactor = newScale;
     modelYCorrection = newYCorrection;
     heightCorrection = newYCorrection * newScale; //update() places her with this every frame

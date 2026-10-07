@@ -625,10 +625,10 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 model->setBadWeatherPreset();
             }
 
-            //Size and waterline of the vessel picked in the Feux tab
+            //Size and waterline of the vessel picked in the Taille tab
             if (id == GUIMain::GUI_ID_SIZE_EDIT_BUTTON)
             {
-                const int vessel = gui->getLightsVessel();
+                const int vessel = gui->getSizeVessel();
                 if (model->beginSizeEdit(vessel)) {
                     gui->openSizeEditor(vessel);
                 }
@@ -648,7 +648,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                     std::wstring msg;
                     const bool ok = model->sizeEditSave(msg);
                     if (ok && model->getSizeEditVessel() < 0) {
-                        msg += L"\nRelancez le sc\u00E9nario pour la passerelle, le radar et la physique.";
+                        msg += L"\nSa man\u0153uvrabilit\u00E9 suit au prochain lancement du sc\u00E9nario.";
                     }
                     gui->setSizeEditorStatus(msg, !ok);
                     break;

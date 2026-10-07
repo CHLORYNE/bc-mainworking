@@ -1008,7 +1008,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // Rows 1..4  : 8 situations (2 cols)                | 7 lamps to hide + "Retablir" (2 cols)
     // Row 5      : deck lights
     // Row 6      : what the rules want her to show right now
-    {
+    // Hidden from trainees with show_colreg_tab=0 in bc5.ini.
+    if (showColregTab) {
         irr::gui::IGUITab* tabFeux = extraControlsTabControl->addTab(L"Feux");
 
         const irr::s32 cA0 = (irr::s32)(tabW * 0.020f), cA1 = (irr::s32)(tabW * 0.285f);
@@ -1076,10 +1077,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
         guienv->addButton(cell(6, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
             L"Placer les feux", L"Placer les feux de ce navire \u00E0 la main et les enregistrer dans son boat.ini");
-        //The same vessel's size and waterline
-        guienv->addButton(cell(5, cC0, cD1), tabFeux, GUI_ID_SIZE_EDIT_BUTTON,
-            L"Taille et flottaison",
-            L"R\u00E9gler la longueur et la ligne de flottaison de ce navire en direct, puis les enregistrer dans son boat.ini");
     }
 #endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays
 
@@ -1123,6 +1120,49 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         interiorStatusText = guienv->addStaticText(L"",
             irr::core::rect<irr::s32>(labelX0, rowY(2), valueX1, rowY(4) + rowH), false, true, tabBord);
         interiorStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
+    }
+
+    //=== Taille tab: size and waterline of any vessel, saved to her boat.ini =====================
+    // Hidden from trainees with show_size_tool=0 in bc5.ini.
+    if (showSizeTool) {
+        irr::gui::IGUITab* tabTaille = extraControlsTabControl->addTab(L"Taille");
+        auto rowY = [&](int r) -> irr::s32 { return row0Y + r * rowPitch; };
+        const irr::s32 x0 = (irr::s32)(tabW * 0.020f);
+        const irr::s32 comboX0 = x0 + (irr::s32)(tabW * 0.090f);
+        const irr::s32 x1 = (irr::s32)(tabW * 0.560f);
+        const irr::s32 xEnd = (irr::s32)(tabW * 0.985f);
+
+        //Row 0: which vessel - own ship first, then the scenario's other ships in file order
+        irr::gui::IGUIStaticText* vesselLab = guienv->addStaticText(L"Navire :",
+            irr::core::rect<irr::s32>(x0, rowY(0), comboX0, rowY(0) + rowH), false, false, tabTaille);
+        vesselLab->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        sizeVesselBox = guienv->addComboBox(
+            irr::core::rect<irr::s32>(comboX0, rowY(0), x1, rowY(0) + rowH), tabTaille);
+        sizeVesselBox->addItem(L"Navire propre");
+        if (model) {
+            for (irr::u32 i = 0; i < model->getNumberOfOtherShips(); i++) {
+                irr::core::stringw item(i + 1);
+                item += L" - ";
+                item += irr::core::stringw(model->getOtherShipName((int)i).c_str());
+                sizeVesselBox->addItem(item.c_str());
+            }
+        }
+        sizeVesselBox->setSelected(0);
+
+        //Row 1: into the tool
+        guienv->addButton(irr::core::rect<irr::s32>(x0, rowY(1), x1, rowY(1) + rowH), tabTaille,
+            GUI_ID_SIZE_EDIT_BUTTON, L"Taille et flottaison",
+            L"R\u00E9gler la longueur et la ligne de flottaison de ce navire en direct, puis les enregistrer dans son boat.ini");
+
+        //Rows 2..5: what it does
+        irr::gui::IGUIStaticText* help = guienv->addStaticText(
+            L"Choisir un navire, puis \u00AB Taille et flottaison \u00BB : sa longueur et sa ligne de flottaison "
+            L"changent en direct, et \u00AB Enregistrer \u00BB les \u00E9crit dans son boat.ini.\n"
+            L"Les navires du sc\u00E9nario qui utilisent le m\u00EAme boat.ini changent ensemble.\n"
+            L"Navire propre : vues, radar et commandes suivent tout de suite ; sa man\u0153uvrabilit\u00E9 "
+            L"(masse, inertie) suit au prochain lancement du sc\u00E9nario.",
+            irr::core::rect<irr::s32>(x0, rowY(2), xEnd, rowY(5) + rowH), false, true, tabTaille);
+        help->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
     }
 
     refreshLightsTab();
@@ -4534,8 +4574,8 @@ void GUIMain::openSizeEditor(int vessel)
         false, true, sizeEditWindow);
     cy += statusH + pad;
     if (vessel < 0) {
-        sizeEditStatus->setText(L"Navire propre : la coque suit en direct. Apr\u00E8s l'enregistrement, "
-            L"relancez le sc\u00E9nario pour que la passerelle, le radar et la physique suivent aussi.");
+        sizeEditStatus->setText(L"Navire propre : coque, vues, radar et commandes suivent en direct. "
+            L"Sa man\u0153uvrabilit\u00E9 (masse, inertie) suit au prochain lancement du sc\u00E9nario.");
     }
     else {
         sizeEditStatus->setText(L"Non enregistr\u00E9.");
@@ -4551,6 +4591,18 @@ void GUIMain::openSizeEditor(int vessel)
 
     sizeEditShownRevision = -1; //fill the boxes on the first refresh
     refreshSizeEditor();
+}
+
+int GUIMain::getSizeVessel() const
+{
+    if (!sizeVesselBox) { return -1; }
+    return sizeVesselBox->getSelected() - 1; //item 0 is the own ship
+}
+
+void GUIMain::setInstructorTools(bool colregTab, bool sizeTool)
+{
+    showColregTab = colregTab;
+    showSizeTool = sizeTool;
 }
 
 void GUIMain::closeSizeEditor()
