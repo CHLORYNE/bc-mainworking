@@ -73,6 +73,8 @@ struct GUIData {
     irr::f32 visibility;
     irr::f32 windDirection;
     irr::f32 windSpeed;
+    irr::f32 windDirectionNow = 0;   //with the swings of the wind (wind dial)
+    irr::f32 windSpeedNow = 0;       //with the gusts (wind dial)
     irr::f32 streamDirection;
     irr::f32 streamSpeed;
     irr::gui::IGUIScrollBar* magSlider;
@@ -328,6 +330,7 @@ public:
         GUI_ID_PALETTE_DIGITAL,
         GUI_ID_PALETTE_AUTO,
         GUI_ID_GLOW_SCROLL_BAR,
+        GUI_ID_WEATHER_BUTTON,
 
     };
 
@@ -380,6 +383,8 @@ public:
     bool getSideScreensFree() const { return sideScreensFree; }
     //Glow of the lit instruments, 0..100 (50 = normal)
     void setGlowLevel(int level);
+    //The weather window (METEO): opens or closes it
+    void toggleWeatherPanel();
     //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
     void openInstrumentEditor();
     void closeInstrumentEditor();
@@ -765,6 +770,9 @@ private:
     static const int PALETTE_KEYS = 5;
     irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, AUTO
     irr::gui::IGUIScrollBar* glowScrollbar = 0;             //LUEUR
+    irr::gui::IGUIButton* weatherButton = 0;                //METEO
+    class WeatherPanel* weatherPanel = 0;
+    void placeWeatherPanel();
     void layoutCommandBar();
     void applyPaletteMode(int mode);
     irr::gui::IGUIWindow* instrEditWindow = 0;

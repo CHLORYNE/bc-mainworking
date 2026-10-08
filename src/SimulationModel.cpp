@@ -258,6 +258,13 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
 
     windDirection = scenarioData.windDirection;
     windSpeed = scenarioData.windSpeed;
+    windDirectionNow = windDirection;
+    windSpeedNow = windSpeed;
+    //The current override (Wind & Current tab) starts off: these were never set, so they held
+    //whatever was in memory - a phantom current, or a direction so large the GUI hung on it.
+    streamOverride = false;
+    streamOverrideDirection = 0;
+    streamOverrideSpeed = 0;
 
     //std::cout << "Wind direction: " << windDirection << " Wind speed: " << windSpeed << std::endl;
 
@@ -405,6 +412,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
 
     //Load rain
     rain.load(smgr, camera.getSceneNode(), device);
+    snow.load(smgr);
 
     if (loadingScreen) { loadingScreen->setStage(0.82f, "Commandes de la passerelle"); } //KYARA CHARGEMENT
     //Set up 3d engine/wheel controls/visualisation
@@ -2027,6 +2035,7 @@ irr::f32 SimulationModel::getAccelerator() const
 
 void SimulationModel::setWeather(irr::f32 weather)
 {
+    stopWeatherChanges();
     //KYARA METEO: capped here so the slider, the scenario file and the network all obey it
     if (weather < 0.0f) { weather = 0.0f; }
     if (weather > SIM_MAX_WEATHER) { weather = SIM_MAX_WEATHER; }
@@ -2040,6 +2049,7 @@ irr::f32 SimulationModel::getWeather() const
 
 void SimulationModel::setRain(irr::f32 rainIntensity)
 {
+    stopWeatherChanges();
     this->rainIntensity = rainIntensity;
 }
 
@@ -2050,6 +2060,7 @@ irr::f32 SimulationModel::getRain() const
 
 void SimulationModel::setVisibility(irr::f32 visibilityNm)
 {
+    stopWeatherChanges();
     this->visibilityRange = visibilityNm;
 }
 
@@ -2060,22 +2071,238 @@ irr::f32 SimulationModel::getVisibility() const
 
 void SimulationModel::setWindDirection(irr::f32 windDirection) //Range 0-360.
 {
+    stopWeatherChanges();
     this->windDirection = windDirection;
+    windDirectionNow = windDirection;
 }
 
 irr::f32 SimulationModel::getWindDirection() const
 {
-    return windDirection;
+    return windDirectionNow;
 }
 
 void SimulationModel::setWindSpeed(irr::f32 windSpeed) //Nm/h
 {
+    stopWeatherChanges();
     this->windSpeed = windSpeed;
+    windSpeedNow = windSpeed;
 }
 
 irr::f32 SimulationModel::getWindSpeed() const
 {
-    return windSpeed;
+    return windSpeedNow;
+}
+
+irr::f32 SimulationModel::getWindSpeedBase() const { return windSpeed; }
+irr::f32 SimulationModel::getWindDirectionBase() const { return windDirection; }
+
+//---------------------------------------------------------------------------------------------------
+//WEATHER WINDOW (METEO)
+//---------------------------------------------------------------------------------------------------
+
+SimulationModel::WeatherState SimulationModel::getWeatherState() const
+{
+    WeatherState s;
+    s.cloud = cloudCover;
+    s.windKn = windSpeed;
+    s.windDir = windDirection;
+    s.windVariation = windVariation;
+    s.gustKn = windGust;
+    s.visibilityNm = visibilityRange;
+    s.rain = rainIntensity;
+    s.snow = snowIntensity;
+    s.dust = dustLevel;
+    s.sea = weather;
+    return s;
+}
+
+void SimulationModel::applyWeatherState(const WeatherState& s)
+{
+    cloudCover = irr::core::clamp(s.cloud, 0.0f, 1.0f);
+    windSpeed = irr::core::max_(0.0f, s.windKn);
+    windDirection = fmodf(s.windDir + 360.0f, 360.0f);
+    windVariation = irr::core::clamp(s.windVariation, 0.0f, 180.0f);
+    windGust = irr::core::max_(0.0f, s.gustKn);
+    visibilityRange = irr::core::max_(0.01f, s.visibilityNm);
+    rainIntensity = irr::core::clamp(s.rain, 0.0f, 10.0f);
+    snowIntensity = irr::core::clamp(s.snow, 0.0f, 1.0f);
+    dustLevel = irr::core::clamp(s.dust, 0.0f, 1.0f);
+    weather = irr::core::clamp(s.sea, 0.0f, (irr::f32)SIM_MAX_WEATHER);
+}
+
+void SimulationModel::stopWeatherChanges()
+{
+    weatherChange.active = false;
+    weatherFront = 0;
+    weatherFrontPhase = 0;
+}
+
+void SimulationModel::setWeatherState(const WeatherState& state, irr::f32 seconds)
+{
+    stopWeatherChanges();
+    if (seconds <= 0.5f) {
+        applyWeatherState(state);
+        return;
+    }
+    weatherChange.active = true;
+    weatherChange.from = getWeatherState();
+    weatherChange.to = state;
+    weatherChange.time = 0.0f;
+    weatherChange.duration = seconds;
+}
+
+bool SimulationModel::isWeatherChanging() const { return weatherChange.active || weatherFront != 0; }
+
+irr::f32 SimulationModel::getWeatherChangeProgress() const
+{
+    if (weatherFront != 0) { return getWeatherFrontProgress(); }
+    if (!weatherChange.active || weatherChange.duration <= 0.0f) { return 1.0f; }
+    return irr::core::clamp(weatherChange.time / weatherChange.duration, 0.0f, 1.0f);
+}
+
+void SimulationModel::setCloudCover(irr::f32 cover) { stopWeatherChanges(); cloudCover = irr::core::clamp(cover, 0.0f, 1.0f); }
+irr::f32 SimulationModel::getCloudCover() const { return cloudCover; }
+void SimulationModel::setSnow(irr::f32 s) { stopWeatherChanges(); snowIntensity = irr::core::clamp(s, 0.0f, 1.0f); }
+irr::f32 SimulationModel::getSnow() const { return snowIntensity; }
+void SimulationModel::setDust(irr::f32 d) { stopWeatherChanges(); dustLevel = irr::core::clamp(d, 0.0f, 1.0f); }
+irr::f32 SimulationModel::getDust() const { return dustLevel; }
+void SimulationModel::setWindGust(irr::f32 knots) { stopWeatherChanges(); windGust = irr::core::max_(0.0f, knots); }
+irr::f32 SimulationModel::getWindGust() const { return windGust; }
+void SimulationModel::setWindVariation(irr::f32 deg) { stopWeatherChanges(); windVariation = irr::core::clamp(deg, 0.0f, 180.0f); }
+irr::f32 SimulationModel::getWindVariation() const { return windVariation; }
+
+void SimulationModel::setSignificantWeather(int mode)
+{
+    significantWeather = irr::core::clamp(mode, 0, 3);
+    if (significantWeather == 2) { thunderEnabled = true; lightningEnabled = true; } //a thunderstorm is heard and seen
+}
+int SimulationModel::getSignificantWeather() const { return significantWeather; }
+
+//The front: the weather worsens over 'span' (wind up and veering, gusts, cloud, rain, poor
+//visibility, a rougher sea), stays a while, then clears back to what it was over 'span' again.
+namespace
+{
+    irr::f32 frontSpan(int mode) { return mode == 1 ? 25.0f * 60.0f : 8.0f * 60.0f; } //each way, seconds
+    irr::f32 smooth01(irr::f32 x)
+    {
+        x = irr::core::clamp(x, 0.0f, 1.0f);
+        return x * x * (3.0f - 2.0f * x);
+    }
+    irr::f32 lerpAngle(irr::f32 a, irr::f32 b, irr::f32 t)
+    {
+        irr::f32 d = fmodf(b - a + 540.0f, 360.0f) - 180.0f; //shortest way round
+        return a + d * t;
+    }
+    SimulationModel::WeatherState lerpWeather(const SimulationModel::WeatherState& a, const SimulationModel::WeatherState& b, irr::f32 t)
+    {
+        SimulationModel::WeatherState s;
+        s.cloud = a.cloud + (b.cloud - a.cloud) * t;
+        s.windKn = a.windKn + (b.windKn - a.windKn) * t;
+        s.windDir = lerpAngle(a.windDir, b.windDir, t);
+        s.windVariation = a.windVariation + (b.windVariation - a.windVariation) * t;
+        s.gustKn = a.gustKn + (b.gustKn - a.gustKn) * t;
+        //visibility changes in proportion (10 to 1 NM is like 1 to 0.1 NM)
+        const irr::f32 va = irr::core::max_(0.01f, a.visibilityNm), vb = irr::core::max_(0.01f, b.visibilityNm);
+        s.visibilityNm = va * powf(vb / va, t);
+        s.rain = a.rain + (b.rain - a.rain) * t;
+        s.snow = a.snow + (b.snow - a.snow) * t;
+        s.dust = a.dust + (b.dust - a.dust) * t;
+        s.sea = a.sea + (b.sea - a.sea) * t;
+        return s;
+    }
+    SimulationModel::WeatherState frontPeak(const SimulationModel::WeatherState& base)
+    {
+        SimulationModel::WeatherState s = base;
+        s.cloud = 1.0f;
+        s.windKn = irr::core::min_(base.windKn + 18.0f, 60.0f);
+        s.windDir = base.windDir + 40.0f; //veers as the front passes
+        s.windVariation = irr::core::max_(base.windVariation, 25.0f);
+        s.gustKn = irr::core::max_(base.gustKn, 12.0f);
+        s.visibilityNm = irr::core::min_(base.visibilityNm, 1.5f);
+        s.rain = irr::core::max_(base.rain, 6.0f);
+        s.sea = irr::core::min_(base.sea + 3.0f, 12.0f);
+        return s;
+    }
+}
+
+void SimulationModel::setWeatherFront(int mode)
+{
+    mode = irr::core::clamp(mode, 0, 2);
+    if (mode == weatherFront) { return; }
+    if (weatherFront != 0 && mode == 0) {
+        //Called off: back to the weather before it, at once
+        applyWeatherState(weatherFrontBase);
+    }
+    weatherChange.active = false;
+    weatherFront = mode;
+    weatherFrontPhase = mode ? 1 : 0;
+    weatherFrontTime = 0.0f;
+    if (mode) { weatherFrontBase = getWeatherState(); }
+}
+int SimulationModel::getWeatherFront() const { return weatherFront; }
+
+irr::f32 SimulationModel::getWeatherFrontProgress() const
+{
+    if (weatherFront == 0) { return 0.0f; }
+    const irr::f32 span = frontSpan(weatherFront);
+    const irr::f32 hold = span * 0.5f;
+    irr::f32 done = weatherFrontTime;
+    if (weatherFrontPhase >= 2) { done += span; }
+    if (weatherFrontPhase >= 3) { done += hold; }
+    return irr::core::clamp(done / (2.0f * span + hold), 0.0f, 1.0f);
+}
+
+void SimulationModel::updateWeatherDynamics(irr::f32 deltaTime)
+{
+    weatherClock += deltaTime;
+
+    //A gradual change from one weather to another
+    if (weatherChange.active) {
+        weatherChange.time += deltaTime;
+        const irr::f32 t = weatherChange.duration > 0 ? weatherChange.time / weatherChange.duration : 1.0f;
+        applyWeatherState(lerpWeather(weatherChange.from, weatherChange.to, smooth01(t)));
+        if (t >= 1.0f) { weatherChange.active = false; }
+    }
+
+    //A front passing
+    if (weatherFront != 0) {
+        const irr::f32 span = frontSpan(weatherFront);
+        const irr::f32 hold = span * 0.5f;
+        weatherFrontTime += deltaTime;
+        const WeatherState peak = frontPeak(weatherFrontBase);
+        if (weatherFrontPhase == 1) {
+            applyWeatherState(lerpWeather(weatherFrontBase, peak, smooth01(weatherFrontTime / span)));
+            if (weatherFrontTime >= span) { weatherFrontPhase = 2; weatherFrontTime = 0.0f; }
+        }
+        else if (weatherFrontPhase == 2) {
+            applyWeatherState(peak);
+            if (weatherFrontTime >= hold) { weatherFrontPhase = 3; weatherFrontTime = 0.0f; }
+        }
+        else {
+            applyWeatherState(lerpWeather(peak, weatherFrontBase, smooth01(weatherFrontTime / span)));
+            if (weatherFrontTime >= span) { weatherFront = 0; weatherFrontPhase = 0; }
+        }
+    }
+
+    //Squalls: every five minutes or so, a minute and a half of wind, rain and dark cloud
+    squallLevel = 0.0f;
+    if (significantWeather == 3) {
+        const irr::f32 period = 300.0f, length = 90.0f;
+        const irr::f32 phase = fmodf(weatherClock, period);
+        if (phase < length) {
+            const irr::f32 s = sinf(irr::core::PI * phase / length);
+            squallLevel = s * s;
+        }
+    }
+
+    //Gusts and the swing of the wind: a few slow waves of different lengths, so it never repeats
+    //in a way you could notice. Gusts only ever add to the mean wind.
+    const irr::f32 t = weatherClock;
+    irr::f32 g = 0.55f * sinf(t * 0.273f + 1.0f) + 0.30f * sinf(t * 0.690f + 2.0f) + 0.15f * sinf(t * 1.461f + 0.4f);
+    g = irr::core::clamp(g, 0.0f, 1.0f);
+    windSpeedNow = windSpeed + windGust * g + 15.0f * squallLevel;
+    const irr::f32 v = 0.6f * sinf(t * 0.134f + 0.5f) + 0.4f * sinf(t * 0.400f + 1.3f);
+    windDirectionNow = fmodf(windDirection + windVariation * v + 720.0f, 360.0f);
 }
 
 void SimulationModel::setStreamOverrideDirection(irr::f32 streamDirection) //Range 0-360.
@@ -4441,6 +4668,8 @@ void SimulationModel::update()
         IPROF("Update swell");
         // KYARA HOULE: sea state follows the weather tab live (weather -> height & period, wind ->
         // direction & sea age). Must run before any ship samples getWaveHeight() this frame.
+        //Weather window: gradual changes, a passing front, gusts and squalls - before anything uses the wind
+        updateWeatherDynamics(deltaTime);
         swell.setFadeCentre(water.getPosition().X, water.getPosition().Z);
         swell.update(deltaTime, weather, windDirection, windSpeed, ownShip.getPosition().X, ownShip.getPosition().Z);
     } {
@@ -4462,10 +4691,26 @@ void SimulationModel::update()
 
         //update ambient lighting
       //update ambient lighting
+        //Weather window: the cloud deck as seen (rain, snow and squalls bring their own cloud)
+        irr::f32 cloudSeen = cloudCover;
+        cloudSeen = irr::core::max_(cloudSeen, 0.9f * irr::core::min_(1.0f, rainIntensity / 6.0f));
+        cloudSeen = irr::core::max_(cloudSeen, 0.9f * snowIntensity);
+        cloudSeen = irr::core::max_(cloudSeen, 0.9f * squallLevel);
+        cloudSeen = irr::core::max_(cloudSeen, 0.8f * dustLevel);
+        light.setOvercast(cloudSeen);
         light.update(scenarioTime + dayNightOffset);
 
         //Note that linear fog is hardcoded into the water shader, so should be changed there if we use other fog types
         irr::f32 appliedVisibilityRange = visibilityRange;
+        //Falling snow and blowing sand shut the view in too (heavy snow about 0.3 NM, a sand storm 0.25 NM)
+        if (snowIntensity > 0.0f) {
+            const irr::f32 k = 1.0f - snowIntensity;
+            appliedVisibilityRange = irr::core::min_(appliedVisibilityRange, 0.3f + 10.0f * k * k);
+        }
+        if (dustLevel > 0.0f) {
+            const irr::f32 k = 1.0f - dustLevel;
+            appliedVisibilityRange = irr::core::min_(appliedVisibilityRange, 0.25f + 10.0f * k * k);
+        }
         // Lower bound of visibility of 0.01 Nm
         if (appliedVisibilityRange < 0.01) {
             appliedVisibilityRange = 0.01;
@@ -4498,6 +4743,19 @@ void SimulationModel::update()
         fR = fR * (1.0f - tw) + tR * tw;
         fG = fG * (1.0f - tw) + tG * tw;
         fB = fB * (1.0f - tw) + tB * tw;
+        //Sand in the air: an ochre haze; snow: a whiter one
+        if (dustLevel > 0.0f) {
+            const irr::f32 d = 0.85f * dustLevel;
+            fR = fR * (1.0f - d) + (205.0f * dayF + 30.0f * (1.0f - dayF)) * d;
+            fG = fG * (1.0f - d) + (166.0f * dayF + 24.0f * (1.0f - dayF)) * d;
+            fB = fB * (1.0f - d) + (112.0f * dayF + 16.0f * (1.0f - dayF)) * d;
+        }
+        if (snowIntensity > 0.0f) {
+            const irr::f32 sn = 0.5f * snowIntensity;
+            fR = fR * (1.0f - sn) + (225.0f * dayF + 30.0f * (1.0f - dayF)) * sn;
+            fG = fG * (1.0f - sn) + (230.0f * dayF + 34.0f * (1.0f - dayF)) * sn;
+            fB = fB * (1.0f - sn) + (236.0f * dayF + 42.0f * (1.0f - dayF)) * sn;
+        }
 
         irr::video::SColor fogColour(255, (irr::u32)fR, (irr::u32)fG, (irr::u32)fB);
         //KYARA: exp2 so boats and the sky dome dissolve the same way the water shader now does.
@@ -4509,18 +4767,19 @@ void SimulationModel::update()
 
         //KYARA: sky updated AFTER appliedVisibilityRange exists - the haze dome is driven from it,
         //now tinted to the SAME fogColour so the sky matches the sea instead of clashing.
-        bool skyStorm = (weather >= 3.5f); // sea state alone, no fog needed - matches the audio
-        sky.update(light.getLightLevel(), light.getWarmth(), light.isDawn(), appliedVisibilityRange, fogColour, skyStorm);
+        bool skyStorm = (significantWeather == 2) || (significantWeather == 0 && weather >= 3.5f); // sea state alone, no fog needed - matches the audio
+        sky.update(light.getLightLevel(), light.getWarmth(), light.isDawn(), appliedVisibilityRange, fogColour, skyStorm, cloudSeen);
 
         lightLevel = light.getLightLevel();
 
     } {
         IPROF("Update rain");
         //update rain
-        rain.setIntensity(rainIntensity);
+        rain.setIntensity(irr::core::max_(rainIntensity, 6.0f * squallLevel)); //a squall brings its shower
         rain.setWind(getWindSpeed());              //KYARA: was never called - slant was always 0
         rain.setWindDirection(getWindDirection());
         rain.update(scenarioTime);
+        snow.update(snowIntensity, getWindSpeed(), getWindDirection(), scenarioTime);
 
     } {
         IPROF("Update other ships");
@@ -4950,7 +5209,8 @@ void SimulationModel::update()
         // secondary agree without any extra network flag.
         const irr::f32 STORM_WEATHER_MIN = 3.5f;   //tweak: sea state that switches the storm on
         // Visibility is NO LONGER required - storms happen without fog.
-        bool stormActive = (weather >= STORM_WEATHER_MIN);
+        //(Weather window: "none" never has a storm, "thunderstorm" always does)
+        bool stormActive = (significantWeather == 2) || (significantWeather == 0 && weather >= STORM_WEATHER_MIN);
         // Interior bridge views (0/1) hear rain/storm muffled through the glass. Apply the muffle
                 // HERE so each volume is written exactly ONCE per frame. Writing it a second time later
                 // (in the inside/outside block) made the audio thread see two values per frame -> the hiss
@@ -5328,6 +5588,8 @@ void SimulationModel::update()
         guiData->visibility = visibilityRange;
         guiData->windDirection = windDirection;
         guiData->windSpeed = windSpeed;
+        guiData->windDirectionNow = windDirectionNow;
+        guiData->windSpeedNow = windSpeedNow;
         guiData->streamDirection = streamOverrideDirection;
         guiData->streamSpeed = streamOverrideSpeed;
         guiData->streamOverride = streamOverride;

@@ -47,6 +47,7 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "ScreenSpray.hpp"    // KYARA SLAM
 #include "ShipLights.hpp"     // KYARA FEUX
 #include "Rain.hpp"
+#include "Snow.hpp"
 #include "Tide.hpp"
 #include "Buoys.hpp"
 #include "OtherShips.hpp"
@@ -368,7 +369,41 @@ public:
     void setWindDirection(irr::f32 windDirection); //Range 0-360.
     irr::f32 getWindDirection() const;
     void setWindSpeed(irr::f32 windSpeed); //Nm/h
-    irr::f32 getWindSpeed() const;
+    irr::f32 getWindSpeed() const;              //with the gusts, as the ship feels it
+    irr::f32 getWindSpeedBase() const;          //the mean wind set in the weather (no gusts)
+    irr::f32 getWindDirectionBase() const;      //the mean direction (no variation)
+
+    //WEATHER WINDOW (METEO). Everything the weather is made of, in one block: a preset or the
+    //sliders set it, at once or over a while (setWeatherState with seconds > 0). Setting any
+    //single value by hand stops a change or a front that is under way.
+    struct WeatherState
+    {
+        irr::f32 cloud = 0.0f;          //cloud cover 0..1 (over the fair-weather sky)
+        irr::f32 windKn = 0.0f;         //mean wind, knots
+        irr::f32 windDir = 0.0f;        //direction it blows FROM, degrees
+        irr::f32 windVariation = 0.0f;  //how far its direction swings either side, degrees
+        irr::f32 gustKn = 0.0f;         //gusts, knots above the mean
+        irr::f32 visibilityNm = 10.0f;
+        irr::f32 rain = 0.0f;           //0..10
+        irr::f32 snow = 0.0f;           //0..1
+        irr::f32 dust = 0.0f;           //sand / dust in the air 0..1
+        irr::f32 sea = 0.0f;            //sea state (weather) 0..12
+    };
+    WeatherState getWeatherState() const;
+    void setWeatherState(const WeatherState& state, irr::f32 seconds);
+    bool isWeatherChanging() const;             //a gradual change (or a front) is under way
+    irr::f32 getWeatherChangeProgress() const;  //0..1
+    void setCloudCover(irr::f32 cover);   irr::f32 getCloudCover() const;
+    void setSnow(irr::f32 snow);          irr::f32 getSnow() const;
+    void setDust(irr::f32 dust);          irr::f32 getDust() const;
+    void setWindGust(irr::f32 knots);     irr::f32 getWindGust() const;
+    void setWindVariation(irr::f32 deg);  irr::f32 getWindVariation() const;
+    //Significant weather: 0 auto (a storm comes with a heavy sea, as before), 1 none, 2 thunderstorm, 3 squalls
+    void setSignificantWeather(int mode); int getSignificantWeather() const;
+    //Approaching weather front: 0 none, 1 slow (about an hour), 2 fast (about 20 minutes). The weather
+    //worsens to the front, holds, then clears back to what it was.
+    void setWeatherFront(int mode);       int getWeatherFront() const;
+    irr::f32 getWeatherFrontProgress() const; //0..1 over the whole front
     void setStreamOverrideDirection(irr::f32 streamDirection); //Range 0-360.
     irr::f32 getStreamOverrideDirection() const;
     void setStreamOverrideSpeed(irr::f32 streamSpeed); //Nm/h
@@ -603,6 +638,21 @@ private:
     irr::f32 visibilityRange; //Nm
     irr::f32 windDirection; //0-360
     irr::f32 windSpeed; //Nm
+    //Weather window (see WeatherState)
+    irr::f32 cloudCover = 0.0f, snowIntensity = 0.0f, dustLevel = 0.0f, windGust = 0.0f, windVariation = 0.0f;
+    irr::f32 windSpeedNow = 0.0f, windDirectionNow = 0.0f;  //with gusts and swings, worked out each frame
+    irr::f32 squallLevel = 0.0f;                            //0..1 while a squall passes
+    irr::f32 weatherClock = 0.0f;                           //seconds, drives gusts and squalls
+    int significantWeather = 0;
+    struct WeatherChange { bool active = false; WeatherState from, to; irr::f32 time = 0, duration = 0; } weatherChange;
+    int weatherFront = 0;              //0 none, 1 slow, 2 fast
+    int weatherFrontPhase = 0;         //1 coming, 2 overhead, 3 clearing
+    irr::f32 weatherFrontTime = 0.0f;  //seconds into the current phase
+    WeatherState weatherFrontBase;     //the weather before the front, to come back to
+    void applyWeatherState(const WeatherState& state);
+    void stopWeatherChanges();
+    void updateWeatherDynamics(irr::f32 deltaTime);
+    Snow snow;
     irr::f32 streamOverrideDirection; //0-360
     irr::f32 streamOverrideSpeed; //Nm
     bool streamOverride;

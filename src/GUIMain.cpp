@@ -21,6 +21,7 @@
 #include "GUIMain.hpp"
 #include "BridgeSkin.hpp"
 #include "CentreScreen.hpp"
+#include "WeatherPanel.hpp"
 #include <cctype>
 
 #include "Constants.hpp"
@@ -77,8 +78,9 @@ namespace {
     {
         static const wchar_t* pts[16] = { L"N", L"NNE", L"NE", L"ENE", L"E", L"ESE", L"SE", L"SSE",
                                           L"S", L"SSW", L"SW", L"WSW", L"W", L"WNW", L"NW", L"NNW" };
-        while (deg < 0.f) { deg += 360.f; }
-        while (deg >= 360.f) { deg -= 360.f; }
+        if (!std::isfinite(deg)) { deg = 0.f; }
+        deg = fmodf(deg, 360.f); //(a loop adding 360 never ends on a huge value)
+        if (deg < 0.f) { deg += 360.f; }
         return irr::core::stringw(pts[(int)((deg + 11.25f) / 22.5f) % 16]);
     }
 
@@ -1886,6 +1888,14 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             paletteButton[i]->setIsPushButton(true);
             bridgeSkin->setKeyStyle(GUI_ID_PALETTE_DAY + i, bridge::BridgeSkin::KEY_BAR);
         }
+        //The weather window, and its key (bc5.ini show_weather_tool=0 hides them from trainees)
+        if (IniFile::iniFileTou32(iniFilename, "show_weather_tool", 1) == 1) {
+            weatherButton = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_WEATHER_BUTTON, L"M\u00C9T\u00C9O",
+                L"M\u00E9t\u00E9o : pr\u00E9r\u00E9glages, vent, mer, visibilit\u00E9, pluie, neige, front, heure");
+            weatherPanel = new WeatherPanel(guienv, guienv->getRootGUIElement(), model, irr::core::rect<irr::s32>(0, 0, 10, 10));
+            weatherPanel->drop();
+            weatherPanel->setLightingTimeBox(lightingTimeBox);
+        }
         //Glow of the lit instruments
         glowScrollbar = guienv->addScrollBar(true, irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_GLOW_SCROLL_BAR);
         glowScrollbar->setMin(0);
@@ -2357,6 +2367,7 @@ void GUIMain::updateVisibility()
         commandBar->setCaptionsVisible(showPrimary);
         for (int i = 0; i < PALETTE_KEYS; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(showDisplayControls); } }
         if (glowScrollbar) { glowScrollbar->setVisible(showDisplayControls); }
+        if (weatherButton) { weatherButton->setVisible(showDisplayControls); }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -2365,6 +2376,8 @@ void GUIMain::updateVisibility()
 
 void GUIMain::hideInSecondary() {
     //Hide user inputs if in secondary mode
+    if (weatherButton) { weatherButton->setVisible(false); }
+    if (weatherPanel) { weatherPanel->setVisible(false); }
     if (stbdScrollbar) { stbdScrollbar->setVisible(false); }
     if (portScrollbar) { portScrollbar->setVisible(false); }
     if (azimuth1Control) { azimuth1Control->setVisible(false); }
@@ -2731,8 +2744,8 @@ void GUIMain::updateGuiData(GUIData* guiData)
     guiRateOfTurnDegMin = guiData->RateOfTurn * irr::core::RADTODEG * 60.0f; //rad/s -> deg/min
     guiPortRPM = guiData->portRPM;
     guiStbdRPM = guiData->stbdRPM;
-    guiWindDirection = guiData->windDirection;
-    guiWindSpeed = guiData->windSpeed; //already in knots
+    guiWindDirection = guiData->windDirectionNow; //the dial shows the wind as it blows, gusts and all
+    guiWindSpeed = guiData->windSpeedNow; //already in knots
     if (guiData->maxRPM > 0 && instrumentPanel && guiMaxRPM != guiData->maxRPM) {
         //The ship's MaxRevs only arrives with the first update, so set the tachometer scale once.
         guiMaxRPM = guiData->maxRPM;
@@ -4867,6 +4880,7 @@ void GUIMain::layoutCommandBar()
         key(pcLogButton, xr, true, L"JOURNAL", 0, bridge::ICON_LOG, bridge::BridgeSkin::KEY_BAR);
         key(showLinesControlsButton, xr, true, L"AMARRES", 0, bridge::ICON_LINES, bridge::BridgeSkin::KEY_BAR);
         key(showExtraControlsButton, xr, true, L"CONTR\u00D4LES", 0, bridge::ICON_CONTROLS, bridge::BridgeSkin::KEY_BAR);
+        key(weatherButton, xr, true, L"M\u00C9T\u00C9O", 0, bridge::ICON_WEATHER, bridge::BridgeSkin::KEY_BAR);
 
         if (leftEnd + 8 <= xr || attempt == 2) { break; }
     }
@@ -4885,6 +4899,30 @@ void GUIMain::setPaletteChoice(int choice)
         if (paletteButton[i]) { paletteButton[i]->setPressed(i == pressed); }
     }
     applyPaletteMode(choice >= 0 ? choice : paletteAutoMode);
+}
+
+void GUIMain::placeWeatherPanel()
+{
+    if (!weatherPanel) { return; }
+    //Over the bridge view, on the middle screen (Surround), as large as the view allows
+    const irr::s32 viewH = (irr::s32)(sh * viewProportion3D());
+    const irr::s32 w = irr::core::min_(1260, (irr::s32)(consoleArea.getWidth() * 0.92f));
+    const irr::s32 h = irr::core::max_(irr::core::min_(780, (irr::s32)(viewH * 0.9f)), irr::core::min_(480, (irr::s32)sh - 40));
+    const irr::s32 x = consoleArea.getCenter().X - w / 2;
+    const irr::s32 y = irr::core::max_(10, (viewH - h) / 2);
+    weatherPanel->setRelativePosition(irr::core::rect<irr::s32>(x, y, x + w, y + h));
+}
+
+void GUIMain::toggleWeatherPanel()
+{
+    if (!weatherPanel) { return; }
+    if (weatherPanel->isVisible()) {
+        weatherPanel->setVisible(false);
+        return;
+    }
+    placeWeatherPanel();
+    weatherPanel->setVisible(true);
+    guienv->getRootGUIElement()->bringToFront(weatherPanel);
 }
 
 void GUIMain::setGlowLevel(int level)

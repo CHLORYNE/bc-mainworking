@@ -87,6 +87,8 @@ void Light::update(irr::f32 scenarioTime)
 
     //sinusoidal component
     lightLevel = (irr::s32)lightLevel + lightCos * solarElevation;
+    //Cloud cover: up to a third of the daylight gone under a full overcast
+    lightLevel = (irr::u32)((irr::f32)lightLevel * (1.0f - 0.33f * overcast));
 
     // --- KYARA: DAWN vs DUSK -------------------------------------------------------------
     //warmth is derived from |solarElevation|, so it is SYMMETRIC: it cannot tell 06:00 from
@@ -101,6 +103,7 @@ void Light::update(irr::f32 scenarioTime)
     if (warm < 0.0f) { warm = 0.0f; }
     if (warm > 1.0f) { warm = 1.0f; }
 
+    warm *= (1.0f - overcast); //no low sun under a cloud deck
     warmth = warm; //normalised 0..1, handed to Sky for the horizon glow
 
     //Evening light is warm and strong; morning light is cool, blue-shifted and gentler.

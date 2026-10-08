@@ -30,6 +30,8 @@ class Light
         irr::u32 getLightLevel() const;
         irr::f32 getWarmth() const; //0..1, peaks when the sun is on the horizon
         bool isDawn() const;        //true in the morning half of the day, false in the evening
+        //Cloud cover 0..1: an overcast day is dimmer and has no warm low sun
+        void setOvercast(irr::f32 cover) { overcast = cover < 0 ? 0 : (cover > 1 ? 1 : cover); }
 
     private:
         irr::u32 lightLevel;
@@ -41,6 +43,7 @@ class Light
         irr::scene::ILightSceneNode* directionalLight;
         irr::f32 warmth;
         bool dawn;
+        irr::f32 overcast = 0;
 };
 
 #endif // __LIGHT_HPP_INCLUDED__

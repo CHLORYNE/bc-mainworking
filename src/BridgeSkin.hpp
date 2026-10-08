@@ -206,7 +206,7 @@ namespace bridge
     //Line icons for the command bar, drawn in a size x size box
     enum Icon {
         ICON_NONE = 0, ICON_INTERFACE, ICON_BINOCULARS, ICON_BEARING, ICON_VIEW, ICON_CONTROLS,
-        ICON_LINES, ICON_LOG, ICON_DETACH, ICON_QUIT, ICON_HIDE, ICON_RADAR, ICON_SUN, ICON_MOON
+        ICON_LINES, ICON_LOG, ICON_DETACH, ICON_QUIT, ICON_HIDE, ICON_RADAR, ICON_SUN, ICON_MOON, ICON_WEATHER
     };
 
     inline void drawIcon(irr::video::IVideoDriver* d, Icon icon, irr::f32 x, irr::f32 y, irr::f32 s, irr::video::SColor c)
@@ -237,6 +237,12 @@ namespace bridge
         case ICON_LINES: //an anchor
             R(0.5f, 0.17f, 0.11f); L(0.5f, 0.28f, 0.5f, 0.9f); L(0.3f, 0.42f, 0.7f, 0.42f);
             L(0.14f, 0.62f, 0.3f, 0.86f); L(0.3f, 0.86f, 0.5f, 0.92f); L(0.5f, 0.92f, 0.7f, 0.86f); L(0.7f, 0.86f, 0.86f, 0.62f);
+            break;
+        case ICON_WEATHER: //a cloud
+            ring(d, x + 0.31f * s, y + 0.6f * s, 0.17f * s, c, 200.0f, 360.0f);
+            ring(d, x + 0.55f * s, y + 0.46f * s, 0.23f * s, c, 290.0f, 445.0f);
+            ring(d, x + 0.76f * s, y + 0.62f * s, 0.15f * s, c, 20.0f, 180.0f);
+            L(0.15f, 0.77f, 0.76f, 0.77f);
             break;
         case ICON_LOG: //a page of lines
             L(0.2f, 0.08f, 0.8f, 0.08f); L(0.8f, 0.08f, 0.8f, 0.92f); L(0.8f, 0.92f, 0.2f, 0.92f); L(0.2f, 0.92f, 0.2f, 0.08f);

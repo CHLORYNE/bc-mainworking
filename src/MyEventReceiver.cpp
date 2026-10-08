@@ -659,6 +659,13 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             }
 
             //Command bar: day / dusk / night / digital / auto colours
+            //Command bar: the weather window
+            if (id == GUIMain::GUI_ID_WEATHER_BUTTON)
+            {
+                gui->toggleWeatherPanel();
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
             if (id >= GUIMain::GUI_ID_PALETTE_DAY && id <= GUIMain::GUI_ID_PALETTE_AUTO)
             {
                 gui->setPaletteChoice(id == GUIMain::GUI_ID_PALETTE_AUTO ? -1 : (int)(id - GUIMain::GUI_ID_PALETTE_DAY));

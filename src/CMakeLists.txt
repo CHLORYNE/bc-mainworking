@@ -81,6 +81,9 @@ set(BC_SOURCES
     RadarCalculation.cpp
     RadarScreen.cpp
     Rain.cpp
+    Snow.cpp
+    WeatherPanel.cpp
+    launcher/HudText.cpp
     ScenarioChoice.cpp
     ScenarioDataStructure.cpp
     ScrollDial.cpp

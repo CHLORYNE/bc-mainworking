@@ -30,6 +30,7 @@ static const irr::f32 HAZE_MAX = 0.0f;
 Sky::Sky()
 {
     dayDome = 0;
+    cloudDome = 0;
     glowDome = 0;
     hazeDome = 0;
     heroBolt = 0;
@@ -97,6 +98,21 @@ void Sky::load(irr::scene::ISceneManager* smgr)
         64, 32, 1.0f, 1.05f, 3.5 * M_IN_NM);
     dayDome->setMaterialFlag(irr::video::EMF_FOG_ENABLE, true);
     dayDome->setMaterialFlag(irr::video::EMF_LIGHTING, true);
+
+    //1b) CLOUD COVER. The overcast picture over the fair one, lit the same way, its opacity the
+    //    cloud cover: lit material, ColorMaterial off, so the diffuse alpha is the layer's alpha.
+    cloudDome = smgr->addSkyDomeSceneNode(skyTexStorm, 64, 32, 1.0f, 1.05f, 3.5 * M_IN_NM);
+    if (cloudDome) {
+        cloudDome->setMaterialFlag(irr::video::EMF_FOG_ENABLE, true);
+        cloudDome->setMaterialFlag(irr::video::EMF_LIGHTING, true);
+        irr::video::SMaterial& cm = cloudDome->getMaterial(0);
+        cm.MaterialType = irr::video::EMT_TRANSPARENT_VERTEX_ALPHA;
+        cm.ColorMaterial = irr::video::ECM_NONE;
+        cm.AmbientColor = irr::video::SColor(255, 255, 255, 255);
+        cm.DiffuseColor = irr::video::SColor(0, 255, 255, 255);
+        cm.ZWriteEnable = irr::video::EZW_OFF;
+        cloudDome->setVisible(false);
+    }
 
     //2) HORIZON GLOW. A uniform ambient tints the whole dome equally, which turned even the
     //   zenith red at sunset. This layer puts the warm colour only where it belongs, low down.
@@ -262,11 +278,24 @@ void Sky::update(irr::u32 lightLevel, //unused - kept so the SimulationModel cal
     bool isDawn,
     irr::f32 visibilityRangeNm,
     irr::video::SColor fogColour,
-    bool stormMode)
+    bool stormMode,
+    irr::f32 cloudCover)
 {
+    if (cloudCover >= 0.0f && cloudDome) {
+        //Cloud cover given: the fair sky underneath, the overcast faded in over it
+        if (stormMode && cloudCover < 0.9f) { cloudCover = 0.9f; }
+        if (cloudCover > 1.0f) { cloudCover = 1.0f; }
+        if (dayDome && skyIsStorm) {
+            skyIsStorm = false;
+            dayDome->getMaterial(0).setTexture(0, skyTexFair);
+        }
+        cloudDome->setVisible(cloudCover > 0.01f);
+        cloudDome->getMaterial(0).DiffuseColor = irr::video::SColor((irr::u32)(cloudCover * 255.0f), 255, 255, 255);
+        stormMode = cloudCover > 0.6f; //no warm horizon glow under a cloud deck
+    }
     // KYARA: overcast dome during "mauvais temps". Swap the base-dome texture only when the
     // state changes (setMaterialTexture every frame is wasteful).
-    if (dayDome && stormMode != skyIsStorm) {
+    else if (dayDome && stormMode != skyIsStorm) {
         skyIsStorm = stormMode;
         dayDome->getMaterial(0).setTexture(0, skyIsStorm ? skyTexStorm : skyTexFair);
     }
