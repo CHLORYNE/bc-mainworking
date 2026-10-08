@@ -1904,11 +1904,13 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         glowScrollbar->setLargeStep(10);
         layoutCommandBar();
 
-        //Start-up colours and glow from bc5.ini: palette=auto|jour|crepuscule|nuit|digital, instrument_glow=0..100
+        //Start-up colours and glow from bc5.ini: palette=jour|crepuscule|nuit|digital|auto, instrument_glow=0..100
+        //The colours only follow the daylight when AUTO is asked for; anything else keeps them fixed (JOUR by default)
         std::string startPalette = IniFile::iniFileToString(iniFilename, "palette");
         for (size_t k = 0; k < startPalette.size(); k++) { startPalette[k] = (char)tolower((unsigned char)startPalette[k]); }
-        int choice = -1;
-        if (startPalette == "jour" || startPalette == "day") { choice = bridge::MODE_DAY; }
+        int choice = bridge::MODE_DAY;
+        if (startPalette == "auto") { choice = -1; }
+        else if (startPalette == "jour" || startPalette == "day") { choice = bridge::MODE_DAY; }
         else if (startPalette == "crepuscule" || startPalette == "dusk") { choice = bridge::MODE_DUSK; }
         else if (startPalette == "nuit" || startPalette == "night") { choice = bridge::MODE_NIGHT; }
         else if (startPalette == "digital") { choice = bridge::MODE_DIGITAL; }

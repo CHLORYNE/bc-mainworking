@@ -234,8 +234,8 @@ private:
     {
         const irr::core::rect<irr::f32> card = previewCard();
         std::wstring heading = french ? L"CARTE" : L"CHART";
-        if (!shownWorld.empty()) { heading += L"  ·  " + std::wstring(irr::core::stringw(shownWorld.c_str()).c_str()); }
-        if (!shownCaption.empty()) { heading += (french ? L"  ·  exercice " : L"  ·  exercise ") + std::wstring(irr::core::stringw(shownCaption.c_str()).c_str()); }
+        if (!shownWorld.empty()) { heading += L"  \u00B7  " + std::wstring(irr::core::stringw(shownWorld.c_str()).c_str()); }
+        if (!shownCaption.empty()) { heading += (french ? L"  \u00B7  exercice " : L"  \u00B7  exercise ") + std::wstring(irr::core::stringw(shownCaption.c_str()).c_str()); }
         const irr::core::rect<irr::s32> area = content(card);
         const irr::core::rect<irr::s32> titleClip((irr::s32)card.UpperLeftCorner.X, (irr::s32)card.UpperLeftCorner.Y, (irr::s32)card.LowerRightCorner.X - (irr::s32)(16 * s), area.UpperLeftCorner.Y);
         Ui::drawText(headingFont, heading, irr::core::rect<irr::f32>(card.UpperLeftCorner.X + 16 * s, card.UpperLeftCorner.Y + 8 * s,
@@ -274,7 +274,7 @@ private:
         }
         else {
             driver->draw2DRectangle(irr::video::SColor(255, 8, 16, 30), area);
-            const std::wstring message = pending ? (french ? L"Chargement de la carte…" : L"Loading the chart…")
+            const std::wstring message = pending ? (french ? L"Chargement de la carte\u2026" : L"Loading the chart\u2026")
                 : (shownWorld.empty() ? (french ? L"Choisissez une carte" : L"Choose a chart") : (french ? L"Carte indisponible" : L"Chart unavailable"));
             Ui::drawText(textFont, message, inner, Ui::textDim, Ui::Centre);
         }
