@@ -53,6 +53,7 @@ extern "C" {
 #endif
 
 #include "../ScreenChooser.hpp" //screens of the desk, and which already show the simulator
+#include "../CentreScreen.hpp" //the menu on the middle screen of a Surround / Eyefinity canvas
 #include "LauncherDraw.hpp"
 #include "HudMenu.hpp"
 #include "UiSound.hpp"
@@ -274,7 +275,7 @@ protected:
     //Follows the window size; true if it changed.
     bool fitWindow()
     {
-        const irr::core::dimension2du s = Environment->getVideoDriver()->getScreenSize();
+        const irr::core::dimension2du s = centre::contentSize(Environment->getVideoDriver());
         const irr::core::rect<irr::s32> full(0, 0, (irr::s32)s.Width, (irr::s32)s.Height);
         if (RelativeRect == full) { return false; }
         setRelativePosition(full);
@@ -1512,6 +1513,9 @@ int main(int argc, char** argv)
         iniFilename = userFolder + iniFilename;
     }
 
+    //Several screens seen as one (Surround / Eyefinity): the menu on the middle one. 0 = from the window's shape.
+    centre::state().forcedScreens = (int)IniFile::iniFileTou32(iniFilename, "menu_screens");
+
     std::string modifier = IniFile::iniFileToString(iniFilename, "lang");
     if (modifier.length() == 0) {
         modifier = "en"; //Default
@@ -1950,7 +1954,9 @@ int main(int argc, char** argv)
 
     //The intro film, if there is one (media/intro.mp4).
     Receiver receiver;
-    device->setEventReceiver(&receiver);
+    centre::View centreView(device);
+    centre::MouseShift mouseShift(env, &receiver);
+    device->setEventReceiver(&mouseShift);
     const std::string introFile = VideoClip::find("media/intro");
     receiver.intro = options.introVideo && !noIntro && !introFile.empty() && intro.open(introFile, true, true, false);
 
@@ -1983,7 +1989,7 @@ int main(int argc, char** argv)
             continue;
         }
 
-        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 0, 0));
+        centreView.beginScene(irr::video::SColor(255, 0, 0, 0));
         if (receiver.intro) {
             //Skipped (key, click) or over: a short fade to black, then the menu.
             const irr::u32 now = device->getTimer()->getRealTime();
@@ -2030,7 +2036,7 @@ int main(int argc, char** argv)
                 musicLogged = true;
             }
         }
-        driver->endScene();
+        centreView.endScene();
 
         //Smooth while in front (vsync, else about 120 frames a second at most), light on the CPU behind.
         if (!active && !receiver.intro) {

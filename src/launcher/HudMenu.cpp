@@ -3,6 +3,7 @@
 #include "UiSound.hpp"
 #include "VideoClip.hpp"
 #include "../Utilities.hpp"
+#include "../CentreScreen.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -211,7 +212,7 @@ void HudMenu::reveal()
 void HudMenu::drawIntro(VideoClip* clip, irr::f32 fadeOut, irr::f32 prompt)
 {
     irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    const irr::core::dimension2du size = driver->getScreenSize();
+    const irr::core::dimension2du size = centre::contentSize(driver);
     if (size != laidOut) { layout(size); }
     const irr::f32 W = (irr::f32)size.Width, H = (irr::f32)size.Height;
     driver->draw2DRectangle(irr::video::SColor(255, 0, 0, 0), irr::core::rect<irr::s32>(0, 0, (irr::s32)W, (irr::s32)H));
@@ -556,7 +557,7 @@ void HudMenu::draw()
 {
     if (!IsVisible) { return; }
     irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    const irr::core::dimension2du size = driver->getScreenSize();
+    const irr::core::dimension2du size = centre::contentSize(driver);
     if (size != laidOut) { layout(size); }
     //The menu takes the keys back when the screens drawn over it close.
     if (blocked && !blocked() && Environment->getFocus() != this) { Environment->setFocus(this); }

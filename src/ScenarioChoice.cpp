@@ -26,6 +26,7 @@
 #include "UiTheme.hpp"
 #include "chartView/ChartView.hpp"
 #include "chartView/ChartDraw.hpp"
+#include "CentreScreen.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -593,7 +594,7 @@ public:
     //frame (so that "loading" is on screen while it is built).
     void beforeFrame()
     {
-        const irr::core::dimension2du size = Environment->getVideoDriver()->getScreenSize();
+        const irr::core::dimension2du size = centre::contentSize(Environment->getVideoDriver());
         if (size != laidOutFor) { layout(size); }
         if (chartPending) {
             chartPending = false;
@@ -1823,13 +1824,17 @@ void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& host
 
     StartupEventReceiver startupReceiver(screen, device);
     irr::IEventReceiver* oldReceiver = device->getEventReceiver();
-    device->setEventReceiver(&startupReceiver);
+    //On a Surround / Eyefinity canvas: on the middle screen only, the side screens black
+    centre::View centreView(device);
+    centre::MouseShift mouseShift(gui, &startupReceiver);
+    device->setEventReceiver(&mouseShift);
 
     while (device->run() && !screen->isStarted()) {
+        centreView.refresh();
         screen->beforeFrame();
-        driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, Ui::backgroundDeep);
+        centreView.beginScene(Ui::backgroundDeep);
         gui->drawAll();
-        driver->endScene();
+        centreView.endScene();
         device->sleep(4); //an idle screen: no need for every frame the card can draw
     }
 

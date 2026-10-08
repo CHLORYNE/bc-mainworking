@@ -14,6 +14,7 @@
 #include "ScenarioDataStructure.hpp"
 #include "SimulationModel.hpp"
 #include "ScenarioChoice.hpp"
+#include "CentreScreen.hpp"
 #include "MyEventReceiver.hpp"
 #include "LoadingScreen.hpp" //KYARA CHARGEMENT
 #include "Network.hpp"
@@ -1199,6 +1200,9 @@ int main(int argc, char** argv)
     }
 
     if (mode == OperatingMode::Normal) {
+        //Several screens seen as one (Surround / Eyefinity): the exercise choice on the middle one only.
+        //bc5.ini menu_screens: 0 = from the window's shape, 1 = the whole window, 3 = three screens.
+        centre::state().forcedScreens = (int)IniFile::iniFileTou32(iniFilename, "menu_screens");
         ScenarioChoice scenarioChoice(device, &language, fontName, modifier == "fr");
         scenarioChoice.chooseScenario(scenarioName, hostname, udpPort, mode, scenarioPath);
     }
