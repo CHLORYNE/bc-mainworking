@@ -425,6 +425,7 @@ public:
     void showLogWindow();
     void drawGUI();
     void setExtraControlsWindowVisible(bool windowVisible);
+    void toggleExtraControlsWindow();
     void setLinesControlsWindowVisible(bool windowVisible);
     void setLinesControlsText(std::string textToShow);
     bool getAnchorLine() const;
@@ -773,6 +774,8 @@ private:
     irr::gui::IGUIButton* weatherButton = 0;                //METEO
     class WeatherPanel* weatherPanel = 0;
     void placeWeatherPanel();
+    class ControlsPanel* controlsPanel = 0;   //the controls window as shown (over extraControlsWindow's widgets)
+    void placeOverView(irr::gui::IGUIElement* panel);
     void layoutCommandBar();
     void applyPaletteMode(int mode);
     irr::gui::IGUIWindow* instrEditWindow = 0;

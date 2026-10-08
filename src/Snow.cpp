@@ -63,9 +63,9 @@ namespace
     }
 }
 
-Snow::Snow() : smgr(0), shownLevel(-1)
+Snow::Snow() : smgr(0), shownLevel(-1), lastScenarioTime(0.0f), timeKnown(false)
 {
-    for (int i = 0; i < 3; i++) { layer[i] = 0; }
+    for (int i = 0; i < 3; i++) { layer[i] = 0; fall[i] = 0.0f; drift[i] = 0.0f; }
     for (int i = 0; i < LEVELS; i++) { picture[i] = 0; }
 }
 
@@ -101,6 +101,11 @@ void Snow::load(irr::scene::ISceneManager* sceneManager)
 void Snow::update(irr::f32 intensity, irr::f32 windSpeedKts, irr::f32 windDirDeg, irr::f32 scenarioTime)
 {
     if (!layer[0] || !layer[1] || !layer[2]) { return; }
+    //Time since the last frame (none when paused, and a jump in the scenario time is not a step)
+    irr::f32 dt = timeKnown ? scenarioTime - lastScenarioTime : 0.0f;
+    if (dt < 0.0f || dt > 0.5f) { dt = 0.0f; }
+    lastScenarioTime = scenarioTime;
+    timeKnown = true;
     intensity = irr::core::clamp(intensity, 0.0f, 1.0f);
     const bool snowing = intensity > 0.02f;
     //Light snow: only the far shells; heavy snow: all three, with denser pictures
@@ -128,10 +133,10 @@ void Snow::update(irr::f32 intensity, irr::f32 windSpeedKts, irr::f32 windDirDeg
         //runs round the cylinder unevenly, so the geometry alone does not give it)
         const irr::f32 vRepeat = 3.0f * U_REPEAT[i] * 0.68f * (6.25f * HEIGHT_PER_RADIUS) / (2.0f * irr::core::PI * 3.0f);
         const irr::f32 heightMetres = 6.25f * RADIUS[i] * HEIGHT_PER_RADIUS;
-        const irr::f32 fall = fmodf(scenarioTime * FALL_SPEED * vRepeat / heightMetres * (1.0f - 0.08f * i), 1.0f);
+        fall[i] = fmodf(fall[i] + dt * FALL_SPEED * vRepeat / heightMetres * (1.0f - 0.08f * i), 1.0f);
         const irr::f32 sway = 0.004f * sinf(scenarioTime * (0.6f + 0.2f * i) + i);
-        const irr::f32 drift = fmodf(scenarioTime * windMps * 0.002f * (1.0f - 0.25f * i), 1.0f);
-        setTextureMatrix(layer[i], U_REPEAT[i], vRepeat, 0.3f * i + drift + sway, fall);
+        drift[i] = fmodf(drift[i] + dt * windMps * 0.002f * (1.0f - 0.25f * i), 1.0f);
+        setTextureMatrix(layer[i], U_REPEAT[i], vRepeat, 0.3f * i + drift[i] + sway, fall[i]);
         layer[i]->setRotation(irr::core::vector3df(slant, windDirDeg, 0.0f));
     }
 

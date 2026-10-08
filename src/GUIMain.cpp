@@ -22,6 +22,7 @@
 #include "BridgeSkin.hpp"
 #include "CentreScreen.hpp"
 #include "WeatherPanel.hpp"
+#include "ControlsPanel.hpp"
 #include <cctype>
 
 #include "Constants.hpp"
@@ -803,6 +804,18 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     irr::gui::IGUITabControl* extraControlsTabControl = guienv->addTabControl(extraControlsTabPosition, extraControlsWindow);
     extraControlsTabControl->setTabHeight(tabHeaderH);
 
+    //The widgets below are not shown any more: the controls window (ControlsPanel, built at the end)
+    //draws them its own way and works them. These keep the ones that are not members.
+    irr::gui::IGUIButton* ecStormKey = 0;
+    irr::gui::IGUICheckBox* ecThunderBox = 0;
+    irr::gui::IGUICheckBox* ecLightningBox = 0;
+    irr::gui::IGUIButton* ecRudderKey[6] = { 0, 0, 0, 0, 0, 0 };
+    irr::gui::IGUIButton* ecLightsResetKey = 0;
+    irr::gui::IGUIButton* ecLightsEditKey = 0;
+    irr::gui::IGUIButton* ecInstrEditKey = 0;
+    irr::gui::IGUIButton* ecSizeEditKey = 0;
+    irr::gui::IGUIStaticText* ecSizeHelp = 0;
+
     // Weather tab
     irr::gui::IGUITab* extraControlsTabWeather = extraControlsTabControl->addTab(language->translate("weather").c_str());
 
@@ -910,7 +923,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
       // fractions (su/sh) push the button off the little window and it gets clipped => invisible.
     {
         const irr::s32 by = row0Y + 3 * rowPitch;
-        guienv->addButton(
+        ecStormKey = guienv->addButton(
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_STORM_PRESET_BUTTON,
             language->translate("badWeather").c_str());
@@ -918,7 +931,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // KYARA: thunder on/off, row 4 of the weather tab.
     {
         const irr::s32 by = row0Y + 4 * rowPitch;
-        guienv->addCheckBox(true,   // checked = thunder enabled (default)
+        ecThunderBox = guienv->addCheckBox(true,   // checked = thunder enabled (default)
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_THUNDER_CHECKBOX,
             language->translate("thunder").c_str());
@@ -926,7 +939,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // KYARA: lightning on/off, row 5 of the weather tab.
     {
         const irr::s32 by = row0Y + 5 * rowPitch;
-        guienv->addCheckBox(true,
+        ecLightningBox = guienv->addCheckBox(true,
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_LIGHTNING_CHECKBOX,
             language->translate("lightning").c_str());
@@ -1041,13 +1054,13 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         const irr::s32 rY2 = row0Y + 2 * rowPitch;
         const irr::s32 rY3 = row0Y + 3 * rowPitch;
 
-        guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY0, colLx1, rY0 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_1_WORKING_BUTTON, language->translate("pump1Working").c_str());
-        guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY1, colLx1, rY1 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_1_FAILED_BUTTON, language->translate("pump1Failed").c_str());
-        guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY2, colLx1, rY2 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_2_WORKING_BUTTON, language->translate("pump2Working").c_str());
-        guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY3, colLx1, rY3 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_2_FAILED_BUTTON, language->translate("pump2Failed").c_str());
+        ecRudderKey[0] = guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY0, colLx1, rY0 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_1_WORKING_BUTTON, language->translate("pump1Working").c_str());
+        ecRudderKey[1] = guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY1, colLx1, rY1 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_1_FAILED_BUTTON, language->translate("pump1Failed").c_str());
+        ecRudderKey[2] = guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY2, colLx1, rY2 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_2_WORKING_BUTTON, language->translate("pump2Working").c_str());
+        ecRudderKey[3] = guienv->addButton(irr::core::rect<irr::s32>(colLx0, rY3, colLx1, rY3 + rowH), extraControlsTabRudder, GUI_ID_RUDDERPUMP_2_FAILED_BUTTON, language->translate("pump2Failed").c_str());
 
-        guienv->addButton(irr::core::rect<irr::s32>(colRx0, rY0, colRx1, rY0 + rowH), extraControlsTabRudder, GUI_ID_FOLLOWUP_WORKING_BUTTON, language->translate("followUpWorking").c_str());
-        guienv->addButton(irr::core::rect<irr::s32>(colRx0, rY1, colRx1, rY1 + rowH), extraControlsTabRudder, GUI_ID_FOLLOWUP_FAILED_BUTTON, language->translate("followUpFailed").c_str());
+        ecRudderKey[4] = guienv->addButton(irr::core::rect<irr::s32>(colRx0, rY0, colRx1, rY0 + rowH), extraControlsTabRudder, GUI_ID_FOLLOWUP_WORKING_BUTTON, language->translate("followUpWorking").c_str());
+        ecRudderKey[5] = guienv->addButton(irr::core::rect<irr::s32>(colRx0, rY1, colRx1, rY1 + rowH), extraControlsTabRudder, GUI_ID_FOLLOWUP_FAILED_BUTTON, language->translate("followUpFailed").c_str());
     }
 
 
@@ -1132,13 +1145,13 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 ShipLights::overrideLabelFr(s));
             lightsOverrideBox[s]->setToolTipText(ShipLights::overrideTipFr(s));
         }
-        guienv->addButton(cell(4, cD0, cD1), tabFeux, GUI_ID_LIGHTS_OVR_RESET,
+        ecLightsResetKey = guienv->addButton(cell(4, cD0, cD1), tabFeux, GUI_ID_LIGHTS_OVR_RESET,
             L"R\u00E9tablir", L"Rallumer tous les feux masqu\u00E9s de ce navire");
 
         //Row 6: the answer key, for the instructor - and the way into the placement editor.
         lightsStatusText = guienv->addStaticText(L"", cell(6, cA0, cC1), false, false, tabFeux);
         lightsStatusText->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
-        guienv->addButton(cell(6, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
+        ecLightsEditKey = guienv->addButton(cell(6, cD0, cD1), tabFeux, GUI_ID_LIGHTS_EDIT_BUTTON,
             L"Placer les feux", L"Placer les feux de ce navire \u00E0 la main et les enregistrer dans son boat.ini");
     }
 #endif //KYARA_COLREG_ENABLED - the "Eclairage" tab below is NOT part of COLREG and stays
@@ -1186,7 +1199,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
         //Row 5: which screens and gauges glow (hidden from trainees with show_instrument_tool=0)
         if (showInstrumentTool) {
-            guienv->addButton(irr::core::rect<irr::s32>(labelX0, rowY(5), valueX1, rowY(5) + rowH),
+            ecInstrEditKey = guienv->addButton(irr::core::rect<irr::s32>(labelX0, rowY(5), valueX1, rowY(5) + rowH),
                 tabBord, GUI_ID_INSTR_EDIT_BUTTON, L"Choisir les \u00E9crans \u00E9clair\u00E9s",
                 L"Cliquer sur les \u00E9crans et cadrans de la passerelle pour choisir ceux qui s'\u00E9clairent la nuit, "
                 L"puis les enregistrer dans le boat.ini du navire");
@@ -1221,7 +1234,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         sizeVesselBox->setSelected(0);
 
         //Row 1: into the tool
-        guienv->addButton(irr::core::rect<irr::s32>(x0, rowY(1), x1, rowY(1) + rowH), tabTaille,
+        ecSizeEditKey = guienv->addButton(irr::core::rect<irr::s32>(x0, rowY(1), x1, rowY(1) + rowH), tabTaille,
             GUI_ID_SIZE_EDIT_BUTTON, L"Taille et flottaison",
             L"R\u00E9gler la longueur et la ligne de flottaison de ce navire en direct, puis les enregistrer dans son boat.ini");
 
@@ -1234,9 +1247,187 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             L"(masse, inertie) suit au prochain lancement du sc\u00E9nario.",
             irr::core::rect<irr::s32>(x0, rowY(2), xEnd, rowY(5) + rowH), false, true, tabTaille);
         help->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
+        ecSizeHelp = help;
     }
 
     refreshLightsTab();
+
+    //--- The controls window as it is shown: the weather window's look, over the widgets above ---
+    {
+        controlsPanel = new ControlsPanel(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(0, 0, 10, 10));
+        controlsPanel->drop();
+        controlsPanel->setTitle(L"CONTR\u00D4LES", bridge::ICON_CONTROLS);
+        ControlsPanel* cp = controlsPanel;
+        auto textOf = [](irr::gui::IGUIElement* e) -> std::wstring { return (e && e->getText()) ? std::wstring(e->getText()) : std::wstring(); };
+        const std::vector<std::wstring> workingFailed = { L"En service", L"En panne" };
+
+        //Sea and weather
+        const int tSea = cp->addTab(L"Mer et temps",
+            L"La mer, la pluie, la visibilit\u00E9 et l'orage. La fen\u00EAtre M\u00C9T\u00C9O r\u00E8gle le m\u00EAme temps, et bien plus (nuages, rafales, neige, sable, pr\u00E9r\u00E9glages).",
+            [this, textOf]() {
+                std::vector<ControlsPanel::Readout> out;
+                out.push_back({ L"Mer", textOf(weatherValue), 0 });
+                if (swellInfoText) { out.push_back({ L"Mer du vent et houle", textOf(swellInfoText), 0 }); }
+                out.push_back({ L"Pluie", textOf(rainValue), 0 });
+                out.push_back({ L"Visibilit\u00E9", textOf(visibilityValue), 0 });
+                return out;
+            });
+        cp->addSection(tSea, L"Mer");
+        cp->addSlider(tSea, L"\u00C9tat de la mer", L"La hauteur des vagues et de la houle, de la mer d'huile (0) \u00E0 la mer tr\u00E8s grosse (6).",
+            weatherScrollbar, weatherValue);
+        if (motionScaleScrollbar) {
+            cp->addSlider(tSea, L"Mouvement du navire", L"Amplitude du tangage et du roulis affich\u00E9s. 100 % = r\u00E9aliste, moins = plus confortable. Le pilonnement, la perte de vitesse et l'embard\u00E9e restent r\u00E9els.",
+                motionScaleScrollbar, motionScaleValue);
+        }
+        cp->addSection(tSea, L"Pluie et visibilit\u00E9");
+        cp->addSlider(tSea, L"Pluie", L"De la bruine \u00E0 l'averse (0 \u00E0 10). La pluie se voit aussi sur l'\u00E9cran radar.", rainScrollbar, rainValue);
+        cp->addSlider(tSea, L"Visibilit\u00E9", L"La distance \u00E0 laquelle on voit, en milles nautiques.", visibilityScrollbar, visibilityValue);
+        cp->addSection(tSea, L"Orage");
+        if (ecThunderBox) { cp->addToggle(tSea, L"Tonnerre", L"Le grondement du tonnerre pendant un orage.", ecThunderBox); }
+        if (ecLightningBox) { cp->addToggle(tSea, L"\u00C9clairs", L"Les \u00E9clairs dans le ciel pendant un orage.", ecLightningBox); }
+        if (ecStormKey) {
+            cp->addKeys(tSea, L"", L"Un clic : mer forte, pluie, visibilit\u00E9 r\u00E9duite, orage.", { ecStormKey }, { L"Mauvais temps" });
+        }
+
+        //Wind and current
+        const int tWind = cp->addTab(L"Vent et courant",
+            L"Le vent est nomm\u00E9 d'o\u00F9 il vient, le courant vers o\u00F9 il porte. Le courant r\u00E9gl\u00E9 ici ne remplace celui de la mar\u00E9e que si \u00AB Imposer le courant \u00BB est activ\u00E9.",
+            [this, textOf]() {
+                std::vector<ControlsPanel::Readout> out;
+                out.push_back({ L"Vent", textOf(windDirectionValue) + L"  \u00B7  " + textOf(windSpeedValue), 0 });
+                if (streamOverride && streamOverride->isChecked()) {
+                    out.push_back({ L"Courant impos\u00E9", textOf(streamDirectionValue) + L"  \u00B7  " + textOf(streamSpeedValue), 0 });
+                }
+                else {
+                    out.push_back({ L"Courant", L"Courant de mar\u00E9e de la zone", 0 });
+                }
+                return out;
+            });
+        cp->addSection(tWind, L"Vent");
+        cp->addSlider(tWind, L"Direction du vent", L"La direction d'o\u00F9 vient le vent, en degr\u00E9s vrais.", windDirectionScrollbar, windDirectionValue);
+        cp->addSlider(tWind, L"Force du vent", L"Le vent moyen, en n\u0153uds (et sa force Beaufort).", windSpeedScrollbar, windSpeedValue);
+        cp->addSection(tWind, L"Courant");
+        if (streamOverride) {
+            cp->addToggle(tWind, L"Imposer le courant", L"Remplace le courant de mar\u00E9e de la zone par celui r\u00E9gl\u00E9 ci-dessous.", streamOverride);
+        }
+        cp->addSlider(tWind, L"Direction du courant", L"La direction vers o\u00F9 porte le courant, en degr\u00E9s vrais.", streamDirectionScrollbar, streamDirectionValue);
+        cp->addSlider(tWind, L"Vitesse du courant", L"La vitesse du courant, en n\u0153uds.", streamSpeedScrollbar, streamSpeedValue);
+
+        //Steering failures
+        const int tRudder = cp->addTab(L"Avaries de barre",
+            L"Pannes \u00E0 donner au stagiaire. Une pompe en panne d\u00E9clenche l'alarme et la barre tourne deux fois moins vite ; les deux en panne, la barre ne r\u00E9pond plus.",
+            [this]() {
+                std::vector<ControlsPanel::Readout> out;
+                if (!this->model) { return out; }
+                const bool p1 = this->model->getRudderPumpState(1), p2 = this->model->getRudderPumpState(2), fu = this->model->getFollowUpRudderWorking();
+                out.push_back({ L"Pompe de barre 1", p1 ? L"En service" : L"En panne", p1 ? 1 : 2 });
+                out.push_back({ L"Pompe de barre 2", p2 ? L"En service" : L"En panne", p2 ? 1 : 2 });
+                out.push_back({ L"Barre asservie", fu ? L"En service" : L"En panne : gouverner en non asservi (NFU)", fu ? 1 : 2 });
+                return out;
+            });
+        cp->addSection(tRudder, L"Pompes de barre");
+        if (ecRudderKey[0] && ecRudderKey[1]) {
+            cp->addKeys(tRudder, L"Pompe 1", L"La premi\u00E8re pompe de l'appareil \u00E0 gouverner.", { ecRudderKey[0], ecRudderKey[1] }, workingFailed,
+                [this]() { return (this->model && this->model->getRudderPumpState(1)) ? 0 : 1; });
+        }
+        if (ecRudderKey[2] && ecRudderKey[3]) {
+            cp->addKeys(tRudder, L"Pompe 2", L"La seconde pompe de l'appareil \u00E0 gouverner.", { ecRudderKey[2], ecRudderKey[3] }, workingFailed,
+                [this]() { return (this->model && this->model->getRudderPumpState(2)) ? 0 : 1; });
+        }
+        cp->addSection(tRudder, L"Commande de barre");
+        if (ecRudderKey[4] && ecRudderKey[5]) {
+            cp->addKeys(tRudder, L"Barre asservie", L"La barre asservie (follow-up). En panne, il faut gouverner avec les boutons non asservis (NFU).",
+                { ecRudderKey[4], ecRudderKey[5] }, workingFailed,
+                [this]() { return (this->model && this->model->getFollowUpRudderWorking()) ? 0 : 1; });
+        }
+
+        //View
+        const int tView = cp->addTab(L"Vue", L"Ce que montre l'\u00E9cran de la passerelle.");
+        if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
+
+        //COLREG lights of any vessel
+        if (lightsVesselBox && lightsStatusText) {
+            const int tLights = cp->addTab(L"Feux",
+                L"Les feux et marques de n'importe quel navire du sc\u00E9nario, selon sa situation COLREG, et les erreurs volontaires que le stagiaire doit trouver.",
+                [this, textOf]() {
+                    std::vector<ControlsPanel::Readout> out;
+                    std::wstring expected = textOf(lightsStatusText);
+                    const std::wstring prefix = L"Attendu : ";
+                    if (expected.compare(0, prefix.size(), prefix) == 0) { expected = expected.substr(prefix.size()); }
+                    ShipLights* lights = this->model ? this->model->getShipLights(getLightsVessel()) : 0;
+                    out.push_back({ L"Feux attendus", expected, (lights && lights->hasOverrides()) ? 2 : 0 });
+                    return out;
+                });
+            cp->addChoice(tLights, L"Navire", L"Le navire dont on r\u00E8gle les feux : le navire propre, ou un des autres navires du sc\u00E9nario.", lightsVesselBox);
+            cp->addSection(tLights, L"Situation");
+            for (int k = 0; k + 1 < ShipLights::SIT_COUNT; k += 2) {
+                if (!lightsSitButton[k] || !lightsSitButton[k + 1]) { continue; }
+                cp->addKeys(tLights, L"", L"", { lightsSitButton[k], lightsSitButton[k + 1] },
+                    { ShipLights::getSituationShortFr((ShipLights::Situation)k), ShipLights::getSituationShortFr((ShipLights::Situation)(k + 1)) },
+                    [this, k]() {
+                        ShipLights* lights = this->model ? this->model->getShipLights(getLightsVessel()) : 0;
+                        if (!lights) { return -1; }
+                        const int sit = (int)lights->getSituation();
+                        return (sit == k || sit == k + 1) ? sit - k : -1;
+                    });
+            }
+            if (ShipLights::SIT_COUNT % 2 == 1 && lightsSitButton[ShipLights::SIT_COUNT - 1]) {
+                const int last = ShipLights::SIT_COUNT - 1;
+                cp->addKeys(tLights, L"", L"", { lightsSitButton[last] }, { ShipLights::getSituationShortFr((ShipLights::Situation)last) },
+                    [this, last]() {
+                        ShipLights* lights = this->model ? this->model->getShipLights(getLightsVessel()) : 0;
+                        return (lights && (int)lights->getSituation() == last) ? 0 : -1;
+                    });
+            }
+            if (lightsDeckBox) {
+                cp->addToggle(tLights, L"Feux de pont", L"Feux de travail / de pont de ce navire (pas des feux de navigation).", lightsDeckBox);
+            }
+            cp->addSection(tLights, L"Feu masqu\u00E9 (erreur volontaire)");
+            for (int s = 0; s < ShipLights::OVERRIDE_SLOTS; s++) {
+                if (lightsOverrideBox[s]) {
+                    cp->addToggle(tLights, ShipLights::overrideLabelFr(s), ShipLights::overrideTipFr(s), lightsOverrideBox[s]);
+                }
+            }
+            if (ecLightsResetKey) {
+                cp->addKeys(tLights, L"", L"", { ecLightsResetKey }, { L"R\u00E9tablir tous les feux" });
+            }
+            if (ecLightsEditKey) {
+                cp->addSection(tLights, L"Placement");
+                cp->addKeys(tLights, L"", L"", { ecLightsEditKey }, { L"Placer les feux" });
+            }
+        }
+
+        //Lighting inside the own ship
+        {
+            const int tBord = cp->addTab(L"\u00C9clairage",
+                L"L'\u00E9clairage \u00E0 bord du navire propre : les \u00E9crans et cadrans de la passerelle, et les feux de pont.",
+                [this, textOf]() {
+                    std::vector<ControlsPanel::Readout> out;
+                    if (interiorStatusText) { out.push_back({ L"\u00C0 bord", textOf(interiorStatusText), 0 }); }
+                    return out;
+                });
+            if (instrLightsButton[0] && instrLightsButton[1] && instrLightsButton[2]) {
+                cp->addKeys(tBord, L"\u00C9crans et cadrans", L"L'\u00E9clairage des \u00E9crans et instruments de la passerelle.",
+                    { instrLightsButton[0], instrLightsButton[1], instrLightsButton[2] },
+                    { L"\u00C9teints", L"Tamis\u00E9s", L"Pleins feux" },
+                    [this]() { return this->model ? this->model->getOwnShipInstrumentLights() : -1; });
+            }
+            if (ownDeckLightsBox) {
+                cp->addToggle(tBord, L"Feux de pont / travail", L"Projecteurs de pont avant, arri\u00E8re et de coup\u00E9e. Ils n'\u00E9clairent le pont que la nuit.", ownDeckLightsBox);
+            }
+            if (ecInstrEditKey) {
+                cp->addSection(tBord, L"\u00C9crans \u00E9clair\u00E9s");
+                cp->addKeys(tBord, L"", L"", { ecInstrEditKey }, { L"Choisir les \u00E9crans \u00E9clair\u00E9s" });
+            }
+        }
+
+        //Size and waterline
+        if (sizeVesselBox) {
+            const int tSize = cp->addTab(L"Taille", ecSizeHelp ? textOf(ecSizeHelp) : std::wstring());
+            cp->addChoice(tSize, L"Navire", L"Le navire \u00E0 r\u00E9gler : le navire propre, ou un des autres navires du sc\u00E9nario.", sizeVesselBox);
+            if (ecSizeEditKey) { cp->addKeys(tSize, L"", L"", { ecSizeEditKey }, { L"Taille et flottaison" }); }
+        }
+    }
 
 
 
@@ -2380,6 +2571,7 @@ void GUIMain::hideInSecondary() {
     //Hide user inputs if in secondary mode
     if (weatherButton) { weatherButton->setVisible(false); }
     if (weatherPanel) { weatherPanel->setVisible(false); }
+    if (controlsPanel) { controlsPanel->setVisible(false); }
     if (stbdScrollbar) { stbdScrollbar->setVisible(false); }
     if (portScrollbar) { portScrollbar->setVisible(false); }
     if (azimuth1Control) { azimuth1Control->setVisible(false); }
@@ -3438,7 +3630,7 @@ void GUIMain::drawGUI()
 
     //KYARA FEUX TAB: only while the window is open. Her making-way state changes the expected
     //lights, so the answer line has to follow her as she stops or gets under way.
-    if (extraControlsWindow && extraControlsWindow->isVisible()) {
+    if (controlsPanel && controlsPanel->isVisible()) {
         refreshLightsTab();
     }
     //KYARA FEUX EDIT: the readout follows the lamp as it moves
@@ -4054,10 +4246,20 @@ void GUIMain::drawCommsOverlay()
 }
 void GUIMain::setExtraControlsWindowVisible(bool windowVisible)
 {
-    extraControlsWindow->setVisible(windowVisible);
+    //The old window stays hidden: the controls window is drawn by controlsPanel
+    if (!controlsPanel) { return; }
     if (windowVisible) {
-        guienv->setFocus(extraControlsWindow);
+        refreshLightsTab();
+        placeOverView(controlsPanel);
+        if (weatherPanel) { weatherPanel->setVisible(false); } //the two windows take the same place
     }
+    controlsPanel->setVisible(windowVisible);
+    if (windowVisible) { guienv->getRootGUIElement()->bringToFront(controlsPanel); }
+}
+
+void GUIMain::toggleExtraControlsWindow()
+{
+    setExtraControlsWindowVisible(!(controlsPanel && controlsPanel->isVisible()));
 }
 
 void GUIMain::setLinesControlsWindowVisible(bool windowVisible)
@@ -4905,14 +5107,19 @@ void GUIMain::setPaletteChoice(int choice)
 
 void GUIMain::placeWeatherPanel()
 {
-    if (!weatherPanel) { return; }
+    placeOverView(weatherPanel);
+}
+
+void GUIMain::placeOverView(irr::gui::IGUIElement* panel)
+{
+    if (!panel) { return; }
     //Over the bridge view, on the middle screen (Surround), as large as the view allows
     const irr::s32 viewH = (irr::s32)(sh * viewProportion3D());
     const irr::s32 w = irr::core::min_(1260, (irr::s32)(consoleArea.getWidth() * 0.92f));
     const irr::s32 h = irr::core::max_(irr::core::min_(780, (irr::s32)(viewH * 0.9f)), irr::core::min_(480, (irr::s32)sh - 40));
     const irr::s32 x = consoleArea.getCenter().X - w / 2;
     const irr::s32 y = irr::core::max_(10, (viewH - h) / 2);
-    weatherPanel->setRelativePosition(irr::core::rect<irr::s32>(x, y, x + w, y + h));
+    panel->setRelativePosition(irr::core::rect<irr::s32>(x, y, x + w, y + h));
 }
 
 void GUIMain::toggleWeatherPanel()
@@ -4923,6 +5130,7 @@ void GUIMain::toggleWeatherPanel()
         return;
     }
     placeWeatherPanel();
+    if (controlsPanel) { controlsPanel->setVisible(false); } //the two windows take the same place
     weatherPanel->setVisible(true);
     guienv->getRootGUIElement()->bringToFront(weatherPanel);
 }

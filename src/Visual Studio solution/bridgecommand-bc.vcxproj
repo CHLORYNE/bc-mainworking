@@ -155,6 +155,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\Rain.cpp" />
     <ClCompile Include="..\Snow.cpp" />
     <ClCompile Include="..\WeatherPanel.cpp" />
+    <ClCompile Include="..\ControlsPanel.cpp" />
     <ClCompile Include="..\launcher\HudText.cpp" />
     <ClCompile Include="..\ScenarioChoice.cpp" />
     <ClCompile Include="..\ScenarioDataStructure.cpp" />
@@ -241,6 +242,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\Rain.hpp" />
     <ClInclude Include="..\Snow.hpp" />
     <ClInclude Include="..\WeatherPanel.hpp" />
+    <ClInclude Include="..\ControlsPanel.hpp" />
     <ClInclude Include="..\launcher\HudText.hpp" />
     <ClInclude Include="..\ScenarioChoice.hpp" />
     <ClInclude Include="..\ScenarioDataStructure.hpp" />

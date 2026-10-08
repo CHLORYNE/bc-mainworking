@@ -188,6 +188,7 @@ public:
     void setRudderPumpState(int whichPump, bool rudderPumpState); //Sets how the rudder is responding. Assumed that whichPump can be 1 or 2
     bool getRudderPumpState(int whichPump) const;
     void setFollowUpRudderWorking(bool followUpRudderWorking); //Sets if the normal (follow up) rudder is working
+    bool getFollowUpRudderWorking();
     void setAccelerator(irr::f32 accelerator); //Set simulation time compression
     irr::f32 getAccelerator() const;
     irr::f32 getHeading() const; //Gets the own ship's heading

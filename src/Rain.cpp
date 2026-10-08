@@ -114,6 +114,9 @@ Rain::Rain() {
     rainNode1 = 0;
     rainNode2 = 0;
     rainNode3 = 0;
+    lastScenarioTime = 0.0f;
+    timeKnown = false;
+    scrollY1 = scrollY2 = scrollY3 = scrollDrift = 0.0f;
 }
 
 Rain::~Rain() {
@@ -281,6 +284,12 @@ void Rain::update(irr::f32 scenarioTime) {
 
     if (!rainNode1 || !rainNode2 || !rainNode3) { return; }
 
+    //Time since the last frame (none when paused, and a jump in the scenario time is not a step)
+    irr::f32 dt = timeKnown ? scenarioTime - lastScenarioTime : 0.0f;
+    if (dt < 0.0f || dt > 0.5f) { dt = 0.0f; }
+    lastScenarioTime = scenarioTime;
+    timeKnown = true;
+
     if (rainIntensity <= 0.01f) { return; } //KYARA: nothing to scroll, nothing to position
 
     //KYARA: slant the streaks into the wind. Real rain does not fall vertically in a breeze -
@@ -324,12 +333,17 @@ void Rain::update(irr::f32 scenarioTime) {
     //The small per-layer differences stop the three shells drifting into a visible moire beat.
     //They are NOT the source of the parallax - that now comes from the shells being at genuinely
     //different distances, which is where it should come from.
-    irr::f32 y1 = scenarioTime * fallSpeed * 1.00f * V_PER_UNIT_NEAR;
-    irr::f32 y2 = scenarioTime * fallSpeed * 0.93f * V_PER_UNIT_MID;
-    irr::f32 y3 = scenarioTime * fallSpeed * 0.86f * V_PER_UNIT_FAR;
+    //Moved on by this frame's step only, so a change of speed changes the speed and nothing else.
+    scrollY1 = fmod(scrollY1 + dt * fallSpeed * 1.00f * V_PER_UNIT_NEAR, 1.0f);
+    scrollY2 = fmod(scrollY2 + dt * fallSpeed * 0.93f * V_PER_UNIT_MID, 1.0f);
+    scrollY3 = fmod(scrollY3 + dt * fallSpeed * 0.86f * V_PER_UNIT_FAR, 1.0f);
+    irr::f32 y1 = scrollY1;
+    irr::f32 y2 = scrollY2;
+    irr::f32 y3 = scrollY3;
 
     //Sideways drift, so the sheet visibly moves across the wind rather than just leaning.
-    irr::f32 drift = scenarioTime * (windMps / 60.0f);
+    scrollDrift = fmod(scrollDrift + dt * (windMps / 60.0f), 1.0f);
+    irr::f32 drift = scrollDrift;
 
     //Keep the offsets in 0..1 - the texture matrix wraps, but letting these grow without bound
     //eventually costs float precision and the rain starts to judder.

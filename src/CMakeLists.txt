@@ -83,6 +83,7 @@ set(BC_SOURCES
     Rain.cpp
     Snow.cpp
     WeatherPanel.cpp
+    ControlsPanel.cpp
     launcher/HudText.cpp
     ScenarioChoice.cpp
     ScenarioDataStructure.cpp

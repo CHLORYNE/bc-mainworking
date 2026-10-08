@@ -27,6 +27,10 @@ private:
     irr::scene::ISceneNode* layer[3];           //near, middle, far
     irr::video::ITexture* picture[LEVELS];
     int shownLevel;
+    //Texture offsets moved on by speed x time step (a change of wind must not make them race)
+    irr::f32 lastScenarioTime;
+    bool timeKnown;
+    irr::f32 fall[3], drift[3];
 };
 
 #endif

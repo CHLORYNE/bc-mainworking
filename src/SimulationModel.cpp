@@ -2023,6 +2023,10 @@ void SimulationModel::setFollowUpRudderWorking(bool followUpRudderWorking) {
     ownShip.setFollowUpRudderWorking(followUpRudderWorking);
 }
 
+bool SimulationModel::getFollowUpRudderWorking() {
+    return ownShip.getFollowUpRudderWorking();
+}
+
 void SimulationModel::setAccelerator(irr::f32 accelerator)
 {
     device->getTimer()->setSpeed(accelerator);
