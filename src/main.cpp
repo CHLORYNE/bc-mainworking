@@ -1696,8 +1696,13 @@ int main(int argc, char** argv)
                     irr::f32 colAspect = (irr::f32)colW / (irr::f32)baseH;
                     irr::f32 yaw[3] = { -bezelYaw, 0.0f, bezelYaw }; // left(port), centre, right(stbd)
                     for (int c = 0; c < 3; ++c) {
-                        driver->setViewPort(irr::core::rect<irr::s32>(c * colW, 0, (c + 1) * colW, baseH));
-                        model.renderMainColumn(colAspect, perScreenFOV, yaw[c]);
+                        //With the console on the middle screen only, the side screens show the view to the
+                        //bottom: same scale, horizon raised to where the middle screen has it.
+                        const bool fullSide = (c != 1) && guiMain.getCompact3dView() && guiMain.getSideScreensFree();
+                        const irr::s32 colH = fullSide ? (irr::s32)graphicsHeight : baseH;
+                        driver->setViewPort(irr::core::rect<irr::s32>(c * colW, 0, (c + 1) * colW, colH));
+                        const irr::f32 shiftY = fullSide ? (irr::f32)(colH - baseH) / (irr::f32)colH : 0.0f;
+                        model.renderMainColumn(fullSide ? (irr::f32)colW / (irr::f32)colH : colAspect, perScreenFOV, yaw[c], shiftY);
                         smgr->drawAll();
                     }
                     //Restore the full-surface viewport so the GUI/overlays draw across all screens

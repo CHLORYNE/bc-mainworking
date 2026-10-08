@@ -2567,9 +2567,9 @@ void SimulationModel::updateViewport(irr::f32 aspect)
 //NAUTITECH triple-screen: render one angled column of the main view.
 //columnHFOVdeg is the horizontal FOV of a single TV (degrees); yawOffsetDeg
 //points this column to port (-) or starboard (+). Zoom still applies.
-void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg)
+void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY)
 {
-    camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg);
+    camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg, shiftY);
 }
 void SimulationModel::setTripleScreen(bool on, irr::f32 perScreenFOVdeg, irr::f32 bezelYawDeg)
 {

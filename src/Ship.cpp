@@ -25,6 +25,13 @@
 
 Ship::Ship()
 {
+    //Every value set before the first update: another ship's speed is read on the very first frame
+    //(own ship collision response), before that ship has moved once - unset, it was whatever was in
+    //memory and could make the own ship's position NaN at the start of an exercise.
+    ship = 0;
+    hdg = 0; xPos = 0; yPos = 0; zPos = 0; axialSpd = 0;
+    length = 0; breadth = 0; draught = 0; airDraught = 0;
+    heightCorrection = 0; angleCorrection = 0; angleCorrectionRoll = 0; angleCorrectionPitch = 0;
     //Default to run on defined spd and hdg
     controlMode = MODE_AUTO;
     positionManuallyUpdated = false; //Used to track if position has been manually updated, and shouldn't have position update applied this loop

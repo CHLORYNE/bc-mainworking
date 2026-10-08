@@ -525,14 +525,14 @@ void Camera::update(irr::f32 deltaTime, irr::core::quaternion quat, irr::core::v
 //Eyefinity surface. Reuses parentPosition / parentAngles / lookAngle / lookUpAngle
 //already set by the most recent update() call, so no extra model tick is needed.
 //Non-VR path (identity head quaternion, no positional offset, no lens shift).
-void Camera::renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f32 yawOffsetDeg)
+void Camera::renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f32 yawOffsetDeg, irr::f32 shiftY)
 {
     // Per-column aspect + field of view
     camera->setAspectRatio(columnAspect);
     hFOV = columnHFOVrad;
     irr::f32 vFOV = 2*atan(tan(hFOV/2)/columnAspect);
     camera->setFOV(vFOV);
-    camera->setLensShift(irr::core::vector2df(0,0));
+    camera->setLensShift(irr::core::vector2df(0, shiftY));
 
     //KYARA FEUX EDIT: triple-screen columns turn about the orbit position too
     if (orbiting) {

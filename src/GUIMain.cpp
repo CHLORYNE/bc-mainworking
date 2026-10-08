@@ -20,6 +20,7 @@
 
 #include "GUIMain.hpp"
 #include "BridgeSkin.hpp"
+#include "CentreScreen.hpp"
 #include <cctype>
 
 #include "Constants.hpp"
@@ -587,6 +588,21 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //Slim console layout: the band under the 3D view is only as tall as the dials need, with the
     //command bar along the bottom; the 3D view gets the rest of the screen (viewProportion3D).
     //Azimuth-drive ships keep their own arrangement of dials round the console.
+    //Screens side by side seen as one (Surround / Eyefinity): everything in the band goes on the
+    //middle screen. bc5.ini menu_screens (0 = from the window's shape), triple_screen=1 = three.
+    {
+        int forced = (int)IniFile::iniFileTou32(iniFilename, "menu_screens");
+        const bool tripleView = IniFile::iniFileTou32(iniFilename, "triple_screen") == 1;
+        if (forced == 0 && tripleView) { forced = 3; }
+        centre::state().forcedScreens = forced;
+        const irr::core::dimension2du window((irr::u32)su, (irr::u32)sh);
+        const int screens = centre::screensAcross(window);
+        consoleArea = centre::middleArea(window, screens);
+        //The three camera columns are exactly the three screens: the side ones can run to the bottom
+        sideScreensFree = tripleView && screens == 3;
+    }
+    //x at fraction f of the console's width (the middle screen on Surround, else the window)
+    auto X = [&](irr::f32 f) { return consoleArea.UpperLeftCorner.X + (irr::s32)(f * consoleArea.getWidth()); };
     if (instrumentsEnabled && instrumentPanel) {
         irr::gui::IGUIFont* barFont = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
         const irr::s32 fh = barFont ? (irr::s32)barFont->getDimension(L"Ag").Height : 16;
@@ -595,6 +611,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         if (!azimuthDrive) {
             //The dial size the width allows (the panel is still at its old height here), at most a
             //quarter of the screen
+            instrumentPanel->setRelativePosition(irr::core::rect<irr::s32>(X(0.09f), (irr::s32)(0.608 * sh), X(0.995f), (irr::s32)(0.910 * sh)));
             irr::f32 D = instrumentPanel->getGaugeDiameter();
             if (D > 0.24f * sh) { D = 0.24f * sh; }
             const irr::s32 consoleH = (irr::s32)(D * 1.12f) + 4;
@@ -603,7 +620,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             viewProportion3D() = (irr::f32)bandTop / (irr::f32)sh;
             const irr::s32 top = bandTop + m;
             const irr::s32 consoleBottom = (irr::s32)sh - m - barH - m;
-            const irr::core::rect<irr::s32> consoleRect((irr::s32)(0.09 * su), top, (irr::s32)(0.995 * su), consoleBottom);
+            const irr::core::rect<irr::s32> consoleRect(X(0.09f), top, X(0.995f), consoleBottom);
             instrumentPanel->setRelativePosition(consoleRect);
             consolePanelAttachedRect = consoleRect;
             consoleAttachedGaugeD = instrumentPanel->getGaugeDiameter();
@@ -614,7 +631,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             const irr::s32 thrusters = (bowThrusterScrollbar ? 1 : 0) + (sternThrusterScrollbar ? 1 : 0);
             const irr::s32 leverTop = top + labelH;
             const irr::s32 leverBottom = consoleBottom - thrusters * (thrusterH + 2);
-            const irr::s32 xa = (irr::s32)(0.008 * su), xb = (irr::s32)(0.045 * su), xc = (irr::s32)(0.085 * su);
+            const irr::s32 xa = X(0.008f), xb = X(0.045f), xc = X(0.085f);
             if (portText) {
                 portText->setRelativePosition(singleEngine ? irr::core::rect<irr::s32>(xa, top, xc, top + labelH)
                                                            : irr::core::rect<irr::s32>(xa, top, xb, top + labelH));
@@ -644,7 +661,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 sternThrusterScrollbar->setRelativePosition(irr::core::rect<irr::s32>(xa, ty, xc, ty + thrusterH));
             }
             if (clickForEngineText) { clickForEngineText->setRelativePosition(irr::core::rect<irr::s32>(xa, leverTop, xc, leverBottom)); }
-            commandBarRect = irr::core::rect<irr::s32>((irr::s32)(0.005 * su), (irr::s32)sh - m - barH, (irr::s32)(0.995 * su), (irr::s32)sh - m);
+            commandBarRect = irr::core::rect<irr::s32>(X(0.005f), (irr::s32)sh - m - barH, X(0.995f), (irr::s32)sh - m);
+            if (emergencySteering) {
+                emergencySteering->setRelativePosition(irr::core::rect<irr::s32>(X(0.955f), (irr::s32)(0.94 * sh), X(0.975f), (irr::s32)(0.96 * sh)));
+            }
         }
         else {
             commandBarRect = irr::core::rect<irr::s32>((irr::s32)(0.09 * su + azimuthGUIOffsetL), (irr::s32)(0.915 * sh),
@@ -679,9 +699,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     if (commandBar && commandBarRect.LowerRightCorner.Y > (irr::s32)(0.95 * sh)) {
         const irr::s32 bottom = commandBarRect.UpperLeftCorner.Y - irr::core::max_(4, (irr::s32)(0.006 * sh));
         const irr::s32 top = bottom - (irr::s32)(0.03 * sh);
-        radHdgIndicatorPos = irr::core::rect<irr::s32>((irr::s32)(0.46 * su), top, (irr::s32)(0.82 * su), bottom);
+        radHdgIndicatorPos = irr::core::rect<irr::s32>(X(0.46f), top, X(0.82f), bottom);
         maxHdgIndicatorPos = radHdgIndicatorPos;
-        radDataDisplayPos = irr::core::rect<irr::s32>((irr::s32)(0.83 * su), top, (irr::s32)(0.90 * su), bottom);
+        radDataDisplayPos = irr::core::rect<irr::s32>(X(0.83f), top, X(0.90f), bottom);
         altDataDisplayPos = radDataDisplayPos;
     }
     headingIndicator = new irr::gui::HeadingIndicator(guienv, guienv->getRootGUIElement(), stdHdgIndicatorPos);
@@ -2285,8 +2305,10 @@ void GUIMain::updateVisibility()
     if (wheelScrollbar) { wheelScrollbar->setVisible(showPrimary && !instrumentsEnabled); }
     if (bowThrusterScrollbar) { bowThrusterScrollbar->setVisible(showPrimary); }
     if (sternThrusterScrollbar) { sternThrusterScrollbar->setVisible(showPrimary); }
-    if (nonFollowUpPortButton) { nonFollowUpPortButton->setVisible(showPrimary && showInterface); }
-    if (nonFollowUpStbdButton) { nonFollowUpStbdButton->setVisible(showPrimary && showInterface); }
+    //(They go with the helm slider, which the console layout does not show; they used to sit hidden
+    //under the command bar, and come out from under it when the bar is on the middle of a Surround canvas.)
+    if (nonFollowUpPortButton) { nonFollowUpPortButton->setVisible(showPrimary && showInterface && !commandBar); }
+    if (nonFollowUpStbdButton) { nonFollowUpStbdButton->setVisible(showPrimary && showInterface && !commandBar); }
     // REMOVED dayNightButton HERE. Added lightingTimeBox and expanded UI logic:
     if (lightingTimeBox) { lightingTimeBox->setVisible(showPrimary); }
     if (binosButton) { binosButton->setVisible(showPrimary); }
@@ -2895,7 +2917,10 @@ void GUIMain::drawGUI()
         //old radar hole shows the scene clear colour, since that viewport is no longer rendered.)
         //With the console in its own window the bridge view fills the screen: nothing to paint.
         if (!consoleDetached) {
-            driver->draw2DRectangle(bridge::palette().band, irr::core::rect<irr::s32>(0, (irr::s32)(sh * viewProportion3D()), su, sh));
+            //(Surround with three camera columns: only under the middle screen, the side ones show the view)
+            const irr::s32 bandL = sideScreensFree ? consoleArea.UpperLeftCorner.X : 0;
+            const irr::s32 bandR = sideScreensFree ? consoleArea.LowerRightCorner.X : (irr::s32)su;
+            driver->draw2DRectangle(bridge::palette().band, irr::core::rect<irr::s32>(bandL, (irr::s32)(sh * viewProportion3D()), bandR, sh));
         }
     }
     else if (showInterface) {
@@ -4400,6 +4425,7 @@ void GUIMain::renderDetachedConsole()
     if (!consoleDetached || !consoleWindow) { return; }
     dispatchConsoleWindowInput();
     if (!consoleDetached) { return; }
+    consoleWindow->keepAboveSimulator();
 
     const irr::u32 now = device->getTimer()->getRealTime();
     if (now - consoleRateStartMs >= 1000) {

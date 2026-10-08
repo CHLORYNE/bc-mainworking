@@ -38,6 +38,10 @@ public:
     void poll(std::vector<irr::SEvent>& events, bool& closeRequested);
 
     irr::core::dimension2du getClientSize() const;
+    //Keeps the window in front of the simulator while the simulator is in use (a full-screen bridge
+    //view, above all on a Surround / Eyefinity canvas, would otherwise cover it), and lets other
+    //programs go over it when the simulator is in the background. Called every frame.
+    void keepAboveSimulator();
     //Frame position on the desktop and client size, for saving and restoring the placement.
     bool getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const;
 

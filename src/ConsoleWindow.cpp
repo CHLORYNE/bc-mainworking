@@ -215,6 +215,20 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
     return true;
 }
 
+void ConsoleWindow::keepAboveSimulator()
+{
+    if (!opened) { return; }
+    HWND window = (HWND)hwnd;
+    HWND mainWindow = (HWND)mainData.OpenGLWin32.HWnd;
+    HWND front = GetForegroundWindow();
+    const bool simulatorInFront = (front == mainWindow || front == window) && !IsIconic(mainWindow);
+    const bool onTop = (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    if (simulatorInFront != onTop) {
+        SetWindowPos(window, simulatorInFront ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+}
+
 void ConsoleWindow::close()
 {
     if (!opened) { return; }
@@ -353,6 +367,11 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
     closePending = false;
     opened = true;
     return true;
+}
+
+void ConsoleWindow::keepAboveSimulator()
+{
+    //X11: the window manager keeps the console's stacking (test builds only).
 }
 
 void ConsoleWindow::close()

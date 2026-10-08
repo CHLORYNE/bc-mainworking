@@ -2862,6 +2862,11 @@ void OwnShip::collisionDetectAndRespond(irr::f32& reaction, irr::f32& lateralRea
                         // TODO: Initially ignore rate of turn of other ship, but should be included
                         remotePointAxialSpeed = otherShipSpeed * cos(irr::core::DEGTORAD * otherShipRelativeHeading);
                         remotePointLateralSpeed = otherShipSpeed * sin(irr::core::DEGTORAD * otherShipRelativeHeading);
+                        //A speed that is not a number, or not a ship's, would wreck the own ship's motion
+                        if (!(fabs(remotePointAxialSpeed) < 1000.0f) || !(fabs(remotePointLateralSpeed) < 1000.0f)) {
+                            remotePointAxialSpeed = 0;
+                            remotePointLateralSpeed = 0;
+                        }
                     }
                 }
             }

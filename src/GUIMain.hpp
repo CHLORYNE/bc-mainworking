@@ -373,6 +373,11 @@ public:
     void setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool);
     //Day / dusk / night / digital colours: a bridge::Mode, or -1 to follow the daylight
     void setPaletteChoice(int choice);
+    //Several screens seen as one (Surround / Eyefinity): the console, levers and command bar are on
+    //the middle screen (consoleArea, the whole window otherwise). With triple_screen=1 the side
+    //screens then show the bridge view down to the bottom (sideScreensFree).
+    irr::core::rect<irr::s32> getConsoleArea() const { return consoleArea; }
+    bool getSideScreensFree() const { return sideScreensFree; }
     //Glow of the lit instruments, 0..100 (50 = normal)
     void setGlowLevel(int level);
     //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
@@ -754,6 +759,8 @@ private:
     irr::core::rect<irr::s32> commandBarRect;
     irr::core::stringw iconSpace;          //leading spaces that leave room for a key's icon
     int paletteChoice = -1;                //-1 = follows the daylight, else bridge::Mode
+    irr::core::rect<irr::s32> consoleArea;  //where the console and the command bar go
+    bool sideScreensFree = false;           //side screens: 3D view to the bottom, nothing drawn over it
     int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
     static const int PALETTE_KEYS = 5;
     irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, AUTO
