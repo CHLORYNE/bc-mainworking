@@ -1252,6 +1252,15 @@ int main(int argc, char** argv)
     std::srand(device->getTimer()->getTime());*/
 
     //create GUI
+    //The device is let go only after the GUI and the model below are destroyed (objects go in the
+    //reverse order). Dropped earlier, as it was, their destructors removed fire, monitor and GUI
+    //elements the device had already freed: a crash on quitting after a fire exercise.
+    struct DeviceRelease
+    {
+        irr::IrrlichtDevice* device;
+        ~DeviceRelease() { if (device) { device->drop(); } }
+    } deviceRelease = { device };
+
     GUIMain guiMain;
     guiMain.setInstanceNumber(instanceNumber);
 #ifdef _WIN32
@@ -1820,7 +1829,7 @@ int main(int argc, char** argv)
         std::cout << "Unloaded OpenXR" << std::endl;
     }
 
-    device->drop();
+    //(the device is dropped by deviceRelease, after guiMain and model)
 
     scriptToExe = IniFile::iniFileToString(iniFilename, "script_stop_BC");
     if (!scriptToExe.empty()) {

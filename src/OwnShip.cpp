@@ -21,6 +21,7 @@
 #include "SimulationModel.hpp"
 #include "Swell.hpp" // KYARA HOULE
 #include <string>
+#include <cmath>
 #include "ScenarioDataStructure.hpp"
 #include "Terrain.hpp"
 #include "IniFile.hpp"
@@ -667,8 +668,17 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
 
     // calculate max speed from dynamics parameters
     //  DEE this looks like it is in knots and not metres per second
-    maxSpeedAhead = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce)) / (2 * dynamicsSpeedA);
-    maxSpeedAstern = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce * asternEfficiency)) / (2 * dynamicsSpeedA);
+    if (dynamicsSpeedA > 0) {
+        maxSpeedAhead = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce)) / (2 * dynamicsSpeedA);
+        maxSpeedAstern = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce * asternEfficiency)) / (2 * dynamicsSpeedA);
+    }
+    else {
+        //No square drag in boat.ini (and no maxSpeed to work it out from): the formula above divides
+        //by zero. Linear drag only, or nothing to go on.
+        device->getLogger()->log("boat.ini: DynamicsSpeedA missing or zero, set MaxSpeedAhead or DynamicsSpeedA");
+        maxSpeedAhead = dynamicsSpeedB > 0 ? 2 * maxForce / dynamicsSpeedB : 0;
+        maxSpeedAstern = dynamicsSpeedB > 0 ? 2 * maxForce * asternEfficiency / dynamicsSpeedB : 0;
+    }
 
     // Calculate engine speed required - the port and stbd engine speeds get send back to the GUI with updateGuiData.
 
@@ -2625,12 +2635,20 @@ void OwnShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHei
 
 irr::f32 OwnShip::getCOG() const
 {
-    return cog;
+    return cogSogFromNetwork ? networkCog : cog;
 }
 
 irr::f32 OwnShip::getSOG() const
 {
-    return sog; // m/s
+    return cogSogFromNetwork ? networkSog : sog; // m/s
+}
+
+void OwnShip::setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogMps)
+{
+    if (!std::isfinite(cogDeg) || !std::isfinite(sogMps)) { return; }
+    cogSogFromNetwork = true;
+    networkCog = fmodf(fmodf(cogDeg, 360.0f) + 360.0f, 360.0f);
+    networkSog = sogMps;
 }
 
 

@@ -20,6 +20,7 @@
 #include "../Constants.hpp"
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 Network::Network(int port) //Constructor
@@ -172,9 +173,8 @@ void Network::listenForMessages()
         if (event.type==ENET_EVENT_TYPE_RECEIVE) {
 
             //Convert into a string, max length 8192
-            char tempString[8192]; //Fixme: Think if this is long enough
-            snprintf(tempString,8192,"%s",event.packet -> data);
-            std::string receivedString(tempString);
+            //The whole packet (no length limit), and never past its end even without a final 0
+            std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
             //check which peer, if any it came from
             for(unsigned int i=0; i<peers.size(); i++) {

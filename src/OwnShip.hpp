@@ -134,6 +134,7 @@ public:
     irr::f32 getRoll() const;
     irr::f32 getCOG() const;
     irr::f32 getSOG() const; // m/s
+    void setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogMps);
     irr::f32 getSpeedThroughWater() const; // m/s
     std::string getBasePath() const;
     std::string getName() const;   // Kyara: own ship's name, for VHF/comms identification
@@ -380,6 +381,10 @@ private:
 
     irr::f32 cog; // course over ground
     irr::f32 sog; // m/s speed over ground
+    //On a secondary the ship is moved to the primary's position every message, so COG / SOG worked
+    //out here would be zero: the primary's own values are used instead.
+    bool cogSogFromNetwork = false;
+    irr::f32 networkCog = 0, networkSog = 0;
 
     // KYARA HOULE: seakeeping model (heave / pitch / roll) and wave forces
     HullMotion hullMotion;

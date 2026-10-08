@@ -162,7 +162,7 @@ RadarData OtherShips::getRadarData(irr::u32 number, irr::core::vector3df scanner
 {
     RadarData radarData;
 
-    if (number <= otherShips.size()) {
+    if (number >= 1 && number <= otherShips.size()) { //1-based: 0 would read [-1]
         radarData = otherShips[number - 1]->getRadarData(scannerPosition);
     }
     return radarData;

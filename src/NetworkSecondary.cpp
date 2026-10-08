@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include "NetworkSecondary.hpp"
@@ -91,9 +92,8 @@ void NetworkSecondary::getScenarioFromNetwork(std::string& dataString) //Not use
         if (event.type ==ENET_EVENT_TYPE_RECEIVE) {
 
             //receive it
-            char tempString[8192]; //Fixme: Think if this is long enough
-            snprintf(tempString,8192,"%s",event.packet -> data);
-            std::string receivedString(tempString);
+            //The whole packet (no length limit), and never past its end even without a final 0
+            std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
             //Basic checks
             if (receivedString.length() > 4) { //Check if more than 4 chars long, ie we have at least some data
@@ -153,7 +153,7 @@ void NetworkSecondary::update()
 
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
-                printf ("%s disconected.\n", (char*)event.peer -> data);
+                printf ("Peer disconnected.\n"); //peer->data is never set: printing it was undefined
                 /* Reset the peer's client information. */
                 event.peer -> data = NULL;
                 break;
@@ -166,9 +166,8 @@ void NetworkSecondary::update()
 void NetworkSecondary::receiveMessage()
 {
     //receive it
-    char tempString[8192]; //Fixme: Think if this is long enough
-    snprintf(tempString,8192,"%s",event.packet -> data);
-    std::string receivedString(tempString);
+    //The whole packet (no length limit), and never past its end even without a final 0
+    std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
     //std::cout << "Received data:" << receivedStrings << std::endl;
 
@@ -189,7 +188,7 @@ void NetworkSecondary::receiveMessage()
                 //Get time info from record 0
                 std::vector<std::string> timeData = Utilities::split(receivedData.at(0),',');
                 //Time since start of scenario day 1 is record 2
-                if (timeData.size() > 2) {
+                if (timeData.size() > 3) { //fields 2 and 3 are read
                     timeError = Utilities::lexical_cast<irr::f32>(timeData.at(2)) - model->getTimeDelta(); //How far we are behind the master
                     irr::f32 baseAccelerator = Utilities::lexical_cast<irr::f32>(timeData.at(3)); //The master accelerator setting
                     if (fabs(timeError) > 1) {
@@ -218,6 +217,10 @@ void NetworkSecondary::receiveMessage()
                         model->setHeading(Utilities::lexical_cast<irr::f32>(positionData.at(2)));
                         model->setRateOfTurn(Utilities::lexical_cast<irr::f32>(positionData.at(3)));
                         model->setSpeed(Utilities::lexical_cast<irr::f32>(positionData.at(6))/MPS_TO_KTS);
+                        //The primary's SOG (knots) and COG: worked out here they would be zero, since
+                        //the ship is put at the primary's position each time
+                        model->setCogSogFromNetwork(Utilities::lexical_cast<irr::f32>(positionData.at(7)),
+                            Utilities::lexical_cast<irr::f32>(positionData.at(6)));
                     }
                 }
 
@@ -475,13 +478,32 @@ void NetworkSecondary::receiveMessage()
                         }
                         model->applySwellNetworkState(swellState);
                     }
+                    //After the swell (optional): colours, glow, cloud, snow, sand, significant weather,
+                    //thunder, lightning, squall
+                    const size_t extra = 11 + (size_t)Swell::NET_FIELDS;
+                    if (weatherData.size() >= extra + 9) {
+                        model->setNetworkDisplay(Utilities::lexical_cast<int>(weatherData.at(extra)),
+                            Utilities::lexical_cast<int>(weatherData.at(extra + 1)));
+                        model->setCloudCover(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 2)));
+                        model->setSnow(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 3)));
+                        model->setDust(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 4)));
+                        model->setSignificantWeather(Utilities::lexical_cast<int>(weatherData.at(extra + 5)));
+                        model->setThunderEnabled(weatherData.at(extra + 6) == "1");
+                        model->setLightningEnabled(weatherData.at(extra + 7) == "1");
+                        model->setNetworkSquall(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 8)));
+                    }
                 }
 
                 //Get view information from record 9
                 std::vector<std::string> viewData = Utilities::split(receivedData.at(9),',');
-                if (viewData.size() == 1) {
+                //Not in multiplayer, where the hub sends a placeholder; and only on a change, since setView
+                //also leaves the free view (it was cancelled on every message)
+                if (viewData.size() == 1 && mode != OperatingMode::Multiplayer) {
                     if (model->getMoveViewWithPrimary()) {
-                        model->setView(Utilities::lexical_cast<irr::f32>(viewData.at(0)));
+                        const irr::s32 view = Utilities::lexical_cast<irr::s32>(viewData.at(0));
+                        if (view >= 0 && (irr::u32)view != model->getCameraView()) {
+                            model->setView((irr::u32)view);
+                        }
                     }
                 }
 

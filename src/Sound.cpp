@@ -141,8 +141,12 @@ double Sound::enginePhase = 0.0;
 sf_count_t Sound::engineScratchValidFrames = 0;
 
 Sound::Sound() {
-	//KYARA SLAM: null the handles here, so the destructor is safe even if load() is never called
-	data.fileSlam = 0; slamSoundLoaded = false;
+	//Every handle null, so the destructor is safe when load() stops early (no audio device: the
+	//other files were never opened and sf_close was given garbage - a crash on quitting)
+	data = callback_data_s();
+	stream = 0;
+	soundLoaded = false;
+	slamSoundLoaded = false;
 }
 //UPDATED KYARA COLLISION AND PROXY
 void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::string hornSoundFile,

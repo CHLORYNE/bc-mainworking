@@ -51,7 +51,6 @@ NMEA::NMEA(SimulationModel* model, std::string serialPortName, irr::u32 serialBa
     // set up listening thread
     terminateNmeaReceive = 0;
     receivedNmeaMessages = std::vector<std::string>();
-    std::thread* receiveThreadObject = 0;
     receiveThreadObject = new std::thread(&NMEA::ReceiveThread, this, udpListenPortName);
     
     // create send socket
@@ -99,6 +98,12 @@ NMEA::~NMEA()
     terminateNmeaReceiveMutex.lock();
     terminateNmeaReceive = 1;
     terminateNmeaReceiveMutex.unlock();
+    //Wait for it (at most the 1 s receive timeout): it must not outlive the mutexes it locks
+    if (receiveThreadObject) {
+        if (receiveThreadObject->joinable()) { receiveThreadObject->join(); }
+        delete receiveThreadObject;
+        receiveThreadObject = 0;
+    }
 
 }
 
@@ -136,8 +141,9 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
             }
             terminateNmeaReceiveMutex.unlock();
 
-            int bufferSize = 128;
-            char * buf = new char[bufferSize]();
+            //On the stack (a new[] here was never freed), and one byte short so it can always be ended
+            const int bufferSize = 2048;
+            char buf[bufferSize];
             
             // set socket timeout as in AISOverUDP
             #ifdef WIN32
@@ -150,9 +156,9 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
             
             // read from socket
             #ifdef WIN32
-            int nread = ::recv(rcvSocket.native_handle(), buf, bufferSize,0);
+            int nread = ::recv(rcvSocket.native_handle(), buf, bufferSize - 1, 0);
             #else
-            ssize_t nread = ::read(rcvSocket.native_handle(), buf, bufferSize);
+            ssize_t nread = ::read(rcvSocket.native_handle(), buf, bufferSize - 1);
             #endif
 
             if (nread > 0) 
@@ -162,7 +168,7 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
 
                 // convert char buffer to string and add it to shared vector
                 // subsequent processing is handled by NMEA::receive
-                std::string message(buf);
+                std::string message(buf, (size_t)nread);
                 receivedNmeaMessagesMutex.lock();
                 receivedNmeaMessages.push_back(message);
                 receivedNmeaMessagesMutex.unlock();
@@ -188,15 +194,18 @@ void NMEA::receive()
 
             // get all sentences and strip \r\n
             std::vector<std::string> sentences;
-            int last_pos = 0; 
-            int pos = message.find("\r\n");
+            //Each sentence ends with \r\n; the next one starts after it (the \r\n used to be left at
+            //the front of every sentence but the first, which then failed its checksum). A last
+            //sentence without \r\n is kept too.
+            size_t last_pos = 0;
+            size_t pos = message.find("\r\n");
             while (pos != std::string::npos)
             {
-                int sentence_len = pos - last_pos;
-                sentences.push_back(message.substr(last_pos, sentence_len));
-                last_pos = pos;
-                pos = message.find("\r\n", pos+3);
+                if (pos > last_pos) { sentences.push_back(message.substr(last_pos, pos - last_pos)); }
+                last_pos = pos + 2;
+                pos = message.find("\r\n", last_pos);
             }
+            if (last_pos < message.size()) { sentences.push_back(message.substr(last_pos)); }
             
             // iterate over sentences and handle them one by one
             for (int i=0; i < sentences.size(); i++)

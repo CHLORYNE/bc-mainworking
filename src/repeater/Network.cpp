@@ -14,6 +14,7 @@
      with this program; if not, write to the Free Software Foundation, Inc.,
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
+#include <cstring>
 #include "Network.hpp"
 #include "ControllerModel.hpp"
 #include "../Utilities.hpp"
@@ -123,9 +124,8 @@ void Network::receiveMessage(irr::f32& time, ShipData& ownShipData)
                     event.channelID);*/
 
     //Convert into a string, max length 2048
-    char tempString[8192]; //Fixme: Think if this is long enough
-    snprintf(tempString,8192,"%s",event.packet -> data);
-    std::string receivedString(tempString);
+    //The whole packet (no length limit), and never past its end even without a final 0
+    std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
     //Basic checks
     if (receivedString.length() > 2) { //Check if more than 2 chars long, ie we have at least some data

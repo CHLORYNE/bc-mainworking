@@ -75,6 +75,8 @@ struct GUIData {
     irr::f32 windSpeed;
     irr::f32 windDirectionNow = 0;   //with the swings of the wind (wind dial)
     irr::f32 windSpeedNow = 0;       //with the gusts (wind dial)
+    int networkPalette = -1;         //secondary: the colours the primary shows (-1: its own choice)
+    int networkGlow = -1;            //secondary: the primary's glow of the lit instruments
     irr::f32 streamDirection;
     irr::f32 streamSpeed;
     irr::gui::IGUIScrollBar* magSlider;
@@ -682,7 +684,7 @@ private:
     irr::f32 guiPitch = 0; // KYARA HOULE
     irr::f32 guiRoll = 0;  // KYARA HOULE
     bool guiRadarOn;
-    irr::f32 guiRadarRangeNm;
+    irr::f32 guiRadarRangeNm = 1.0f; //not 0: the cursor maths divide by it before the first update
     int guiRadarRangeRingBrightness = 0;   //kyara: mirrors the radar's range-ring brightness cycle
     irr::f32 guiRadarGain;
     irr::f32 guiRadarClutter;
@@ -774,6 +776,7 @@ private:
     irr::gui::IGUIButton* weatherButton = 0;                //METEO
     class WeatherPanel* weatherPanel = 0;
     void placeWeatherPanel();
+    bool magnificationOwned = false;          //made with new (classic layout): this class drops it
     class ControlsPanel* controlsPanel = 0;   //the controls window as shown (over extraControlsWindow's widgets)
     void placeOverView(irr::gui::IGUIElement* panel);
     void layoutCommandBar();

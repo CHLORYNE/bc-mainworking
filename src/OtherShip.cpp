@@ -15,6 +15,7 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
      //Extends from the general 'Ship' class
+#include <limits>
 #include "IniFile.hpp"
 #include "Angles.hpp"
 #include "RadarData.hpp"
@@ -30,6 +31,18 @@
 
 //using namespace irr;
 
+namespace
+{
+    //Seconds a leg lasts, as the scenario loader counts it: a stopped leg with distance to go lasts
+    //for ever, a stopped leg without (a ship lying at a heading) takes no time. Dividing by the speed
+    //as it was gave NaN or inf start times for a stopped leg, and negative ones going astern.
+    irr::f32 legSeconds(irr::f32 distanceNm, irr::f32 speedKts)
+    {
+        if (fabs(speedKts) > 1e-6f) { return SECONDS_IN_HOUR * distanceNm / fabs(speedKts); }
+        return distanceNm > 0 ? std::numeric_limits<irr::f32>::max() : 0.0f;
+    }
+}
+
 OtherShip::OtherShip(const std::string& name, const std::string& internalName, const irr::u32& mmsi, const irr::core::vector3df& location, std::vector<Leg> legsLoaded, bool drifting, SimulationModel* model, irr::scene::ISceneManager* smgr, irr::IrrlichtDevice* dev)
 {
 
@@ -40,6 +53,7 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     underTow = false; towX = 0; towZ = 0; towHdg = 0;
     onFire = false; fireListDeg = 0.0f; fireListTarget = 12.0f; // Kyara FIRE
     sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
+    scriptedPose = false; scrX = 0; scrZ = 0; scrHdg = 0; scrSpd = 0; //read by update() before any rescue sets it
 
     this->model = model;
 
@@ -391,14 +405,14 @@ void OtherShip::changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::
             //On current leg - calculate from current point only
             irr::f32 oldTimeRemaining = legs.at(legNumber + 1).startTime - scenarioTime;
             if (distance < 0) { distance = fabs(oldSpeed) * oldTimeRemaining / SECONDS_IN_HOUR; } //If leg length is negative, ensure overall leg length doesn't change
-            newTimeRemaining = SECONDS_IN_HOUR * distance / fabs(speed); //The adjusted leg distance starts from now
+            newTimeRemaining = legSeconds(distance, speed); //The adjusted leg distance starts from now
             legs.at(legNumber).startTime = scenarioTime; // New leg effectively starts now
         }
         else {
             //On subsequent leg - calculate for whole leg
             irr::f32 oldTimeRemaining = legs.at(legNumber + 1).startTime - legs.at(legNumber).startTime;
             if (distance < 0) { distance = fabs(oldSpeed) * oldTimeRemaining / SECONDS_IN_HOUR; } //If leg length is negative, ensure overall leg length doesn't change
-            newTimeRemaining = SECONDS_IN_HOUR * distance / fabs(speed);
+            newTimeRemaining = legSeconds(distance, speed);
             //No need to change start time.
         }
 
@@ -411,7 +425,7 @@ void OtherShip::changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::
         legs.at(legNumber + 1).startTime = legs.at(legNumber).startTime + newTimeRemaining;
         //For the remaining legs (which may not exist)
         for (int i = legNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
     } //Check leg exists & can be changed
@@ -454,7 +468,7 @@ void OtherShip::addLeg(int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr
         //set start time of subsequent legs
         //For the remaining legs (which may not exist)
         for (int i = afterLegNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
 
@@ -486,7 +500,7 @@ void OtherShip::deleteLeg(int legNumber, irr::f32 scenarioTime)
         //adjust start time of subsequent legs
         //For the remaining legs (which may not exist)
         for (int i = legNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
         //Remove this leg
@@ -508,7 +522,7 @@ void OtherShip::resetLegs(irr::f32 course, irr::f32 speedKts, irr::f32 distanceN
 
     //Use distance to calculate startTime of next leg, and stored for later reference.
     currentLeg.distance = distanceNm;
-    irr::f32 mainLegEndTime = scenarioTime + SECONDS_IN_HOUR * (distanceNm / fabs(speedKts)); // nm/kts -> hours, so convert to seconds
+    irr::f32 mainLegEndTime = scenarioTime + legSeconds(distanceNm, speedKts); // nm/kts -> hours, so convert to seconds
 
     legs.push_back(currentLeg);
 
@@ -614,6 +628,7 @@ void OtherShip::setCasualty(bool active)
 {
     onFire = active;
     sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
+    scriptedPose = false; scrX = 0; scrZ = 0; scrHdg = 0; scrSpd = 0; //read by update() before any rescue sets it
     if (!active) { fireListDeg = 0.0f; } // upright on extinguish/reset (persistent-list is a later option)
 }
 

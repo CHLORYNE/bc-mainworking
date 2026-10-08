@@ -560,7 +560,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
         //KYARA: the rudder dial doubles as the helm - drag inside it to order a wheel angle. That
         //is what replaces the slider that used to run along the bottom of the screen.
-        if (!azimuthDrive) { instrumentPanel->setHelmControl(true, 30.0f); }
+        if (!azimuthDrive && !controlsHidden) { instrumentPanel->setHelmControl(true, 30.0f); } //not on a secondary
 
         const irr::f32 iniSpeedMax = IniFile::iniFileTof32(iniFilename, "instrument_speed_max");
         const irr::f32 iniRotMax = IniFile::iniFileTof32(iniFilename, "instrument_rot_max");
@@ -1396,6 +1396,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     }
     else {
         magnificationScrollbar = new irr::gui::OutlineScrollBar(true, guienv, guienv->getRootGUIElement(), GUI_ID_MAGNIFICATION_SCROLL_BAR, magnificationPos);
+        magnificationOwned = true;
     }
     magnificationScrollbar->setToolTipText(language->translate("magnification").c_str());
 
@@ -2163,7 +2164,9 @@ GUIMain::~GUIMain()
 
     headingIndicator->drop();
 
-    magnificationScrollbar->drop();
+    //Only the classic one was made with new; addScrollBar's is owned by its parent alone (dropping it
+    //here freed it a second time)
+    if (magnificationOwned) { magnificationScrollbar->drop(); }
 }
 
 bool GUIMain::getSmallRadarEnabled() const
@@ -2510,9 +2513,11 @@ void GUIMain::updateVisibility()
     if (commandBar) {
         commandBar->setVisible(showDisplayControls);
         commandBar->setCaptionsVisible(showPrimary);
-        for (int i = 0; i < PALETTE_KEYS; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(showDisplayControls); } }
-        if (glowScrollbar) { glowScrollbar->setVisible(showDisplayControls); }
-        if (weatherButton) { weatherButton->setVisible(showDisplayControls); }
+        //Not on a secondary: its colours, glow and weather come from the primary
+        const bool ownSettings = showDisplayControls && !controlsHidden;
+        for (int i = 0; i < PALETTE_KEYS; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(ownSettings); } }
+        if (glowScrollbar) { glowScrollbar->setVisible(ownSettings); }
+        if (weatherButton) { weatherButton->setVisible(ownSettings); }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -2687,7 +2692,12 @@ void GUIMain::updateGuiData(GUIData* guiData)
             else if (L < 65) { m = bridge::MODE_NIGHT; }
         }
         paletteAutoMode = m;
-        if (paletteChoice < 0) { applyPaletteMode(m); }
+        if (guiData->networkPalette >= 0 && guiData->networkPalette < bridge::MODE_COUNT) {
+            //Secondary: the same colours as the primary, whatever it was set to (its AUTO included)
+            if (paletteChoice != guiData->networkPalette) { setPaletteChoice(guiData->networkPalette); }
+        }
+        else if (paletteChoice < 0) { applyPaletteMode(m); }
+        if (guiData->networkGlow >= 0 && guiData->networkGlow != bridge::glowLevel()) { setGlowLevel(guiData->networkGlow); }
     }
     if (commandBar && magnificationScrollbar) {
         wchar_t zoomText[16];
@@ -3843,8 +3853,8 @@ void GUIMain::draw2dRadar()
             irr::f32 vrmRangePx = radius * guiRadarVRMNm[i] / guiRadarRangeNm;
             irr::video::SColor vrmColour = eblVrmPaletteColour(vrmColourIndex);
             if (i == 0) {
-                irr::u8 noSegments = vrmRangePx / 2;
-                if (noSegments < 10) { noSegments = 10; }
+                //s32: on a big radar the radius passes 510 px, too many for the u8 it was
+                const irr::s32 noSegments = irr::core::clamp((irr::s32)(vrmRangePx / 2), 10, 360);
                 device->getVideoDriver()->draw2DPolygon(radarCentre, vrmRangePx, vrmColour, noSegments);
             }
             else {

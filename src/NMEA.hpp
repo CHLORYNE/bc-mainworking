@@ -21,6 +21,7 @@
 #include "irrlicht.h" //For logger only
 #include "libs/serial/serial.h"
 #include <mutex>
+#include <thread>
 #include <string>
 #include <asio.hpp> //For UDP
 
@@ -63,6 +64,7 @@ private:
 
     irr::u32 terminateNmeaReceive;
     std::mutex terminateNmeaReceiveMutex;
+    std::thread* receiveThreadObject = 0;   //joined in the destructor (it uses the members above)
     std::vector<std::string> receivedNmeaMessages;
     std::mutex receivedNmeaMessagesMutex;
 };

@@ -166,7 +166,7 @@ RadarData Buoys::getRadarData(irr::u32 number, irr::core::vector3df scannerPosit
 {
     RadarData radarData;
 
-    if (number<=buoys.size()) {
+    if (number >= 1 && number <= buoys.size()) { //1-based: 0 would read [-1]
         radarData = buoys[number-1].getRadarData(scannerPosition);
     }
 

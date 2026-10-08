@@ -1299,7 +1299,19 @@ std::string GUIMain::getScenarioName() const {
 
     //Convert from wide to narrow string: Todo: Think about having this all wide.
     std::wstring wideName(scenarioName->getText());
-    std::string scenarioNameString(wideName.begin(),wideName.end());
+    //Latin-1 letters (\u00E9, \u00C8...) go through as they are (the Windows code page has them).
+    //Anything above (a pasted typographic apostrophe, the oe ligature) used to be cut to one byte,
+    //giving a control character the folder name could not hold: replace them instead.
+    std::string scenarioNameString;
+    for (size_t i = 0; i < wideName.size(); i++) {
+        const wchar_t c = wideName[i];
+        if (c < 0x100) { scenarioNameString += (char)(unsigned char)c; }
+        else if (c == 0x2018 || c == 0x2019 || c == 0x02BC) { scenarioNameString += '\''; }
+        else if (c == 0x0153) { scenarioNameString += "oe"; }
+        else if (c == 0x0152) { scenarioNameString += "OE"; }
+        else if (c == 0x2013 || c == 0x2014) { scenarioNameString += '-'; }
+        else { scenarioNameString += ' '; }
+    }
 
     //Strip any invalid characters: /\*:"|?<>
     replace(scenarioNameString.begin(), scenarioNameString.end(),'/',' ');

@@ -258,6 +258,11 @@ public:
     void setBadWeatherPreset();                 // KYARA "mauvais temps"
     irr::f32 getLightningFlash() const;         // 0..1, synced to the secondary
     void setLightningFlash(irr::f32 v);         // used by the secondary from the network
+    void setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogKts);      // secondary: the primary's COG / SOG
+    //Secondary: what the primary shows, so its screens look the same (palette -1 / glow -1: not received)
+    void setNetworkDisplay(int paletteMode, int glowLevel) { networkPalette = paletteMode; networkGlow = glowLevel; }
+    void setNetworkSquall(irr::f32 level) { networkSquall = level; }
+    irr::f32 getSquallLevel() const { return squallLevel; }
     void setThunderEnabled(bool e);             // KYARA: enable/disable thunder
     bool getThunderEnabled() const;
     void setLightningEnabled(bool e);
@@ -643,6 +648,8 @@ private:
     irr::f32 cloudCover = 0.0f, snowIntensity = 0.0f, dustLevel = 0.0f, windGust = 0.0f, windVariation = 0.0f;
     irr::f32 windSpeedNow = 0.0f, windDirectionNow = 0.0f;  //with gusts and swings, worked out each frame
     irr::f32 squallLevel = 0.0f;                            //0..1 while a squall passes
+    irr::f32 networkSquall = -1.0f;                         //secondary: the primary's squall (-1: not received)
+    int networkPalette = -1, networkGlow = -1;              //secondary: the primary's colours and glow
     irr::f32 weatherClock = 0.0f;                           //seconds, drives gusts and squalls
     int significantWeather = 0;
     struct WeatherChange { bool active = false; WeatherState from, to; irr::f32 time = 0, duration = 0; } weatherChange;

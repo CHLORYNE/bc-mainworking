@@ -1,4 +1,5 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
+#include <cerrno>
 #include "irrlicht.h"
 #include <iostream>
 #include "irrlicht.h"
@@ -418,7 +419,7 @@ int copyDir(std::string source, std::string dest)
 
             //std::cout << "Dest: " << dest << std::endl;
             //std::cout << "Trying to create '" << newDir << "'" << std::endl;
-            if (mkdir(newDir.c_str(), 0755) == 0) {
+            if (mkdir(newDir.c_str(), 0755) == 0 || errno == EEXIST) { //a folder already there is fine
                 //Recursive here
                 std::string fromDir = source;
                 fromDir.append("/");
@@ -429,6 +430,7 @@ int copyDir(std::string source, std::string dest)
                 copyDir(fromDir, toDir);
             }
             else {
+                closedir(dir);
                 return -1;
             }
         }
@@ -456,6 +458,7 @@ int copyDir(std::string source, std::string dest)
 
         entry = readdir(dir);
     }
+    closedir(dir);
 
     //For each file at root level, create the file and copy contents
 

@@ -2019,6 +2019,10 @@ bool SimulationModel::getRudderPumpState(int whichPump) const
     return ownShip.getRudderPumpState(whichPump);
 }
 
+void SimulationModel::setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogKts) {
+    ownShip.setCogSogFromNetwork(cogDeg, sogKts / MPS_TO_KTS);
+}
+
 void SimulationModel::setFollowUpRudderWorking(bool followUpRudderWorking) {
     ownShip.setFollowUpRudderWorking(followUpRudderWorking);
 }
@@ -2286,6 +2290,15 @@ void SimulationModel::updateWeatherDynamics(irr::f32 deltaTime)
             applyWeatherState(lerpWeather(peak, weatherFrontBase, smooth01(weatherFrontTime / span)));
             if (weatherFrontTime >= span) { weatherFront = 0; weatherFrontPhase = 0; }
         }
+    }
+
+    //A secondary is told the wind as it is now (gusts and squall included) and the squall itself:
+    //working them out again here would add a second set of gusts on top of the primary's.
+    if (modelParameters.mode == OperatingMode::Secondary) {
+        squallLevel = networkSquall >= 0.0f ? networkSquall : 0.0f;
+        windSpeedNow = windSpeed;
+        windDirectionNow = windDirection;
+        return;
     }
 
     //Squalls: every five minutes or so, a minute and a half of wind, rain and dark cloud
@@ -4654,9 +4667,12 @@ void SimulationModel::update()
 
 
 
-        // Clamp physics step so a frame hitch can't blow up the mooring-line springs
-        if (deltaTime > 0.1f) {
-            deltaTime = 0.1f;
+        // Clamp physics step so a frame hitch can't blow up the mooring-line springs. The limit is per
+        // frame of REAL time: deltaTime is already accelerated, so a fixed 0.1 s held x10 down to about
+        // x3 at 30 fps. At x1 nothing changes.
+        const irr::f32 maxStep = 0.1f * irr::core::max_(1.0f, device->getTimer()->getSpeed());
+        if (deltaTime > maxStep) {
+            deltaTime = maxStep;
         }
         previousTime = currentTime;
 
@@ -5559,6 +5575,8 @@ void SimulationModel::update()
             bool flashInside = (flashView == 0 || flashView == 1);
             guiData->lightningFlash = lightningFlash * (flashInside ? 0.6f : 1.0f);
             guiData->lightLevel = light.getLightLevel();
+            guiData->networkPalette = networkPalette;
+            guiData->networkGlow = networkGlow;
         }
         guiData->spd = ownShip.getSpeedThroughWater();
         guiData->cog = ownShip.getCOG(); //kyara: instrument console

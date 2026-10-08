@@ -29,6 +29,7 @@
 #define NOMINMAX   // keep std::min / std::max usable
 #endif
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 #ifdef __APPLE__
@@ -172,6 +173,24 @@ int main(int argc, char** argv)
     else { std::cout << "Could not load font, using fallback" << std::endl; }
     applySkin(env);
 
+#ifdef _WIN32
+    //As the scenario editor does on its first run: copy the scenarios into the user folder. Without it
+    //a new fire scenario was saved next to the program (refused, or redirected, under Program Files),
+    //and once the user folder existed the simulator, which then lists only that one, lost it.
+    if (!Utilities::pathExists(userFolder + "Scenarios")) {
+        std::string from = "Scenarios";
+        from.append(1, '\0');                       //the list ends with a double 0
+        std::string to = userFolder + "Scenarios";
+        std::replace(to.begin(), to.end(), '/', '\\');
+        to.append(1, '\0');
+        SHFILEOPSTRUCTA op = {};
+        op.wFunc = FO_COPY;
+        op.pFrom = from.c_str();
+        op.pTo = to.c_str();
+        op.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR | FOF_SILENT;
+        SHFileOperationA(&op);
+    }
+#endif
     std::string scenariosPath = "Scenarios/";   // same lookup as the simulator
     if (Utilities::pathExists(userFolder + scenariosPath)) { scenariosPath = userFolder + scenariosPath; }
 
