@@ -18,8 +18,8 @@ class HudFont;
 //One window, four tabs:
 //  PRESETS     tiles (clear, cloudy, rain, fog, snow, thunderstorm, sand storm...) - one click sets
 //              all the weather, at once or over a few minutes (EVOLUTION tab)
-//  CONDITIONS  every value on its own slider: cloud, wind, gusts, sea, fog, rain, snow, sand,
-//              significant weather
+//  CONDITIONS  every value on its own slider: cloud, wind, gusts, sea, current, fog, rain, snow,
+//              sand, significant weather, thunder and lightning
 //  EVOLUTION   how presets change the weather, and a weather front passing through
 //  TIME        the hour of the lighting
 //The panel reads the simulation every frame, so it always shows the weather as it is, whoever
@@ -42,7 +42,7 @@ private:
     enum Tab { TAB_PRESETS = 0, TAB_CONDITIONS, TAB_EVOLUTION, TAB_TIME, TAB_COUNT };
     enum Param {
         P_NONE = 0, P_CLOUD, P_WIND, P_WINDDIR, P_WINDVAR, P_GUST, P_SEA, P_FOG, P_RAIN, P_SNOW, P_DUST,
-        P_SIGWX, P_TRANSITION, P_FRONT, P_HOUR, P_MOMENT
+        P_SIGWX, P_TRANSITION, P_FRONT, P_HOUR, P_MOMENT, P_THUNDER, P_LIGHTNING, P_STREAM_MODE, P_STREAM_DIR, P_STREAM_SPEED
     };
     enum RowKind { ROW_SECTION, ROW_SLIDER, ROW_CHOICE };
     struct Row

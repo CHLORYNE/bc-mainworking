@@ -806,9 +806,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
     //The widgets below are not shown any more: the controls window (ControlsPanel, built at the end)
     //draws them its own way and works them. These keep the ones that are not members.
-    irr::gui::IGUIButton* ecStormKey = 0;
-    irr::gui::IGUICheckBox* ecThunderBox = 0;
-    irr::gui::IGUICheckBox* ecLightningBox = 0;
     irr::gui::IGUIButton* ecRudderKey[6] = { 0, 0, 0, 0, 0, 0 };
     irr::gui::IGUIButton* ecLightsResetKey = 0;
     irr::gui::IGUIButton* ecLightsEditKey = 0;
@@ -923,7 +920,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
       // fractions (su/sh) push the button off the little window and it gets clipped => invisible.
     {
         const irr::s32 by = row0Y + 3 * rowPitch;
-        ecStormKey = guienv->addButton(
+        guienv->addButton(
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_STORM_PRESET_BUTTON,
             language->translate("badWeather").c_str());
@@ -931,7 +928,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // KYARA: thunder on/off, row 4 of the weather tab.
     {
         const irr::s32 by = row0Y + 4 * rowPitch;
-        ecThunderBox = guienv->addCheckBox(true,   // checked = thunder enabled (default)
+        guienv->addCheckBox(true,   // checked = thunder enabled (default)
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_THUNDER_CHECKBOX,
             language->translate("thunder").c_str());
@@ -939,7 +936,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     // KYARA: lightning on/off, row 5 of the weather tab.
     {
         const irr::s32 by = row0Y + 5 * rowPitch;
-        ecLightningBox = guienv->addCheckBox(true,
+        guienv->addCheckBox(true,
             irr::core::rect<irr::s32>(labelX0, by, trackX1, by + rowH),
             extraControlsTabWeather, GUI_ID_LIGHTNING_CHECKBOX,
             language->translate("lightning").c_str());
@@ -1261,57 +1258,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         auto textOf = [](irr::gui::IGUIElement* e) -> std::wstring { return (e && e->getText()) ? std::wstring(e->getText()) : std::wstring(); };
         const std::vector<std::wstring> workingFailed = { L"En service", L"En panne" };
 
-        //Sea and weather
-        const int tSea = cp->addTab(L"Mer et temps",
-            L"La mer, la pluie, la visibilit\u00E9 et l'orage. La fen\u00EAtre M\u00C9T\u00C9O r\u00E8gle le m\u00EAme temps, et bien plus (nuages, rafales, neige, sable, pr\u00E9r\u00E9glages).",
-            [this, textOf]() {
-                std::vector<ControlsPanel::Readout> out;
-                out.push_back({ L"Mer", textOf(weatherValue), 0 });
-                if (swellInfoText) { out.push_back({ L"Mer du vent et houle", textOf(swellInfoText), 0 }); }
-                out.push_back({ L"Pluie", textOf(rainValue), 0 });
-                out.push_back({ L"Visibilit\u00E9", textOf(visibilityValue), 0 });
-                return out;
-            });
-        cp->addSection(tSea, L"Mer");
-        cp->addSlider(tSea, L"\u00C9tat de la mer", L"La hauteur des vagues et de la houle, de la mer d'huile (0) \u00E0 la mer tr\u00E8s grosse (6).",
-            weatherScrollbar, weatherValue);
-        if (motionScaleScrollbar) {
-            cp->addSlider(tSea, L"Mouvement du navire", L"Amplitude du tangage et du roulis affich\u00E9s. 100 % = r\u00E9aliste, moins = plus confortable. Le pilonnement, la perte de vitesse et l'embard\u00E9e restent r\u00E9els.",
-                motionScaleScrollbar, motionScaleValue);
-        }
-        cp->addSection(tSea, L"Pluie et visibilit\u00E9");
-        cp->addSlider(tSea, L"Pluie", L"De la bruine \u00E0 l'averse (0 \u00E0 10). La pluie se voit aussi sur l'\u00E9cran radar.", rainScrollbar, rainValue);
-        cp->addSlider(tSea, L"Visibilit\u00E9", L"La distance \u00E0 laquelle on voit, en milles nautiques.", visibilityScrollbar, visibilityValue);
-        cp->addSection(tSea, L"Orage");
-        if (ecThunderBox) { cp->addToggle(tSea, L"Tonnerre", L"Le grondement du tonnerre pendant un orage.", ecThunderBox); }
-        if (ecLightningBox) { cp->addToggle(tSea, L"\u00C9clairs", L"Les \u00E9clairs dans le ciel pendant un orage.", ecLightningBox); }
-        if (ecStormKey) {
-            cp->addKeys(tSea, L"", L"Un clic : mer forte, pluie, visibilit\u00E9 r\u00E9duite, orage.", { ecStormKey }, { L"Mauvais temps" });
-        }
-
-        //Wind and current
-        const int tWind = cp->addTab(L"Vent et courant",
-            L"Le vent est nomm\u00E9 d'o\u00F9 il vient, le courant vers o\u00F9 il porte. Le courant r\u00E9gl\u00E9 ici ne remplace celui de la mar\u00E9e que si \u00AB Imposer le courant \u00BB est activ\u00E9.",
-            [this, textOf]() {
-                std::vector<ControlsPanel::Readout> out;
-                out.push_back({ L"Vent", textOf(windDirectionValue) + L"  \u00B7  " + textOf(windSpeedValue), 0 });
-                if (streamOverride && streamOverride->isChecked()) {
-                    out.push_back({ L"Courant impos\u00E9", textOf(streamDirectionValue) + L"  \u00B7  " + textOf(streamSpeedValue), 0 });
-                }
-                else {
-                    out.push_back({ L"Courant", L"Courant de mar\u00E9e de la zone", 0 });
-                }
-                return out;
-            });
-        cp->addSection(tWind, L"Vent");
-        cp->addSlider(tWind, L"Direction du vent", L"La direction d'o\u00F9 vient le vent, en degr\u00E9s vrais.", windDirectionScrollbar, windDirectionValue);
-        cp->addSlider(tWind, L"Force du vent", L"Le vent moyen, en n\u0153uds (et sa force Beaufort).", windSpeedScrollbar, windSpeedValue);
-        cp->addSection(tWind, L"Courant");
-        if (streamOverride) {
-            cp->addToggle(tWind, L"Imposer le courant", L"Remplace le courant de mar\u00E9e de la zone par celui r\u00E9gl\u00E9 ci-dessous.", streamOverride);
-        }
-        cp->addSlider(tWind, L"Direction du courant", L"La direction vers o\u00F9 porte le courant, en degr\u00E9s vrais.", streamDirectionScrollbar, streamDirectionValue);
-        cp->addSlider(tWind, L"Vitesse du courant", L"La vitesse du courant, en n\u0153uds.", streamSpeedScrollbar, streamSpeedValue);
+        //The weather (sea, wind, current, rain, visibility, thunder) is set in the weather window
+        //only: the old sliders of the Weather and Wind & Current tabs are not shown any more.
 
         //Steering failures
         const int tRudder = cp->addTab(L"Avaries de barre",
@@ -1342,8 +1290,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         }
 
         //View
-        const int tView = cp->addTab(L"Vue", L"Ce que montre l'\u00E9cran de la passerelle.");
+        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et le mouvement du navire.");
         if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
+        if (motionScaleScrollbar) {
+            cp->addSlider(tView, L"Mouvement du navire", L"Amplitude du tangage et du roulis affich\u00E9s. 100 % = r\u00E9aliste, moins = plus confortable. Le pilonnement, la perte de vitesse et l'embard\u00E9e restent r\u00E9els.",
+                motionScaleScrollbar, motionScaleValue);
+        }
 
         //COLREG lights of any vessel
         if (lightsVesselBox && lightsStatusText) {

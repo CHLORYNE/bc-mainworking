@@ -60,6 +60,7 @@ namespace irr
             video::SColor BAND_PORT, BAND_STBD, BAND_ASTERN, LUBBER, COG_MARK, ORDER_MARK, LCD_BG, LCD_EDGE;
             video::SColor LCD_HEADER, DIGIT_WHITE, DIGIT_RED, DIGIT_GREEN, DIGIT_AMBER, NAV_LABEL, NAV_VALUE, HULL_MARK;
             video::SColor WIND_BARB, SHIP_HULL, SHIP_HOUSE, SCREW_HI, SCREW_LO, SCREW_SLOT, STATUS_BG;
+            video::SColor NAV_BG, NAV_EDGE, NAV_DEPTH;  //the GPS / sounder screen keeps its own grey-green LCD
             //Backlight: 0 by day (printed dial), 1 at night and in digital. GLOW = that base x the
             //glow setting of the command bar (bridge::glowLevel, 50 = x1, 100 = x2).
             f32 GLOW_BASE = 0.0f;
@@ -90,13 +91,13 @@ namespace irr
                     { {210, 30, 25}, {255, 64, 48}, {255, 74, 44}, {255, 60, 48} }, //LUBBER
                     { {0, 120, 210}, {90, 214, 255}, {96, 184, 236}, {176, 255, 188} }, //COG_MARK
                     { {220, 150, 0}, {255, 222, 64}, {255, 204, 80}, {252, 228, 72} }, //ORDER_MARK
-                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //LCD_BG
-                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
+                    { {26, 32, 30}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //LCD_BG (readouts in the dials)
+                    { {90, 100, 96}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
                     { {170, 184, 164}, {26, 34, 40}, {18, 13, 8}, {6, 20, 8} }, //LCD_HEADER
-                    { {22, 28, 24}, {246, 250, 255}, {255, 190, 84}, {96, 255, 116} }, //DIGIT_WHITE
-                    { {170, 20, 20}, {255, 96, 82}, {255, 98, 66}, {255, 92, 72} }, //DIGIT_RED
-                    { {10, 110, 40}, {90, 240, 130}, {130, 226, 104}, {96, 255, 116} }, //DIGIT_GREEN
-                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //DIGIT_AMBER
+                    { {232, 240, 234}, {246, 250, 255}, {255, 190, 84}, {96, 255, 116} }, //DIGIT_WHITE
+                    { {255, 112, 98}, {255, 112, 98}, {255, 98, 66}, {255, 92, 72} }, //DIGIT_RED (light red: port, astern)
+                    { {100, 232, 140}, {100, 240, 140}, {130, 226, 104}, {96, 255, 116} }, //DIGIT_GREEN (light green: starboard)
+                    { {255, 200, 86}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //DIGIT_AMBER
                     { {56, 78, 68}, {132, 196, 216}, {206, 148, 80}, {214, 192, 56} }, //NAV_LABEL
                     { {20, 28, 24}, {238, 246, 250}, {255, 190, 100}, {104, 246, 120} }, //NAV_VALUE
                     { {160, 168, 178}, {92, 99, 110}, {60, 52, 40}, {30, 72, 34} }, //HULL_MARK
@@ -107,8 +108,11 @@ namespace irr
                     { {150, 158, 168}, {50, 56, 66}, {20, 22, 26}, {10, 24, 12} }, //SCREW_LO
                     { {110, 118, 128}, {24, 28, 34}, {8, 9, 10}, {0, 6, 2} }, //SCREW_SLOT
                     { {200, 207, 215}, {14, 22, 34}, {7, 11, 17}, {0, 6, 2} }, //STATUS_BG
+                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //NAV_BG (GPS / sounder screen)
+                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //NAV_EDGE
+                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //NAV_DEPTH
                 };
-                video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG };
+                video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG, &NAV_BG, &NAV_EDGE, &NAV_DEPTH };
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
                     *target[i] = video::SColor(255, c[i][mode][0], c[i][mode][1], c[i][mode][2]);
                 }
@@ -761,7 +765,7 @@ namespace irr
                     }
                 }
                 text(font, TXT_COMPASS, c.X, c.Y - rf * 0.30f, TEXT_TITLE);
-                text(font, L"\u00B0", c.X + dw * 0.5f + dh * 0.45f, wy + dh * 0.15f, DIGIT_WHITE);
+                text(font, L"\u00B0", c.X + dw * 0.5f + dh * 0.45f, wy + dh * 0.15f, SCALE_WHITE);
                 if (data.sogKn > 0.3f) {
                     wchar_t buf[24];
                     swprintf(buf, 24, L"COG %03d\u00B0", ((int)(data.cog + 0.5f)) % 360);
@@ -861,8 +865,8 @@ namespace irr
                 text(font, L"\u00B0", c.X + dw * 0.5f - unitW + dh * 0.12f, wy + dh * 0.55f, TEXT_DIM, false, true);
                 //Side labels on the upper face, as printed on a real rudder indicator
                 const core::vector2df pl = panelPolar(c, rf * 0.40f, -48.0f), pr = panelPolar(c, rf * 0.40f, 48.0f);
-                text(font, TXT_PORT, pl.X, pl.Y, DIGIT_RED);
-                text(font, TXT_STBD, pr.X, pr.Y, DIGIT_GREEN);
+                text(font, TXT_PORT, pl.X, pl.Y, BAND_PORT);
+                text(font, TXT_STBD, pr.X, pr.Y, BAND_STBD);
                 //Helm order in words, so the officer can check "starboard fifteen" at a glance
                 const int ord = (int)floorf(fabsf(data.rudderOrder) + 0.5f);
                 wchar_t ob[32];
@@ -1097,14 +1101,14 @@ namespace irr
                 batch.quad(b.UpperLeftCorner, BEZEL_TOP, core::vector2df(b.LowerRightCorner.X, b.UpperLeftCorner.Y), BEZEL_TOP,
                     b.LowerRightCorner, BEZEL_BOTTOM, core::vector2df(b.UpperLeftCorner.X, b.LowerRightCorner.Y), BEZEL_BOTTOM);
                 batch.rect(core::rect<f32>(in.UpperLeftCorner.X - 1, in.UpperLeftCorner.Y - 1, in.LowerRightCorner.X + 1, in.LowerRightCorner.Y + 1), BEZEL_INNER);
-                batch.rect(in, LCD_BG);
+                batch.rect(in, NAV_BG);
                 batch.rect(core::rect<f32>(in.UpperLeftCorner.X, in.UpperLeftCorner.Y, in.LowerRightCorner.X, in.UpperLeftCorner.Y + headerH), LCD_HEADER);
                 if (fitSounder) {
-                    batch.line(core::vector2df(in.UpperLeftCorner.X + padX, ySep), core::vector2df(in.LowerRightCorner.X - padX, ySep), 1.0f, LCD_EDGE);
+                    batch.line(core::vector2df(in.UpperLeftCorner.X + padX, ySep), core::vector2df(in.LowerRightCorner.X - padX, ySep), 1.0f, NAV_EDGE);
                     if (depthH > 8.0f) {
                         if (depthValid) {
                             const f32 dRight = in.LowerRightCorner.X - padX - fh * 1.6f;
-                            segText(depthBuf, dRight - segWidth(depthBuf, depthH), depthTop, depthH, DIGIT_AMBER, ghostOf(DIGIT_AMBER));
+                            segText(depthBuf, dRight - segWidth(depthBuf, depthH), depthTop, depthH, NAV_DEPTH, ghostOf(NAV_DEPTH));
                         }
                     }
                 }
@@ -1142,10 +1146,10 @@ namespace irr
                 if (fitSounder) {
                     text(font, TXT_SOUNDER, in.UpperLeftCorner.X + padX, depthTop + depthH * 0.5f, NAV_LABEL, false, true);
                     if (depthValid) {
-                        text(font, L"m", in.LowerRightCorner.X - padX - fh * 0.9f, depthTop + depthH - fh * 0.5f, DIGIT_AMBER);
+                        text(font, L"m", in.LowerRightCorner.X - padX - fh * 0.9f, depthTop + depthH - fh * 0.5f, NAV_DEPTH);
                     }
                     else {
-                        text(font, TXT_NO_DEPTH, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, depthTop + depthH * 0.5f, DIGIT_AMBER);
+                        text(font, TXT_NO_DEPTH, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, depthTop + depthH * 0.5f, NAV_DEPTH);
                     }
                 }
 
@@ -1156,7 +1160,7 @@ namespace irr
                     text(font, tb, in.UpperLeftCorner.X + padX, yFooter, NAV_LABEL, false, true);
                 }
                 //PAUSE in the footer centre - the header is fully used by the date/time.
-                if (data.paused) { text(font, TXT_PAUSE, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, yFooter, DIGIT_AMBER); }
+                if (data.paused) { text(font, TXT_PAUSE, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, yFooter, NAV_DEPTH); }
                 wchar_t fb[16];
                 swprintf(fb, 16, L"%u fps", data.fps);
                 if (font) {

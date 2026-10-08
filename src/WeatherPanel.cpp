@@ -126,6 +126,14 @@ void WeatherPanel::buildRows()
     c.push_back(section(L"MER"));
     c.push_back(slider(P_SEA, L"\u00C9tat de la mer", L"\u00C9tat de la mer",
         L"La hauteur des vagues et de la houle. Au-del\u00E0 de 3,5, la mer est grosse.", 0, 6, 0.1f, WX_SEA));
+    c.push_back(section(L"COURANT"));
+    c.push_back(choice(P_STREAM_MODE, L"Courant", L"Courant",
+        L"Mar\u00E9e de la zone : le courant de mar\u00E9e de la carte, qui change avec l'heure. Impos\u00E9 : le courant r\u00E9gl\u00E9 ci-dessous, partout et tout le temps.",
+        { L"Mar\u00E9e de la zone", L"Impos\u00E9" }, WX_SEA));
+    c.push_back(slider(P_STREAM_DIR, L"Direction du courant [\u00B0]", L"Direction du courant",
+        L"La direction vers o\u00F9 porte le courant, en degr\u00E9s vrais (au contraire du vent, nomm\u00E9 d'o\u00F9 il vient). Seulement quand le courant est impos\u00E9.", 0, 359, 1, WX_COMPASS));
+    c.push_back(slider(P_STREAM_SPEED, L"Vitesse du courant [n\u0153uds]", L"Vitesse du courant",
+        L"La vitesse du courant impos\u00E9, en n\u0153uds.", 0, 10, 0.1f, WX_SEA));
     c.push_back(section(L"VISIBILIT\u00C9 ET PR\u00C9CIPITATIONS"));
     c.push_back(slider(P_FOG, L"Brouillard [%]", L"Brouillard",
         L"0 % : visibilit\u00E9 de 10 milles et plus. 100 % : brouillard \u00E9pais, moins de 100 m\u00E8tres.", 0, 100, 1, WX_FOG));
@@ -139,6 +147,10 @@ void WeatherPanel::buildRows()
     c.push_back(choice(P_SIGWX, L"Temps significatif", L"Temps significatif",
         L"Auto : l'orage vient avec une grosse mer. Orage : tonnerre et \u00E9clairs. Grains : toutes les cinq minutes, vent et averse pendant une minute et demie.",
         { L"Auto", L"Aucun", L"Orage", L"Grains" }, WX_THUNDER));
+    c.push_back(choice(P_THUNDER, L"Tonnerre", L"Tonnerre",
+        L"Le grondement du tonnerre pendant un orage. Choisir l'orage le remet en marche.", { L"Non", L"Oui" }, WX_THUNDER));
+    c.push_back(choice(P_LIGHTNING, L"\u00C9clairs", L"\u00C9clairs",
+        L"Les \u00E9clairs dans le ciel pendant un orage. Choisir l'orage les remet en marche.", { L"Non", L"Oui" }, WX_THUNDER));
 
     std::vector<Row>& e = rows[TAB_EVOLUTION];
     e.push_back(section(L"PR\u00C9R\u00C9GLAGES"));
@@ -205,6 +217,8 @@ irr::f32 WeatherPanel::value(Param p) const
     case P_SNOW: return model->getSnow() * 100.0f;
     case P_DUST: return model->getDust() * 100.0f;
     case P_HOUR: return model->getLightingTimeOfDay();
+    case P_STREAM_DIR: return model->getStreamOverrideDirection();
+    case P_STREAM_SPEED: return model->getStreamOverrideSpeed();
     default: return 0;
     }
 }
@@ -223,6 +237,9 @@ void WeatherPanel::setValue(Param p, irr::f32 v)
     case P_RAIN: model->setRain(v / 10.0f); break;
     case P_SNOW: model->setSnow(v / 100.0f); break;
     case P_DUST: model->setDust(v / 100.0f); break;
+    //Moving the current imposes it (the current is not part of a preset)
+    case P_STREAM_DIR: model->setStreamOverrideDirection(v); model->setStreamOverride(true); return;
+    case P_STREAM_SPEED: model->setStreamOverrideSpeed(v); model->setStreamOverride(true); return;
     case P_HOUR:
         model->setLightingTimeOfDay(v);
         if (timeBox) {
@@ -243,6 +260,9 @@ int WeatherPanel::choiceIndex(Param p) const
     case P_SIGWX: return model ? model->getSignificantWeather() : 0;
     case P_TRANSITION: return transitionIndex;
     case P_FRONT: return model ? model->getWeatherFront() : 0;
+    case P_THUNDER: return (model && model->getThunderEnabled()) ? 1 : 0;
+    case P_LIGHTNING: return (model && model->getLightningEnabled()) ? 1 : 0;
+    case P_STREAM_MODE: return (model && model->getStreamOverride()) ? 1 : 0;
     case P_MOMENT: {
         const irr::f32 h = value(P_HOUR);
         int best = 0;
@@ -261,6 +281,9 @@ void WeatherPanel::setChoice(Param p, int index)
     case P_SIGWX: if (model) { model->setSignificantWeather(index); } break;
     case P_TRANSITION: transitionIndex = irr::core::clamp(index, 0, 4); break;
     case P_FRONT: if (model) { model->setWeatherFront(index); } break;
+    case P_THUNDER: if (model) { model->setThunderEnabled(index == 1); } break;
+    case P_LIGHTNING: if (model) { model->setLightningEnabled(index == 1); } break;
+    case P_STREAM_MODE: if (model) { model->setStreamOverride(index == 1); } break;
     case P_MOMENT: setValue(P_HOUR, MOMENT_HOURS[irr::core::clamp(index, 0, 5)]); break;
     default: break;
     }
@@ -275,8 +298,10 @@ std::wstring WeatherPanel::valueText(const Row& row) const
         swprintf(text, 48, L"%d %%", (int)(v + 0.5f)); break;
     case P_WIND: case P_GUST:
         swprintf(text, 48, L"%d kn", (int)(v + 0.5f)); break;
-    case P_WINDDIR:
+    case P_WINDDIR: case P_STREAM_DIR:
         swprintf(text, 48, L"%03d\u00B0", ((int)(v + 0.5f)) % 360); break;
+    case P_STREAM_SPEED:
+        swprintf(text, 48, L"%.1f kn", v); break;
     case P_WINDVAR:
         swprintf(text, 48, L"\u00B1%d\u00B0", (int)(v + 0.5f)); break;
     case P_SEA:
