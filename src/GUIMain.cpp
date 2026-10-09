@@ -949,7 +949,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             0, 150, 5, 25, COL_SEASTATE,
             L"Amplitude du tangage et du roulis affich\u00E9s. 100 % = r\u00E9aliste, moins = plus confortable.");
         motionScaleScrollbar = r.bar; motionScaleValue = r.value;
-        motionScaleScrollbar->setPos(100);
+        motionScaleScrollbar->setPos(60); //60 % by default, as the model
     }
     // KYARA HOULE: read-only line describing the sea the weather has produced, row 7.
     {
@@ -1263,7 +1263,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
         //Steering failures
         const int tRudder = cp->addTab(L"Avaries de barre",
-            L"Pannes \u00E0 donner au stagiaire. Une pompe en panne d\u00E9clenche l'alarme et la barre tourne deux fois moins vite ; les deux en panne, la barre ne r\u00E9pond plus.",
+            L"Des pannes \u00E0 donner au stagiaire. Une pompe en panne : l'alarme sonne et la barre tourne deux fois moins vite. Les deux pompes en panne : la barre ne bouge plus.",
             [this]() {
                 std::vector<ControlsPanel::Readout> out;
                 if (!this->model) { return out; }
@@ -1284,23 +1284,23 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         }
         cp->addSection(tRudder, L"Commande de barre");
         if (ecRudderKey[4] && ecRudderKey[5]) {
-            cp->addKeys(tRudder, L"Barre asservie", L"La barre asservie (follow-up). En panne, il faut gouverner avec les boutons non asservis (NFU).",
+            cp->addKeys(tRudder, L"Barre asservie", L"La barre normale (asservie). En panne, le stagiaire doit gouverner en secours avec les boutons NFU (non asservis).",
                 { ecRudderKey[4], ecRudderKey[5] }, workingFailed,
                 [this]() { return (this->model && this->model->getFollowUpRudderWorking()) ? 0 : 1; });
         }
 
         //View
-        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et le mouvement du navire.");
+        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.");
         if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
         if (motionScaleScrollbar) {
-            cp->addSlider(tView, L"Mouvement du navire", L"Amplitude du tangage et du roulis affich\u00E9s. 100 % = r\u00E9aliste, moins = plus confortable. Le pilonnement, la perte de vitesse et l'embard\u00E9e restent r\u00E9els.",
+            cp->addSlider(tView, L"Mouvement du navire", L"La force du tangage et du roulis \u00E0 l'\u00E9cran. 100 % = comme en vrai. Moins = plus doux, pour ne pas avoir le mal de mer devant l'\u00E9cran. Seule l'image change : le comportement du navire reste le m\u00EAme.",
                 motionScaleScrollbar, motionScaleValue);
         }
 
         //COLREG lights of any vessel
         if (lightsVesselBox && lightsStatusText) {
             const int tLights = cp->addTab(L"Feux",
-                L"Les feux et marques de n'importe quel navire du sc\u00E9nario, selon sa situation COLREG, et les erreurs volontaires que le stagiaire doit trouver.",
+                L"Les feux de n'importe quel navire de l'exercice, selon sa situation (en route, au mouillage, p\u00EAche...), et des erreurs \u00E0 faire trouver au stagiaire.",
                 [this, textOf]() {
                     std::vector<ControlsPanel::Readout> out;
                     std::wstring expected = textOf(lightsStatusText);
@@ -1310,7 +1310,21 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                     out.push_back({ L"Feux attendus", expected, (lights && lights->hasOverrides()) ? 2 : 0 });
                     return out;
                 });
-            cp->addChoice(tLights, L"Navire", L"Le navire dont on r\u00E8gle les feux : le navire propre, ou un des autres navires du sc\u00E9nario.", lightsVesselBox);
+            cp->addChoice(tLights, L"Navire", L"Le navire dont on r\u00E8gle les feux : le navire propre ou un autre navire de l'exercice.", lightsVesselBox);
+            //What each situation shows, in plain words (the card on the right reads the key's tip)
+            const wchar_t* sitHelp[] = {
+                L"Le navire fait route au moteur : feu blanc en t\u00EAte de m\u00E2t, feux de c\u00F4t\u00E9 (rouge \u00E0 b\u00E2bord, vert \u00E0 tribord) et feu blanc de poupe.",
+                L"Le navire est \u00E0 l'ancre : un feu blanc visible de tous les c\u00F4t\u00E9s \u00E0 l'avant (et un second, plus bas, \u00E0 l'arri\u00E8re s'il fait 50 m ou plus). Pas de feux de c\u00F4t\u00E9.",
+                L"Le navire touche le fond : les feux du mouillage, plus deux feux rouges l'un au-dessus de l'autre.",
+                L"Le navire ne peut plus man\u0153uvrer (panne) : deux feux rouges l'un au-dessus de l'autre. Feux de c\u00F4t\u00E9 et de poupe seulement s'il avance encore.",
+                L"Le navire est g\u00EAn\u00E9 par son travail (dragage, plong\u00E9e, pose de c\u00E2ble...) : rouge, blanc, rouge l'un au-dessus de l'autre, plus ses feux de route s'il avance.",
+                L"Le navire p\u00EAche au chalut : vert au-dessus de blanc, plus feux de c\u00F4t\u00E9 et de poupe s'il avance.",
+                L"Le navire p\u00EAche autrement qu'au chalut (filets, lignes...) : rouge au-dessus de blanc, plus feux de c\u00F4t\u00E9 et de poupe s'il avance.",
+                L"Tous les feux du navire sont \u00E9teints.",
+            };
+            for (int k = 0; k < ShipLights::SIT_COUNT && k < (int)(sizeof(sitHelp) / sizeof(sitHelp[0])); k++) {
+                if (lightsSitButton[k]) { lightsSitButton[k]->setToolTipText(sitHelp[k]); }
+            }
             cp->addSection(tLights, L"Situation");
             for (int k = 0; k + 1 < ShipLights::SIT_COUNT; k += 2) {
                 if (!lightsSitButton[k] || !lightsSitButton[k + 1]) { continue; }
@@ -1332,7 +1346,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                     });
             }
             if (lightsDeckBox) {
-                cp->addToggle(tLights, L"Feux de pont", L"Feux de travail / de pont de ce navire (pas des feux de navigation).", lightsDeckBox);
+                cp->addToggle(tLights, L"Feux de pont", L"Les projecteurs de travail sur le pont de ce navire (ce ne sont pas des feux de navigation).", lightsDeckBox);
             }
             cp->addSection(tLights, L"Feu masqu\u00E9 (erreur volontaire)");
             for (int s = 0; s < ShipLights::OVERRIDE_SLOTS; s++) {
@@ -1376,7 +1390,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //Size and waterline
         if (sizeVesselBox) {
             const int tSize = cp->addTab(L"Taille", ecSizeHelp ? textOf(ecSizeHelp) : std::wstring());
-            cp->addChoice(tSize, L"Navire", L"Le navire \u00E0 r\u00E9gler : le navire propre, ou un des autres navires du sc\u00E9nario.", sizeVesselBox);
+            cp->addChoice(tSize, L"Navire", L"Le navire \u00E0 r\u00E9gler : le navire propre ou un autre navire de l'exercice.", sizeVesselBox);
             if (ecSizeEditKey) { cp->addKeys(tSize, L"", L"", { ecSizeEditKey }, { L"Taille et flottaison" }); }
         }
     }

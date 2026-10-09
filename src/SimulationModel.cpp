@@ -517,7 +517,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     heloRunActive = false;
     //initialise offset
     offsetPosition = irr::core::vector3d<int64_t>(0, 0, 0);
-    motionScale = 1.0f; // KYARA HOULE
+    motionScale = 0.6f; // KYARA HOULE: 60 % by default (100 % = realistic), gentler on the screen
     slamCooldown = 0.0f; // KYARA SLAM
 
     //store time

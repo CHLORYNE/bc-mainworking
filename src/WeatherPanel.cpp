@@ -113,61 +113,61 @@ void WeatherPanel::buildRows()
     std::vector<Row>& c = rows[TAB_CONDITIONS];
     c.push_back(section(L"CIEL"));
     c.push_back(slider(P_CLOUD, L"Couverture nuageuse [%]", L"Couverture nuageuse",
-        L"Du ciel d\u00E9gag\u00E9 au ciel couvert. Un ciel couvert assombrit aussi la lumi\u00E8re du jour.", 0, 100, 1, WX_OVERCAST));
+        L"La quantit\u00E9 de nuages : 0 % = ciel bleu, 100 % = ciel tout gris. Plus il y a de nuages, plus il fait sombre.", 0, 100, 1, WX_OVERCAST));
     c.push_back(section(L"VENT"));
     c.push_back(slider(P_WIND, L"Vent [n\u0153uds]", L"Vent moyen",
-        L"Le vent moyen. Il pousse le navire, fait la mer et incline la pluie et la neige.", 0, 70, 1, WX_WIND));
+        L"La force du vent, en n\u0153uds. Le vent pousse le navire et fait grossir les vagues.", 0, 70, 1, WX_WIND));
     c.push_back(slider(P_WINDDIR, L"Direction du vent [\u00B0]", L"Direction du vent",
-        L"La direction d'o\u00F9 vient le vent, en degr\u00E9s vrais.", 0, 359, 1, WX_COMPASS));
+        L"D'o\u00F9 vient le vent, en degr\u00E9s. Exemple : 000 = vent du nord, 090 = vent d'est.", 0, 359, 1, WX_COMPASS));
     c.push_back(slider(P_WINDVAR, L"Variation de direction [\u00B0]", L"Variation de direction",
-        L"De combien la direction du vent oscille de part et d'autre de sa direction moyenne.", 0, 90, 1, WX_COMPASS));
+        L"Le vent ne souffle jamais exactement de la m\u00EAme direction. Ce r\u00E9glage dit de combien de degr\u00E9s il peut tourner, \u00E0 gauche et \u00E0 droite.", 0, 90, 1, WX_COMPASS));
     c.push_back(slider(P_GUST, L"Rafales [n\u0153uds]", L"Rafales",
-        L"La force des rafales, au-dessus du vent moyen. L'an\u00E9mom\u00E8tre les montre.", 0, 40, 1, WX_GUST));
+        L"Des coups de vent plus forts, par moments. Exemple : vent 15 n\u0153uds et rafales 10 n\u0153uds = des pointes \u00E0 25 n\u0153uds.", 0, 40, 1, WX_GUST));
     c.push_back(section(L"MER"));
     c.push_back(slider(P_SEA, L"\u00C9tat de la mer", L"\u00C9tat de la mer",
-        L"La hauteur des vagues et de la houle. Au-del\u00E0 de 3,5, la mer est grosse.", 0, 6, 0.1f, WX_SEA));
+        L"La hauteur des vagues : 0 = mer plate, 6 = mer tr\u00E8s grosse.", 0, 6, 0.1f, WX_SEA));
     c.push_back(section(L"COURANT"));
     c.push_back(choice(P_STREAM_MODE, L"Courant", L"Courant",
-        L"Mar\u00E9e de la zone : le courant de mar\u00E9e de la carte, qui change avec l'heure. Impos\u00E9 : le courant r\u00E9gl\u00E9 ci-dessous, partout et tout le temps.",
+        L"Mar\u00E9e de la zone : le courant normal de la carte. Impos\u00E9 : vous choisissez vous-m\u00EAme la direction et la vitesse du courant, avec les r\u00E9glages ci-dessous.",
         { L"Mar\u00E9e de la zone", L"Impos\u00E9" }, WX_SEA));
     c.push_back(slider(P_STREAM_DIR, L"Direction du courant [\u00B0]", L"Direction du courant",
-        L"La direction vers o\u00F9 porte le courant, en degr\u00E9s vrais (au contraire du vent, nomm\u00E9 d'o\u00F9 il vient). Seulement quand le courant est impos\u00E9.", 0, 359, 1, WX_COMPASS));
+        L"Vers o\u00F9 le courant emporte le navire, en degr\u00E9s. Attention : c'est l'inverse du vent, qu'on donne d'o\u00F9 il vient.", 0, 359, 1, WX_COMPASS));
     c.push_back(slider(P_STREAM_SPEED, L"Vitesse du courant [n\u0153uds]", L"Vitesse du courant",
-        L"La vitesse du courant impos\u00E9, en n\u0153uds.", 0, 10, 0.1f, WX_SEA));
+        L"La vitesse du courant, en n\u0153uds.", 0, 10, 0.1f, WX_SEA));
     c.push_back(section(L"VISIBILIT\u00C9 ET PR\u00C9CIPITATIONS"));
     c.push_back(slider(P_FOG, L"Brouillard [%]", L"Brouillard",
-        L"0 % : visibilit\u00E9 de 10 milles et plus. 100 % : brouillard \u00E9pais, moins de 100 m\u00E8tres.", 0, 100, 1, WX_FOG));
+        L"Plus le chiffre est haut, moins on voit loin. 0 % : on voit \u00E0 plus de 10 milles. 100 % : on ne voit pas \u00E0 100 m\u00E8tres.", 0, 100, 1, WX_FOG));
     c.push_back(slider(P_RAIN, L"Pluie [%]", L"Pluie",
-        L"De la bruine \u00E0 l'averse. La pluie est aussi visible sur l'\u00E9cran radar.", 0, 100, 1, WX_RAIN));
+        L"La quantit\u00E9 de pluie, de la bruine \u00E0 la grosse averse. La pluie se voit aussi sur l'\u00E9cran radar.", 0, 100, 1, WX_RAIN));
     c.push_back(slider(P_SNOW, L"Neige [%]", L"Neige",
-        L"Des flocons \u00E9pars \u00E0 la temp\u00EAte de neige. La neige r\u00E9duit la visibilit\u00E9.", 0, 100, 1, WX_SNOW));
+        L"La quantit\u00E9 de neige. Plus il neige, moins on voit loin.", 0, 100, 1, WX_SNOW));
     c.push_back(slider(P_DUST, L"Sable / poussi\u00E8re [%]", L"Sable et poussi\u00E8re",
-        L"Une brume s\u00E8che et ocre, jusqu'\u00E0 la temp\u00EAte de sable.", 0, 100, 1, WX_DUST));
-    c.push_back(section(L"TEMPS SIGNIFICATIF"));
-    c.push_back(choice(P_SIGWX, L"Temps significatif", L"Temps significatif",
-        L"Auto : l'orage vient avec une grosse mer. Orage : tonnerre et \u00E9clairs. Grains : toutes les cinq minutes, vent et averse pendant une minute et demie.",
+        L"Du sable ou de la poussi\u00E8re dans l'air, couleur ocre. Plus le chiffre est haut, moins on voit loin.", 0, 100, 1, WX_DUST));
+    c.push_back(section(L"ORAGE ET GRAINS"));
+    c.push_back(choice(P_SIGWX, L"Orage et grains", L"Orage et grains",
+        L"Auto : l'orage arrive tout seul quand la mer devient grosse. Aucun : jamais d'orage. Orage : tonnerre et \u00E9clairs tout de suite. Grains : toutes les 5 minutes, un coup de vent avec une averse pendant 1 minute 30.",
         { L"Auto", L"Aucun", L"Orage", L"Grains" }, WX_THUNDER));
     c.push_back(choice(P_THUNDER, L"Tonnerre", L"Tonnerre",
-        L"Le grondement du tonnerre pendant un orage. Choisir l'orage le remet en marche.", { L"Non", L"Oui" }, WX_THUNDER));
+        L"Le bruit du tonnerre pendant l'orage. Non = orage sans bruit.", { L"Non", L"Oui" }, WX_THUNDER));
     c.push_back(choice(P_LIGHTNING, L"\u00C9clairs", L"\u00C9clairs",
-        L"Les \u00E9clairs dans le ciel pendant un orage. Choisir l'orage les remet en marche.", { L"Non", L"Oui" }, WX_THUNDER));
+        L"Les \u00E9clairs dans le ciel pendant l'orage. Non = orage sans \u00E9clairs.", { L"Non", L"Oui" }, WX_THUNDER));
 
     std::vector<Row>& e = rows[TAB_EVOLUTION];
     e.push_back(section(L"PR\u00C9R\u00C9GLAGES"));
-    e.push_back(choice(P_TRANSITION, L"Passage d'un temps \u00E0 l'autre", L"Transition",
-        L"Comment un pr\u00E9r\u00E9glage s'installe : tout de suite, ou peu \u00E0 peu, comme le vrai temps.",
+    e.push_back(choice(P_TRANSITION, L"Dur\u00E9e du changement de temps", L"Dur\u00E9e du changement",
+        L"Quand vous choisissez un pr\u00E9r\u00E9glage, le temps change tout de suite (Imm\u00E9diat), ou petit \u00E0 petit pendant la dur\u00E9e choisie.",
         { L"Imm\u00E9diat", L"1 minute", L"5 minutes", L"15 minutes", L"30 minutes" }, WX_CLOCK));
-    e.push_back(section(L"FRONT"));
-    e.push_back(choice(P_FRONT, L"Front m\u00E9t\u00E9o", L"Front m\u00E9t\u00E9o",
-        L"Un front arrive : le vent forcit et tourne, les nuages, la pluie et la mer montent, la visibilit\u00E9 baisse. Puis il passe et le temps revient comme avant. Lent : environ une heure. Rapide : environ vingt minutes.",
-        { L"Aucun", L"Lent", L"Rapide" }, WX_FRONT));
+    e.push_back(section(L"PERTURBATION"));
+    e.push_back(choice(P_FRONT, L"Perturbation", L"Perturbation",
+        L"Le mauvais temps arrive, puis repart tout seul. D'abord le vent forcit et tourne, la pluie arrive, la mer grossit et on voit moins loin. Ensuite tout redevient comme avant. Lente : environ 1 heure en tout. Rapide : environ 20 minutes.",
+        { L"Aucune", L"Lente", L"Rapide" }, WX_FRONT));
 
     std::vector<Row>& t = rows[TAB_TIME];
     t.push_back(section(L"\u00C9CLAIRAGE"));
     t.push_back(slider(P_HOUR, L"Heure [h]", L"Heure de l'\u00E9clairage",
-        L"La lumi\u00E8re du jour et de la nuit. Seulement l'\u00E9clairage : l'horloge, le trafic et la mar\u00E9e de l'exercice ne changent pas.", 0, 24, 0.25f, WX_CLOCK));
+        L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit. Seule la lumi\u00E8re change : l'horloge, les autres navires et la mar\u00E9e de l'exercice ne bougent pas.", 0, 24, 0.25f, WX_CLOCK));
     t.push_back(choice(P_MOMENT, L"Moment de la journ\u00E9e", L"Moment de la journ\u00E9e",
-        L"Un raccourci vers l'aube, le matin, midi, l'apr\u00E8s-midi, le cr\u00E9puscule ou la nuit.",
+        L"Choix rapide de l'heure : aube, matin, midi, apr\u00E8s-midi, cr\u00E9puscule ou nuit.",
         { L"Aube", L"Matin", L"Midi", L"Apr\u00E8s-midi", L"Cr\u00E9puscule", L"Nuit" }, WX_SUN));
 }
 
@@ -192,7 +192,7 @@ void WeatherPanel::buildPresets()
     add(L"Neige", L"Neige soutenue, visibilit\u00E9 r\u00E9duite.", WX_SNOW, 1.0f, 14, 20, 6, 2, 0, 0.75f, 0, 2.0f, 1);
     add(L"Orage", L"Orage : pluie forte, rafales, tonnerre et \u00E9clairs.", WX_THUNDER, 1.0f, 26, 30, 15, 2, 8, 0, 0, 3.5f, 2);
     add(L"Blizzard", L"Temp\u00EAte de neige : vent fort, neige \u00E9paisse, visibilit\u00E9 presque nulle.", WX_BLIZZARD, 1.0f, 40, 30, 15, 0.3f, 0, 1.0f, 0, 4.0f, 1);
-    add(L"Sable / poussi\u00E8re", L"Brume s\u00E8che de sable, ocre, visibilit\u00E9 r\u00E9duite.", WX_DUST, 0.3f, 16, 20, 6, 3, 0, 0, 0.45f, 1.5f, 1);
+    add(L"Sable / poussi\u00E8re", L"Brume de sable couleur ocre, on voit moins loin.", WX_DUST, 0.3f, 16, 20, 6, 3, 0, 0, 0.45f, 1.5f, 1);
     add(L"Temp\u00EAte de sable", L"Vent fort charg\u00E9 de sable, visibilit\u00E9 tr\u00E8s r\u00E9duite.", WX_DUSTSTORM, 0.6f, 35, 30, 12, 0.3f, 0, 0, 1.0f, 3.0f, 1);
     add(L"Coup de vent", L"Coup de vent : mer forte, embruns, rafales.", WX_GALE, 0.8f, 38, 20, 12, 5, 2, 0, 0, 4.5f, 1);
     add(L"Temp\u00EAte", L"Temp\u00EAte : mer tr\u00E8s grosse, pluie, orage, visibilit\u00E9 r\u00E9duite.", WX_STORM, 1.0f, 55, 30, 18, 1.5f, 7, 0, 0, 6.0f, 2);
@@ -619,7 +619,7 @@ void WeatherPanel::draw()
     std::wstring status;
     if (model && model->getWeatherFront() != 0) {
         wchar_t text[96];
-        swprintf(text, 96, L"Front m\u00E9t\u00E9o en cours  \u00B7  %d %%", (int)(model->getWeatherFrontProgress() * 100.0f + 0.5f));
+        swprintf(text, 96, L"Perturbation en cours  \u00B7  %d %%", (int)(model->getWeatherFrontProgress() * 100.0f + 0.5f));
         status = text;
     }
     else if (model && model->isWeatherChanging()) {
@@ -816,7 +816,7 @@ void WeatherPanel::drawInfo(irr::video::IVideoDriver* driver)
         if (p >= 0) { title = presets[p].name; help = presets[p].help; icon = presets[p].icon; }
         else {
             title = L"Pr\u00E9r\u00E9glages";
-            help = L"Un clic choisit un temps complet : ciel, vent, mer, visibilit\u00E9 et pr\u00E9cipitations. Le passage se r\u00E8gle dans l'onglet \u00C9volution.";
+            help = L"Un clic r\u00E8gle tout le temps d'un coup : ciel, vent, mer, visibilit\u00E9 et pluie. Pour un changement petit \u00E0 petit, choisissez une dur\u00E9e dans l'onglet \u00C9volution.";
         }
     }
     else {
@@ -829,16 +829,16 @@ void WeatherPanel::drawInfo(irr::video::IVideoDriver* driver)
         }
         else if (tab == TAB_CONDITIONS) {
             title = L"Conditions";
-            help = L"Chaque \u00E9l\u00E9ment du temps sur son curseur. Les changements s'appliquent tout de suite.";
+            help = L"Chaque \u00E9l\u00E9ment du temps se r\u00E8gle avec son curseur. Le changement est imm\u00E9diat.";
         }
         else if (tab == TAB_EVOLUTION) {
             title = L"\u00C9volution";
-            help = L"Comment le temps change pendant l'exercice : la transition des pr\u00E9r\u00E9glages et le passage d'un front.";
+            help = L"Comment le temps change pendant l'exercice : la dur\u00E9e du changement quand vous choisissez un pr\u00E9r\u00E9glage, et le passage d'une perturbation.";
             icon = WX_FRONT;
         }
         else {
             title = L"Heure";
-            help = L"L'heure de l'\u00E9clairage : jour, aube, cr\u00E9puscule ou nuit.";
+            help = L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit.";
             icon = WX_CLOCK;
         }
     }
@@ -900,7 +900,7 @@ void WeatherPanel::drawInfo(irr::video::IVideoDriver* driver)
         const irr::core::rect<irr::f32> bar(rx, ry + 4 * k, std::min(info.LowerRightCorner.X, rx + 160 * k), ry + 9 * k);
         fill(driver, bar, withAlpha(pal.edge, 200), &clip);
         fill(driver, irr::core::rect<irr::f32>(bar.UpperLeftCorner.X, bar.UpperLeftCorner.Y, bar.UpperLeftCorner.X + bar.getWidth() * prog, bar.LowerRightCorner.Y), pal.accent, &clip);
-        fonts.section->drawIn(model->getWeatherFront() ? L"FRONT EN COURS" : L"\u00C9VOLUTION EN COURS",
+        fonts.section->drawIn(model->getWeatherFront() ? L"PERTURBATION EN COURS" : L"\u00C9VOLUTION EN COURS",
             irr::core::rect<irr::f32>(rx, ry + 12 * k, info.LowerRightCorner.X, ry + 30 * k), pal.accent, HudFont::Left, 1.2f * k, &clip);
     }
 }
