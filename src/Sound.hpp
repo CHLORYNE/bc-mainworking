@@ -82,6 +82,10 @@ public:
 	//slower, which is what a heavy landing sounds like).
 	void triggerSlam(float gain, float pitch);
 	bool hasSlamSound() const;
+	//Radar CPA/TCPA ("dangerous target") alarm: its own looping sound, distinct from the guard
+	//zone alarm, and started from the beginning of its pattern each time it sounds.
+	void loadCpaAlarmSound(std::string cpaAlarmFile);
+	void setVolumeCpaAlarm(float vol);
 
 	void  setVolumeVhf(float vol); float getVolumeVhf() const;
 	void  setVolumeHelo(float vol); float getVolumeHelo() const;
@@ -141,6 +145,7 @@ private:
 		SNDFILE* fileHelo;        SF_INFO infoHelo;
 		//KYARA SLAM
 		SNDFILE* fileSlam;        SF_INFO infoSlam;
+		SNDFILE* fileCpaAlarm;    SF_INFO infoCpaAlarm;
 		SF_INFO      infoWave;
 		SF_INFO      infoEngine;
 		SF_INFO      infoHorn;
@@ -227,6 +232,9 @@ private:
 	//so a new trigger can never change the gain of a sound already in flight.
 	static bool slamSoundLoaded;
 	static float slamVolume;
+	static bool cpaAlarmSoundLoaded;
+	static float cpaAlarmVolume;
+	static bool cpaAlarmWasOn;               // callback only: restart the pattern when it begins
 	static volatile bool slamTriggered;
 	static volatile float slamGain;
 	static volatile float slamPitch;
@@ -298,6 +306,7 @@ private:
 		std::vector<float> heloBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
 		//KYARA SLAM: zero-filled, so the tail of the final partial buffer mixes as silence
 		std::vector<float> slamBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
+		std::vector<float> cpaAlarmBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
 		//ANGLE SOUND CHANGE KYARA 
 		//SOUND OUTSIDE AND INSIDE BOAT KYARA
 		// SOUND OUTSIDE AND INSIDE BOAT KYARA - Corrected buffer size
@@ -514,6 +523,20 @@ private:
 				}
 			}
 		}
+
+		// Radar CPA/TCPA alarm: looping, read only while it sounds, from the start of the pattern each
+		// time it begins; the end of the file runs on into its start, so the loop has no gap.
+		bool playCpaAlarm = cpaAlarmSoundLoaded && cpaAlarmVolume > 0.0f;
+		if (playCpaAlarm) {
+			if (!cpaAlarmWasOn) { sf_seek(p_data->fileCpaAlarm, 0, SEEK_SET); }
+			const sf_count_t wanted = frameCount * p_data->infoEngine.channels;
+			sf_count_t got = sf_read_float(p_data->fileCpaAlarm, cpaAlarmBuffer.data(), wanted);
+			if (got < wanted && sf_seek(p_data->fileCpaAlarm, 0, SEEK_SET) != -1) {
+				got += sf_read_float(p_data->fileCpaAlarm, cpaAlarmBuffer.data() + got, wanted - got);
+			}
+			if (got <= 0) { playCpaAlarm = false; }
+		}
+		cpaAlarmWasOn = playCpaAlarm;
 
 		// Collision: ONE-SHOT. It only plays after triggerCollision() is called, plays
 		// through a single time, then goes silent (no looping). A short collision file
@@ -791,6 +814,9 @@ private:
 			}
 			if (playRadarAlarm) {
 				out[i] += radarAlarmVolume * radarAlarmBuffer[i] * 0.5;
+			}
+			if (playCpaAlarm) {
+				out[i] += cpaAlarmVolume * cpaAlarmBuffer[i] * 0.5;
 			}
 			if (playCollision) {
 				out[i] += collisionVolume * collisionBuffer[i] * 0.33;

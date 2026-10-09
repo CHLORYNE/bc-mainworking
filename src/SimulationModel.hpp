@@ -362,6 +362,7 @@ public:
     //bc5.ini screen_spray: 0 = off, 1 = normal, 2 = test (fires on every landing)
     void setScreenSprayMode(int mode);
     std::string getOwnShipRadarAlarmSound() const;
+    std::string getOwnShipCpaAlarmSound() const;   //radar CPA/TCPA alarm
     void triggerSeagull(); //Plays the seagull one-shot sound (bound to the 'G' key)
     //MUTE ALARM 
     void toggleProxyAlarmMute();

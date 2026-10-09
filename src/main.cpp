@@ -1605,6 +1605,8 @@ int main(int argc, char** argv)
         sound.setVolumeWave(IniFile::iniFileTof32(iniFilename, "wave_volume"));
         //KYARA SLAM: hull coming down on the water. Optional file; bc5.ini slam_volume (default 1).
         sound.loadSlamSound(model.getOwnShipSlamSound());
+        //Radar CPA/TCPA alarm, distinct from the guard zone alarm
+        sound.loadCpaAlarmSound(model.getOwnShipCpaAlarmSound());
         //KYARA SLAM: water on the wheelhouse glass. bc5.ini screen_spray: 0 off, 1 normal (default),
         //2 test - water after every landing, for checking the effect.
         {

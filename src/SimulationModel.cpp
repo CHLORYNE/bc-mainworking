@@ -958,6 +958,15 @@ std::string SimulationModel::getOwnShipProxyAlarmSound() const {
     return getOwnShipAlarmSound(); // last resort: generic alarm
 }
 //------------------END
+//Radar CPA/TCPA alarm sound: the ship's own cpa_alarm.wav, else Sounds/cpa_alarm.wav
+std::string SimulationModel::getOwnShipCpaAlarmSound() const {
+    std::string soundPath = ownShip.getBasePath(); soundPath.append("/cpa_alarm.wav");
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    soundPath = "Sounds/cpa_alarm.wav";
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    return ""; //missing: the channel stays silent
+}
+
 //kyara: radar guard-zone alarm sound (independent of proxy alarm)
 std::string SimulationModel::getOwnShipRadarAlarmSound() const {
     std::string soundPath;
@@ -5236,7 +5245,9 @@ void SimulationModel::update()
         //-----------------------------------------------------------------------------
 
         //kyara: radar guard-zone alarm on its own channel, independent of proxy & its mute
-        sound->setVolumeRadarAlarm((radarCalculation.isGuardAlarmSounding() || radarCalculation.isCPAAlarmSounding()) ? 1.0f : 0.0f);
+        sound->setVolumeRadarAlarm(radarCalculation.isGuardAlarmSounding() ? 1.0f : 0.0f);
+        //CPA/TCPA alarm: its own sound, so the two radar alarms can be told apart by ear
+        sound->setVolumeCpaAlarm(radarCalculation.isCPAAlarmSounding() ? 1.0f : 0.0f);
         // ---- KYARA WEATHER AUDIO + LIGHTNING --------------------------------------------
         // Storm is DERIVED from the (already-synced) weather + visibility, so primary and
         // secondary agree without any extra network flag.
