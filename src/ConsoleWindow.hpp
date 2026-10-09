@@ -20,6 +20,7 @@
 
 #include "irrlicht.h"
 #include <vector>
+#include <string>
 
 class ConsoleWindow
 {
@@ -32,6 +33,9 @@ public:
     bool open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool borderless = false);
     void close();
     bool isOpen() const;
+    //Opens a file with the program the system uses for it (the debrief report in the browser).
+    //Windows only; elsewhere nothing happens.
+    static void openWithSystem(const std::string& path);
 
     //Mouse input since the last call, in client coordinates (left and right buttons, moves, wheel).
     //closeRequested: the user clicked the window's close button.

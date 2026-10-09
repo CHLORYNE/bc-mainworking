@@ -100,6 +100,14 @@ struct GUIData {
 
     irr::f32 guiRadarCursorBrg;
     irr::f32 guiRadarCursorRangeNm;
+    //Failures given by the instructor, depth alarm, man overboard mark
+    bool gyroLost = false;
+    bool gpsLost = false;
+    bool radarFailed = false;
+    irr::f32 depthAlarmLimit = 0;   //m, 0 = off
+    bool depthAlarm = false;        //under the limit now
+    bool mobOn = false;
+    irr::f32 mobBrg = 0, mobNm = 0; //from own ship
     irr::s32 arpaListSelection;
     std::vector<ARPAEstimatedState> arpaContactStates;
     std::string currentTime;
@@ -351,6 +359,17 @@ public:
         GUI_ID_RADAR_TRIAL_SPD_UP,
         GUI_ID_RADAR_TRIAL_DELAY_DOWN,
         GUI_ID_RADAR_TRIAL_DELAY_UP,
+        //Training controls (CONTROLES window): failures (working / failed for each), sound signals,
+        //echo sounder alarm, man overboard mark, debrief report
+        GUI_ID_FAILURE_KEY_FIRST,
+        GUI_ID_FAILURE_KEY_LAST = GUI_ID_FAILURE_KEY_FIRST + 9,
+        GUI_ID_SIGNAL_KEY_FIRST,
+        GUI_ID_SIGNAL_KEY_LAST = GUI_ID_SIGNAL_KEY_FIRST + 7,
+        GUI_ID_DEPTH_ALARM_KEY_FIRST,
+        GUI_ID_DEPTH_ALARM_KEY_LAST = GUI_ID_DEPTH_ALARM_KEY_FIRST + 4,
+        GUI_ID_MOB_MARK_KEY,
+        GUI_ID_MOB_CLEAR_KEY,
+        GUI_ID_DEBRIEF_KEY,
 
     };
 
@@ -396,6 +415,9 @@ public:
     //Large radar tools (vector/trail lengths, coastline, CPA alarm, parallel index lines, trial
     //manoeuvre): true if the button was one of them.
     bool handleRadarToolButton(irr::s32 id);
+    //Training controls of the CONTROLES window (failures, sound signals, depth alarm, MOB, debrief):
+    //true if the button was one of them.
+    bool handleTrainingButton(irr::s32 id);
     //Mouse on the large radar's scope (main screen, or the radar window during its pass): presses and
     //releases go to the radar (track a target, draw a parallel index line), the wheel changes the
     //range. True if the event was used up (the wheel).
@@ -706,6 +728,7 @@ private:
     irr::gui::IGUIButton* radarTrialButtons[6] = { 0, 0, 0, 0, 0, 0 }; //course -/+, speed -/+, delay -/+
     irr::gui::IGUIStaticText* radarTrialValues[3] = { 0, 0, 0 };       //course, speed, delay
     bool scopeLeftDown = false;                            //left press on the scope, its release goes there too
+    std::wstring lastReportText;                           //debrief tab: where the last report went
     void updateRadarToolButtons();
     void drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radius);
     void setRadarDetached(bool detached);
@@ -799,6 +822,8 @@ private:
     irr::s32 smallRadarScreenCentreX;
     irr::s32 smallRadarScreenCentreY;
     irr::s32 smallRadarScreenRadius;
+    bool guiGyroLost = false, guiGpsLost = false, guiRadarFailed = false, guiDepthAlarm = false, guiMobOn = false;
+    irr::f32 guiDepthAlarmLimit = 0, guiMobBrg = 0, guiMobNm = 0;
     std::vector<ARPAEstimatedState> arpaContactStates;
     std::string guiTime;
     bool singleEngine;

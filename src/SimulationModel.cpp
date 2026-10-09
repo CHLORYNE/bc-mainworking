@@ -1933,8 +1933,9 @@ void SimulationModel::setStbdAzimuthAngle(irr::f32 angle)
 
 void SimulationModel::setPortEngine(irr::f32 port)
 {
-    //Set the engine, (-ve astern, +ve ahead)
-    ownShip.setPortEngine(port); //This method limits the range applied
+    //Set the engine, (-ve astern, +ve ahead). A failed engine stays stopped whatever the lever says.
+    requestedPortEngine = port;
+    ownShip.setPortEngine(failures[FAIL_PORT_ENGINE] ? 0.0f : port); //This method limits the range applied
 
     //Set engine sound level
     // DEE_NOV22 unless this is a controllable pitch propellor,
@@ -1965,8 +1966,9 @@ void SimulationModel::setPortEngine(irr::f32 port)
 
 void SimulationModel::setStbdEngine(irr::f32 stbd)
 {
-    //Set the engine, (-ve astern, +ve ahead)
-    ownShip.setStbdEngine(stbd); //This method limits the range applied
+    //Set the engine, (-ve astern, +ve ahead). A failed engine stays stopped whatever the lever says.
+    requestedStbdEngine = stbd;
+    ownShip.setStbdEngine(failures[FAIL_STBD_ENGINE] ? 0.0f : stbd); //This method limits the range applied
 
     //Set engine sound level
     // DEE_NOV22 same comment as for port engine
@@ -2036,6 +2038,10 @@ irr::f32 SimulationModel::getSternThruster() const
 }
 
 void SimulationModel::setRudderPumpState(int whichPump, bool rudderPumpState) {
+    if (ownShip.getRudderPumpState(whichPump) != rudderPumpState) {
+        logEvent(rudderPumpState ? ExerciseLog::EV_INSTRUCTOR : ExerciseLog::EV_FAILURE,
+            (rudderPumpState ? L"Pompe de barre " : L"Panne : pompe de barre ") + std::to_wstring(whichPump) + (rudderPumpState ? L" remise en service" : L""));
+    }
     ownShip.setRudderPumpState(whichPump, rudderPumpState);
 }
 
@@ -2049,6 +2055,10 @@ void SimulationModel::setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogKts) {
 }
 
 void SimulationModel::setFollowUpRudderWorking(bool followUpRudderWorking) {
+    if (ownShip.getFollowUpRudderWorking() != followUpRudderWorking) {
+        logEvent(followUpRudderWorking ? ExerciseLog::EV_INSTRUCTOR : ExerciseLog::EV_FAILURE,
+            followUpRudderWorking ? L"Barre asservie remise en service" : L"Panne : barre asservie (gouverner en NFU)");
+    }
     ownShip.setFollowUpRudderWorking(followUpRudderWorking);
 }
 
@@ -2541,6 +2551,7 @@ void SimulationModel::setAlarm(bool alarmState)
 
 void SimulationModel::toggleRadarOn()
 {
+    if (failures[FAIL_RADAR] && !radarCalculation.isRadarOn()) { return; } //out of order: it does not come on
     radarCalculation.toggleRadarOn();
 }
 
@@ -2917,6 +2928,8 @@ void SimulationModel::releaseManOverboard()
 {
     //Only release/update if not already released
     if (!manOverboard.getVisible()) {
+        logEvent(ExerciseLog::EV_ALARM, L"Homme \u00E0 la mer");
+        if (!mobMarked) { markManOverboard(); } //(as the MOB button of a GPS would)
         manOverboard.setVisible(true);
         irr::core::vector3df ownShipPos = ownShip.getPosition();
         irr::core::vector3df relativePosition;
@@ -5626,6 +5639,29 @@ void SimulationModel::update()
         guiData->bowThruster = ownShip.getBowThruster();
         guiData->sternThruster = ownShip.getSternThruster();
         guiData->depth = ownShip.getDepth();
+
+        //Failures: what the instruments show without their sensor
+        guiData->gyroLost = failures[FAIL_GYRO];
+        guiData->gpsLost = failures[FAIL_GPS];
+        guiData->radarFailed = failures[FAIL_RADAR];
+        if (failures[FAIL_GYRO]) { guiData->hdg = frozenHeading; }
+        if (failures[FAIL_GPS]) {
+            guiData->lat = frozenLat;
+            guiData->longitude = frozenLong;
+            guiData->cog = frozenCog;
+            guiData->sog = frozenSog;
+        }
+        guiData->depthAlarmLimit = depthAlarmLimit;
+        guiData->depthAlarm = depthAlarmActive;
+        guiData->mobOn = mobMarked;
+        if (mobMarked) {
+            const irr::f32 dx = mobAbsX - (ownShip.getPosition().X + offsetPosition.X);
+            const irr::f32 dz = mobAbsZ - (ownShip.getPosition().Z + offsetPosition.Z);
+            irr::f32 brg = atan2(dx, dz) * irr::core::RADTODEG;
+            if (brg < 0) { brg += 360.0f; }
+            guiData->mobBrg = brg;
+            guiData->mobNm = std::sqrt(dx * dx + dz * dz) / M_IN_NM;
+        }
         guiData->weather = weather;
         // KYARA HOULE: attitude for the TANGAGE / GITE dials, and the sea for the weather tab
         guiData->pitch = ownShip.getPitch();
@@ -5803,12 +5839,270 @@ void SimulationModel::update()
         screenSpray.update(deltaTime);
         //KYARA SLAM ^^^^
 
+        updateSoundSignals(deltaTime);
+        //Echo sounder alarm: once when the depth under the keel goes below the limit
+        if (depthAlarmLimit > 0) {
+            const irr::f32 depthNow = ownShip.getDepth();
+            if (!depthAlarmActive && depthNow < depthAlarmLimit) {
+                depthAlarmActive = true;
+                setAlarm(true);
+                wchar_t buf[80];
+                swprintf(buf, 80, L"Alarme sondeur : %.1f m sous la quille (limite %.0f m)", std::floor(depthNow * 10.0f) / 10.0f, depthAlarmLimit);
+                logEvent(ExerciseLog::EV_ALARM, buf);
+            }
+            else if (depthAlarmActive && depthNow > depthAlarmLimit + 0.5f) {
+                depthAlarmActive = false;
+            }
+        }
+        updateExerciseLog();
+
     } {
         IPROF("Update gui data");
         //send data to gui
         guiMain->updateGuiData(guiData); //Set GUI heading in degrees and speed (in m/s)
     }
 }
+void SimulationModel::setFailure(Failure which, bool failed)
+{
+    if (which < 0 || which >= FAIL_COUNT || failures[which] == failed) { return; }
+    failures[which] = failed;
+    static const wchar_t* names[FAIL_COUNT] = { L"machine b\u00E2bord", L"machine tribord", L"gyrocompas", L"GPS", L"radar" };
+    logEvent(failed ? ExerciseLog::EV_FAILURE : ExerciseLog::EV_INSTRUCTOR,
+        failed ? (std::wstring(L"Panne : ") + names[which]) : (std::wstring(L"Remise en service : ") + names[which]));
+    switch (which) {
+    case FAIL_PORT_ENGINE: ownShip.setPortEngine(failed ? 0.0f : requestedPortEngine); break;
+    case FAIL_STBD_ENGINE: ownShip.setStbdEngine(failed ? 0.0f : requestedStbdEngine); break;
+    case FAIL_GYRO: frozenHeading = ownShip.getHeading(); break;
+    case FAIL_GPS:
+        frozenLat = getLat();
+        frozenLong = getLong();
+        frozenCog = ownShip.getCOG();
+        frozenSog = ownShip.getSOG();
+        break;
+    case FAIL_RADAR:
+        if (failed && radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
+        if (!failed && !radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
+        break;
+    default: break;
+    }
+    if (failed) { setAlarm(true); } //(silenced with "Acquitter")
+}
+
+bool SimulationModel::getFailure(Failure which) const
+{
+    return (which >= 0 && which < FAIL_COUNT) ? failures[which] : false;
+}
+
+void SimulationModel::soundSignal(int count)
+{
+    //Rule 32: short blast about 1 s, prolonged 4 to 6 s; Rule 34: about 1 s between blasts
+    hornSchedule.clear();
+    const int n = (count < 0) ? -count : count;
+    for (int i = 0; i < n; i++) {
+        hornSchedule.push_back(count < 0 ? 5.0f : 1.0f);
+        hornSchedule.push_back(count < 0 ? 2.0f : 1.0f);
+    }
+    hornStep = 0;
+    hornStepLeft = hornSchedule.empty() ? 0.0f : hornSchedule[0];
+    if (!hornSchedule.empty()) { startHorn(); }
+    const wchar_t* meaning = L"";
+    if (count == 1) { meaning = L"1 son bref : je viens sur tribord"; }
+    else if (count == 2) { meaning = L"2 sons brefs : je viens sur b\u00E2bord"; }
+    else if (count == 3) { meaning = L"3 sons brefs : je bats en arri\u00E8re"; }
+    else if (count == 5) { meaning = L"5 sons brefs (au moins) : doute sur les intentions de l'autre navire"; }
+    else if (count == -1) { meaning = L"1 son prolong\u00E9"; }
+    else if (count == -2) { meaning = L"2 sons prolong\u00E9s"; }
+    logEvent(ExerciseLog::EV_SIGNAL, meaning);
+}
+
+void SimulationModel::setFogSignals(bool on)
+{
+    if (on == fogSignalsOn) { return; }
+    fogSignalsOn = on;
+    fogSignalTimer = 0; //the first signal at once
+    logEvent(ExerciseLog::EV_SIGNAL, on ? L"Signaux de brume automatiques en marche" : L"Signaux de brume arr\u00EAt\u00E9s");
+}
+
+void SimulationModel::updateSoundSignals(irr::f32 deltaTime)
+{
+    //A signal in progress: whistle on and off by the schedule
+    if (!hornSchedule.empty()) {
+        hornStepLeft -= deltaTime;
+        while (hornStepLeft <= 0.0f && !hornSchedule.empty()) {
+            hornStep++;
+            if (hornStep >= hornSchedule.size()) {
+                hornSchedule.clear();
+                endHorn();
+                break;
+            }
+            hornStepLeft += hornSchedule[hornStep];
+            if (hornStep % 2 == 0) { startHorn(); } else { endHorn(); }
+        }
+    }
+    //Fog signals (Rule 35): every 2 minutes, one prolonged blast making way through the water, two
+    //when under way but stopped
+    if (fogSignalsOn && hornSchedule.empty()) {
+        fogSignalTimer -= deltaTime;
+        if (fogSignalTimer <= 0.0f) {
+            fogSignalTimer = 120.0f;
+            const bool makingWay = fabs(ownShip.getSpeedThroughWater()) * MPS_TO_KTS > 0.5f;
+            hornSchedule.clear();
+            hornSchedule.push_back(5.0f);
+            hornSchedule.push_back(2.0f);
+            if (!makingWay) {
+                hornSchedule.push_back(5.0f);
+                hornSchedule.push_back(2.0f);
+            }
+            hornStep = 0;
+            hornStepLeft = hornSchedule[0];
+            startHorn();
+        }
+    }
+}
+
+void SimulationModel::setDepthAlarm(irr::f32 limitMetres)
+{
+    depthAlarmLimit = (limitMetres > 0) ? limitMetres : 0.0f;
+    depthAlarmActive = false;
+}
+
+void SimulationModel::markManOverboard()
+{
+    mobMarked = true;
+    mobAbsX = ownShip.getPosition().X + offsetPosition.X;
+    mobAbsZ = ownShip.getPosition().Z + offsetPosition.Z;
+    radarCalculation.setManOverboardMark(true, mobAbsX, mobAbsZ);
+    logEvent(ExerciseLog::EV_ALARM, L"Position homme \u00E0 la mer marqu\u00E9e (MOB)");
+}
+
+void SimulationModel::clearManOverboardMark()
+{
+    if (!mobMarked) { return; }
+    mobMarked = false;
+    radarCalculation.setManOverboardMark(false, 0, 0);
+    logEvent(ExerciseLog::EV_INFO, L"Marque homme \u00E0 la mer effac\u00E9e");
+}
+
+void SimulationModel::logEvent(ExerciseLog::Category category, const std::wstring& text)
+{
+    if (modelParameters.mode == OperatingMode::Secondary || !exerciseLog.isStarted()) { return; }
+    exerciseLog.event(scenarioTime - exerciseStartScenarioTime, category, text);
+}
+
+bool SimulationModel::writeExerciseReport(std::string& path)
+{
+    if (modelParameters.mode == OperatingMode::Secondary) { return false; }
+    return exerciseLog.write(Utilities::getUserDir() + "Bilans", path);
+}
+
+void SimulationModel::updateExerciseLog()
+{
+    //Recorded where the ship is driven: not on a display-only secondary
+    if (modelParameters.mode == OperatingMode::Secondary) { return; }
+    if (!exerciseLog.isStarted()) {
+        exerciseLog.begin(getScenarioName(), getWorldName(), ownShip.getName(), absoluteTime);
+        exerciseStartScenarioTime = scenarioTime;
+    }
+    const irr::f32 t = scenarioTime - exerciseStartScenarioTime;
+
+    ExerciseLog::OwnState own;
+    own.lat = getLat();
+    own.lon = getLong();
+    own.heading = getHeading();
+    own.cog = getCOG();
+    own.sogKts = getSOG() * MPS_TO_KTS;
+    own.stwKts = ownShip.getSpeedThroughWater() * MPS_TO_KTS;
+    own.rudder = getRudder();
+    own.portEngine = getPortEngine();
+    own.stbdEngine = getStbdEngine();
+    own.depth = getDepth();
+    own.visibilityNm = getVisibility();
+
+    std::vector<ExerciseLog::OtherState> others;
+    int nearest = -1;
+    irr::f32 nearestNm = 1e9f;
+    const irr::core::vector3df ownPos = ownShip.getPosition();
+    for (irr::u32 i = 0; i < getNumberOfOtherShips(); i++) {
+        ExerciseLog::OtherState o;
+        o.name = getOtherShipName(i);
+        o.lat = getOtherShipLat(i);
+        o.lon = getOtherShipLong(i);
+        const irr::core::vector3df p = otherShips.getPosition(i);
+        o.rangeNm = std::sqrt((p.X - ownPos.X) * (p.X - ownPos.X) + (p.Z - ownPos.Z) * (p.Z - ownPos.Z)) / M_IN_NM;
+        o.present = !isOtherShipAbsent(i);
+        if (o.present && o.rangeNm < nearestNm) { nearestNm = o.rangeNm; nearest = (int)i; }
+        others.push_back(o);
+    }
+    const bool firstSample = exerciseLog.elapsedSeconds() <= 0 && exerciseLog.count(ExerciseLog::EV_INFO) == 0;
+    exerciseLog.update(t, own, others);
+    if (firstSample) { logEvent(ExerciseLog::EV_INFO, L"D\u00E9but de l'exercice"); } //after the first sample: with the ship's position
+
+    //Contacts: each kind once when it starts
+    if (collisionStartupGrace <= 0.0f) {
+        const bool quay = ownShip.isLandObjectCollision();
+        const bool ship = ownShip.isOtherShipCollision();
+        const bool buoy = ownShip.isBuoyCollision();
+        const bool ground = ownShip.isTerrainCollision() && !quay;
+        wchar_t speed[32];
+        swprintf(speed, 32, L"%.1f nd", own.sogKts);
+        if (ship && !logWasShipContact) {
+            std::wstring who = (nearest >= 0) ? std::wstring(others[nearest].name.begin(), others[nearest].name.end()) : std::wstring(L"un navire");
+            logEvent(ExerciseLog::EV_COLLISION, L"Abordage avec " + who + L" \u00E0 " + speed);
+        }
+        if (ground && !logWasGrounded) {
+            logEvent(ExerciseLog::EV_GROUNDING, std::wstring(L"\u00C9chouement \u00E0 ") + speed);
+        }
+        if (buoy && !logWasBuoyContact) {
+            logEvent(ExerciseLog::EV_CONTACT, std::wstring(L"Contact avec une bou\u00E9e \u00E0 ") + speed);
+        }
+        if (quay && !logWasQuayContact && own.sogKts > 0.3f) {
+            logEvent(ExerciseLog::EV_CONTACT, std::wstring(L"Contact avec le quai \u00E0 ") + speed);
+        }
+        logWasShipContact = ship;
+        logWasGrounded = ground;
+        logWasBuoyContact = buoy;
+        logWasQuayContact = quay;
+    }
+
+    //Radar alarms: when they sound, and how long until the officer acknowledges them
+    const bool cpaSounding = radarCalculation.isCPAAlarmSounding();
+    if (cpaSounding && !logWasCpaSounding) {
+        std::wstring text = L"Alarme CPA/TCPA";
+        for (irr::u32 k = 0; k < radarCalculation.getARPATracksSize(); k++) {
+            const ARPAEstimatedState e = radarCalculation.getARPAContactFromTrackIndex(k).estimate;
+            if (e.danger) {
+                wchar_t buf[96];
+                swprintf(buf, 96, L" : cible %u, CPA %.2f NM dans %.1f min", k + 1, fabs(e.cpa), e.tcpa);
+                text += buf;
+                break;
+            }
+        }
+        logEvent(ExerciseLog::EV_ALARM, text);
+        logCpaSoundingSince = t;
+    }
+    if (!cpaSounding && logWasCpaSounding && radarCalculation.countDangerousTargets() > 0) {
+        wchar_t buf[64];
+        swprintf(buf, 64, L"Alarme CPA/TCPA acquitt\u00E9e apr\u00E8s %d s", (int)(t - logCpaSoundingSince + 0.5f));
+        logEvent(ExerciseLog::EV_INFO, buf);
+    }
+    logWasCpaSounding = cpaSounding;
+    const bool guardSounding = radarCalculation.isGuardAlarmSounding();
+    if (guardSounding && !logWasGuardSounding) {
+        logEvent(ExerciseLog::EV_ALARM, L"Alarme de zone de garde radar");
+    }
+    logWasGuardSounding = guardSounding;
+
+    //Restricted visibility (Rule 19): when it starts and ends, with the speed then
+    const bool reduced = own.visibilityNm < 2.0f;
+    if (reduced != logReducedVisibility) {
+        wchar_t buf[96];
+        if (reduced) { swprintf(buf, 96, L"Visibilit\u00E9 r\u00E9duite (%.1f NM), vitesse %.1f nd", own.visibilityNm, own.sogKts); }
+        else { swprintf(buf, 96, L"Fin de la visibilit\u00E9 r\u00E9duite (%.1f NM)", own.visibilityNm); }
+        logEvent(ExerciseLog::EV_INFO, buf);
+        logReducedVisibility = reduced;
+    }
+}
+
 void SimulationModel::updateTows(irr::f32 deltaTime)
 {
     updateRescueRun(deltaTime);   // SAR RESCUE RUN

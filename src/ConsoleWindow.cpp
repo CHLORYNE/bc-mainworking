@@ -56,6 +56,7 @@ irr::core::dimension2du ConsoleWindow::getClientSize() const
 #endif
 #include <windows.h>
 #include <windowsx.h>
+#include <shellapi.h>
 
 namespace {
 
@@ -275,6 +276,11 @@ bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32
     w = fw > 0 ? (irr::u32)fw : clientSize.Width;
     h = fh > 0 ? (irr::u32)fh : clientSize.Height;
     return true;
+}
+
+void ConsoleWindow::openWithSystem(const std::string& path)
+{
+    ShellExecuteA(0, "open", path.c_str(), 0, 0, SW_SHOWNORMAL);
 }
 
 void ConsoleWindow::setFullScreen(bool on)
@@ -516,6 +522,11 @@ void ConsoleWindow::setFullScreen(bool on)
     }
     XFlush(dpy);
     fullScreen = on;
+}
+
+void ConsoleWindow::openWithSystem(const std::string& path)
+{
+    (void)path; //(test builds)
 }
 
 #endif

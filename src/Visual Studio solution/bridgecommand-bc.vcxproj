@@ -116,6 +116,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\GUIRectangle.cpp" />
     <ClCompile Include="..\GUIInstrumentPanel.cpp" />
     <ClCompile Include="..\ConsoleWindow.cpp" />
+    <ClCompile Include="..\ExerciseLog.cpp" />
     <ClCompile Include="..\HeadingIndicator.cpp" />
     <ClCompile Include="..\HullMotion.cpp" />
     <ClCompile Include="..\IncidentConfig.cpp" />
@@ -204,6 +205,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\GUIPanelDraw.hpp" />
     <ClInclude Include="..\GUIInstrumentPanel.hpp" />
     <ClInclude Include="..\ConsoleWindow.hpp" />
+    <ClInclude Include="..\ExerciseLog.hpp" />
     <ClInclude Include="..\GUIRectangle.hpp" />
     <ClInclude Include="..\HeadingIndicator.h" />
     <ClInclude Include="..\HullMotion.hpp" />

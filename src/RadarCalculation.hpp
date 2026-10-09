@@ -279,6 +279,9 @@ public:
     irr::f32 getTrailMinutes() const;
     bool getShipTrails() const;
 
+    //Man overboard mark (world metres, as offsetPosition + scene position)
+    void setManOverboardMark(bool on, irr::f32 absX, irr::f32 absZ) { mobMark = on; mobX = absX; mobZ = absZ; }
+
     //Coastline (sea level contour of the terrain) drawn over the radar picture
     void setCoastline(bool on);
     bool getCoastline() const;
@@ -392,6 +395,8 @@ private:
 
     //Coastline: segments (absolute metres x1,z1,x2,z2), worked out around own ship when needed
     bool showCoastline = false;
+    bool mobMark = false;
+    irr::f32 mobX = 0, mobZ = 0;
     std::vector<irr::f32> coastSegments;
     irr::f32 coastCentreX = 0, coastCentreZ = 0, coastRangeNm = 0, coastTide = -1000;
     uint64_t coastTime = 0;

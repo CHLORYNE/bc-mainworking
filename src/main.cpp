@@ -1845,6 +1845,14 @@ int main(int argc, char** argv)
     guiMain.shutdownConsoleWindow();
     guiMain.shutdownRadarWindow();
 
+    //Exercise report for the debrief (user folder, Bilans/)
+    {
+        std::string reportPath;
+        if (model.writeExerciseReport(reportPath)) {
+            device->getLogger()->log(("Exercise report written: " + reportPath).c_str());
+        }
+    }
+
     //networking should be stopped (presumably with destructor when it goes out of scope?)
     device->getLogger()->log("About to stop network");
     delete network;

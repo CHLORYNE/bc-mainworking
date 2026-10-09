@@ -64,6 +64,7 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "ControlVisualiser.hpp"
 #include "Lines.hpp"
 #include "OperatingModeEnum.hpp"
+#include "ExerciseLog.hpp"
 
 class SimulationModel //Start of the 'Model' part of MVC
 {
@@ -449,6 +450,34 @@ public:
     //the offset has to be added before terrain.xToLong / zToLat)
     irr::f32 sceneXToLong(irr::f32 x) const;
     irr::f32 sceneZToLat(irr::f32 z) const;
+
+    //Exercise record for the debrief (track, closest approaches, events). The report is written in
+    //the user folder, Bilans/, at the end of the exercise or when the instructor asks for it.
+    ExerciseLog& getExerciseLog() { return exerciseLog; }
+
+    //Failures the instructor can give: the engines stop, the gyro and GPS displays freeze (with
+    //"lost" shown), the radar goes off and cannot be switched on. The general alarm sounds.
+    enum Failure { FAIL_PORT_ENGINE, FAIL_STBD_ENGINE, FAIL_GYRO, FAIL_GPS, FAIL_RADAR, FAIL_COUNT };
+    void setFailure(Failure which, bool failed);
+    bool getFailure(Failure which) const;
+
+    //Sound signals on the whistle (COLREG rules 34 and 35): count short blasts (1, 2, 3, 5), or
+    //count < 0 for prolonged blasts. Fog signals: automatic, every 2 minutes, one prolonged blast
+    //making way, two when stopped.
+    void soundSignal(int count);
+    void setFogSignals(bool on);
+    bool getFogSignals() const { return fogSignalsOn; }
+
+    //Echo sounder alarm (metres under the keel, 0 = off)
+    void setDepthAlarm(irr::f32 limitMetres);
+    irr::f32 getDepthAlarm() const { return depthAlarmLimit; }
+
+    //Man overboard mark: the position, kept with its bearing and distance shown on the GPS and radar
+    void markManOverboard();
+    void clearManOverboardMark();
+    bool hasManOverboardMark() const { return mobMarked; }
+    void logEvent(ExerciseLog::Category category, const std::wstring& text);
+    bool writeExerciseReport(std::string& path);
     void toggleRadarOn();
     bool isRadarOn() const;
     //The radar picture's texture and the part of it shown (see RadarScreen::getTexture)
@@ -896,6 +925,26 @@ private:
 
     irr::f32 filteredRelBearing;   // low-pass filtered version of nearestRelBearing
     bool aimedAtOtherLatched;      // hysteresis state for the bow-aim cone
+    ExerciseLog exerciseLog;
+    bool failures[FAIL_COUNT] = { false, false, false, false, false };
+    irr::f32 requestedPortEngine = 0, requestedStbdEngine = 0;   //lever positions, kept through an engine failure
+    irr::f32 frozenHeading = 0, frozenLat = 0, frozenLong = 0, frozenCog = 0, frozenSog = 0;
+    std::vector<irr::f32> hornSchedule;     //seconds on, off, on, off...
+    size_t hornStep = 0;
+    irr::f32 hornStepLeft = 0;
+    bool fogSignalsOn = false;
+    irr::f32 fogSignalTimer = 0;
+    irr::f32 depthAlarmLimit = 0;
+    bool depthAlarmActive = false;
+    bool mobMarked = false;
+    irr::f32 mobAbsX = 0, mobAbsZ = 0;      //world metres (scene + offset)
+    void updateSoundSignals(irr::f32 deltaTime);
+    irr::f32 exerciseStartScenarioTime = 0;
+    bool logWasShipContact = false, logWasBuoyContact = false, logWasQuayContact = false, logWasGrounded = false;
+    bool logWasCpaSounding = false, logWasGuardSounding = false;
+    irr::f32 logCpaSoundingSince = 0;
+    bool logReducedVisibility = false;
+    void updateExerciseLog();
     irr::f32 collisionStartupGrace;     // Seconds of simulation after load during which proxy/collision are
     // suppressed, so the hull settling on spawn can't fire a false alarm
     irr::f32 collisionReleaseHold;

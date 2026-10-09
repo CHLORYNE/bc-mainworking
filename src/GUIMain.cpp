@@ -1256,6 +1256,22 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
     refreshLightsTab();
 
+    //Training controls: native keys, hidden (in a hidden tab), driven by the controls window below
+    irr::gui::IGUIButton* trainFailKey[10] = { 0 };
+    irr::gui::IGUIButton* trainSignalKey[8] = { 0 };
+    irr::gui::IGUIButton* trainDepthKey[5] = { 0 };
+    irr::gui::IGUIButton* trainMobKey[2] = { 0 };
+    irr::gui::IGUIButton* trainDebriefKey = 0;
+    {
+        const irr::core::rect<irr::s32> r(0, 0, 10, 10);
+        for (int i = 0; i < 10; i++) { trainFailKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_FAILURE_KEY_FIRST + i, L""); }
+        for (int i = 0; i < 8; i++) { trainSignalKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_SIGNAL_KEY_FIRST + i, L""); }
+        for (int i = 0; i < 5; i++) { trainDepthKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_DEPTH_ALARM_KEY_FIRST + i, L""); }
+        trainMobKey[0] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_MOB_MARK_KEY, L"");
+        trainMobKey[1] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_MOB_CLEAR_KEY, L"");
+        trainDebriefKey = guienv->addButton(r, extraControlsTabRudder, GUI_ID_DEBRIEF_KEY, L"");
+    }
+
     //--- The controls window as it is shown: the weather window's look, over the widgets above ---
     {
         controlsPanel = new ControlsPanel(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(0, 0, 10, 10));
@@ -1269,8 +1285,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //only: the old sliders of the Weather and Wind & Current tabs are not shown any more.
 
         //Steering failures
-        const int tRudder = cp->addTab(L"Avaries de barre",
-            L"Des pannes \u00E0 donner au stagiaire. Une pompe en panne : l'alarme sonne et la barre tourne deux fois moins vite. Les deux pompes en panne : la barre ne bouge plus.",
+        const int tRudder = cp->addTab(L"Avaries",
+            L"Des pannes \u00E0 donner au stagiaire. Barre : une pompe en panne, l'alarme sonne et la barre tourne deux fois moins vite ; les deux pompes en panne, la barre ne bouge plus. "
+            L"Machine en panne : elle s'arr\u00EAte. Gyro ou GPS en panne : l'affichage se fige ou se vide. Radar en panne : l'\u00E9cran s'\u00E9teint. Chaque panne fait sonner l'alarme et entre dans le bilan.",
             [this]() {
                 std::vector<ControlsPanel::Readout> out;
                 if (!this->model) { return out; }
@@ -1278,6 +1295,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 out.push_back({ L"Pompe de barre 1", p1 ? L"En service" : L"En panne", p1 ? 1 : 2 });
                 out.push_back({ L"Pompe de barre 2", p2 ? L"En service" : L"En panne", p2 ? 1 : 2 });
                 out.push_back({ L"Barre asservie", fu ? L"En service" : L"En panne : gouverner en non asservi (NFU)", fu ? 1 : 2 });
+                const wchar_t* failNames[SimulationModel::FAIL_COUNT] = { L"Machine b\u00E2bord", L"Machine tribord", L"Gyrocompas", L"GPS", L"Radar" };
+                std::wstring failedList;
+                for (int f = 0; f < SimulationModel::FAIL_COUNT; f++) {
+                    if (this->model->getFailure((SimulationModel::Failure)f)) { failedList += (failedList.empty() ? L"" : L", ") + std::wstring(failNames[f]); }
+                }
+                out.push_back({ L"Machines et instruments", failedList.empty() ? L"En service" : L"En panne : " + failedList, failedList.empty() ? 1 : 2 });
                 return out;
             });
         cp->addSection(tRudder, L"Pompes de barre");
@@ -1294,6 +1317,120 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             cp->addKeys(tRudder, L"Barre asservie", L"La barre normale (asservie). En panne, le stagiaire doit gouverner en secours avec les boutons NFU (non asservis).",
                 { ecRudderKey[4], ecRudderKey[5] }, workingFailed,
                 [this]() { return (this->model && this->model->getFollowUpRudderWorking()) ? 0 : 1; });
+        }
+        {
+            const wchar_t* failNames[SimulationModel::FAIL_COUNT] = { L"Machine b\u00E2bord", L"Machine tribord", L"Gyrocompas", L"GPS", L"Radar" };
+            const wchar_t* failHelp[SimulationModel::FAIL_COUNT] = {
+                L"La machine b\u00E2bord s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
+                L"La machine tribord s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
+                L"Le cap affich\u00E9 se fige (compas et radar) : le stagiaire doit passer au compas magn\u00E9tique et le signaler.",
+                L"Plus de position GPS : la position affich\u00E9e se fige en rouge, plus de route ni de vitesse fond. Navigation \u00E0 l'estime et au radar.",
+                L"L'\u00E9cran radar s'\u00E9teint et ne peut pas \u00EAtre rallum\u00E9 tant que la panne dure. Navigation \u00E0 vue et veille renforc\u00E9e." };
+            for (int f = 0; f < SimulationModel::FAIL_COUNT; f++) {
+                if (f == 0) { cp->addSection(tRudder, L"Machines"); }
+                if (f == 2) { cp->addSection(tRudder, L"Instruments"); }
+                if (trainFailKey[2 * f] && trainFailKey[2 * f + 1]) {
+                    cp->addKeys(tRudder, failNames[f], failHelp[f], { trainFailKey[2 * f], trainFailKey[2 * f + 1] }, workingFailed,
+                        [this, f]() { return (this->model && this->model->getFailure((SimulationModel::Failure)f)) ? 1 : 0; });
+                }
+            }
+        }
+
+        //Sound signals (COLREG rules 34 and 35)
+        {
+            const int tSignals = cp->addTab(L"Signaux sonores",
+                L"Les signaux au sifflet du navire propre (r\u00E8gles 34 et 35) : un son bref dure environ une seconde, un son prolong\u00E9 de quatre \u00E0 six secondes. "
+                L"Les signaux de brume sonnent seuls toutes les deux minutes. Chaque signal entre dans le bilan.",
+                [this]() {
+                    std::vector<ControlsPanel::Readout> out;
+                    if (!this->model) { return out; }
+                    const bool fog = this->model->getFogSignals();
+                    out.push_back({ L"Signaux de brume", fog ? L"Automatiques, toutes les 2 min" : L"Arr\u00EAt", fog ? 1 : 0 });
+                    out.push_back({ L"Signaux donn\u00E9s", std::to_wstring(this->model->getExerciseLog().count(ExerciseLog::EV_SIGNAL)), 0 });
+                    return out;
+                });
+            cp->addSection(tSignals, L"Signaux de man\u0153uvre (r\u00E8gle 34)");
+            if (trainSignalKey[0] && trainSignalKey[1] && trainSignalKey[2]) {
+                cp->addKeys(tSignals, L"Man\u0153uvre", L"\u00AB Je viens sur tribord \u00BB (1 bref), \u00AB je viens sur b\u00E2bord \u00BB (2 brefs), \u00AB je bats en arri\u00E8re \u00BB (3 brefs).",
+                    { trainSignalKey[0], trainSignalKey[1], trainSignalKey[2] }, { L"1 bref : tribord", L"2 brefs : b\u00E2bord", L"3 brefs : arri\u00E8re" });
+            }
+            if (trainSignalKey[3] && trainSignalKey[4] && trainSignalKey[5]) {
+                cp->addKeys(tSignals, L"Autres", L"5 brefs : doute sur les intentions de l'autre navire. 1 prolong\u00E9 : approche d'un coude ou d'une zone masqu\u00E9e. 2 prolong\u00E9s : navire \u00E0 propulsion m\u00E9canique stopp\u00E9 par visibilit\u00E9 r\u00E9duite.",
+                    { trainSignalKey[3], trainSignalKey[4], trainSignalKey[5] }, { L"5 brefs : doute", L"1 prolong\u00E9", L"2 prolong\u00E9s" });
+            }
+            cp->addSection(tSignals, L"Visibilit\u00E9 r\u00E9duite (r\u00E8gle 35)");
+            if (trainSignalKey[6] && trainSignalKey[7]) {
+                cp->addKeys(tSignals, L"Signaux de brume", L"Toutes les deux minutes : 1 son prolong\u00E9 en route, 2 sons prolong\u00E9s stopp\u00E9 (sans erre).",
+                    { trainSignalKey[6], trainSignalKey[7] }, { L"Arr\u00EAt", L"Automatiques" },
+                    [this]() { return (this->model && this->model->getFogSignals()) ? 1 : 0; });
+            }
+        }
+
+        //Navigation aids: depth alarm, man overboard mark
+        {
+            const int tNav = cp->addTab(L"Navigation",
+                L"L'alarme de sondeur (sous la quille) et la marque d'homme \u00E0 la mer : position enregistr\u00E9e, affich\u00E9e au radar et rappel\u00E9e en rel\u00E8vement et distance sous le GPS.",
+                [this]() {
+                    std::vector<ControlsPanel::Readout> out;
+                    if (!this->model) { return out; }
+                    wchar_t buf[64];
+                    swprintf(buf, 64, L"%.1f m", this->model->getDepth());
+                    const irr::f32 limit = this->model->getDepthAlarm();
+                    const bool alarm = limit > 0 && this->model->getDepth() < limit;
+                    out.push_back({ L"Profondeur sous la quille", buf, alarm ? 2 : 0 });
+                    if (limit > 0) { swprintf(buf, 64, L"%.0f m", limit); }
+                    out.push_back({ L"Alarme de sondeur", limit > 0 ? (alarm ? std::wstring(L"ALARME < ") + buf : std::wstring(L"Seuil ") + buf) : std::wstring(L"Arr\u00EAt"), alarm ? 2 : (limit > 0 ? 1 : 0) });
+                    out.push_back({ L"Marque MOB", this->model->hasManOverboardMark() ? L"Enregistr\u00E9e" : L"Aucune", this->model->hasManOverboardMark() ? 1 : 0 });
+                    return out;
+                });
+            cp->addSection(tNav, L"Sondeur");
+            if (trainDepthKey[0] && trainDepthKey[4]) {
+                cp->addKeys(tNav, L"Alarme de sondeur", L"L'alarme sonne quand la profondeur sous la quille passe sous le seuil.",
+                    { trainDepthKey[0], trainDepthKey[1], trainDepthKey[2], trainDepthKey[3], trainDepthKey[4] }, { L"Arr\u00EAt", L"2 m", L"5 m", L"10 m", L"20 m" },
+                    [this]() {
+                        if (!this->model) { return -1; }
+                        const irr::f32 steps[5] = { 0, 2, 5, 10, 20 };
+                        for (int i = 0; i < 5; i++) { if (fabs(this->model->getDepthAlarm() - steps[i]) < 0.01f) { return i; } }
+                        return -1;
+                    });
+            }
+            cp->addSection(tNav, L"Homme \u00E0 la mer");
+            if (trainMobKey[0] && trainMobKey[1]) {
+                cp->addKeys(tNav, L"Marque MOB", L"Enregistre la position du navire (comme la touche MOB d'un GPS). Elle est aussi prise toute seule quand un homme tombe \u00E0 la mer.",
+                    { trainMobKey[0], trainMobKey[1] }, { L"Marquer la position (MOB)", L"Effacer la marque" });
+            }
+        }
+
+        //Debrief of the exercise
+        if (trainDebriefKey) {
+            const int tDebrief = cp->addTab(L"Bilan",
+                L"Le bilan de l'exercice : trace, plus courtes distances aux autres navires, abordages, \u00E9chouements, alarmes, signaux et pannes. "
+                L"Il s'enregistre aussi tout seul en fin d'exercice dans le dossier Bilans de l'utilisateur.",
+                [this]() {
+                    std::vector<ControlsPanel::Readout> out;
+                    if (!this->model) { return out; }
+                    const ExerciseLog& log = this->model->getExerciseLog();
+                    wchar_t buf[96];
+                    const int secs = (int)log.elapsedSeconds();
+                    swprintf(buf, 96, L"%d h %02d min %02d s", secs / 3600, (secs / 60) % 60, secs % 60);
+                    out.push_back({ L"Dur\u00E9e", buf, 0 });
+                    std::string ship;
+                    const float cpa = log.closestApproachNm(&ship);
+                    if (cpa >= 0) {
+                        swprintf(buf, 96, L"%.2f NM", cpa);
+                        out.push_back({ L"Plus courte distance", std::wstring(buf) + L"  (" + std::wstring(ship.begin(), ship.end()) + L")", cpa < 0.5f ? 2 : 0 });
+                    } else {
+                        out.push_back({ L"Plus courte distance", L"-", 0 });
+                    }
+                    const int coll = log.count(ExerciseLog::EV_COLLISION), grd = log.count(ExerciseLog::EV_GROUNDING);
+                    out.push_back({ L"Abordages", std::to_wstring(coll), coll > 0 ? 2 : 1 });
+                    out.push_back({ L"\u00C9chouements", std::to_wstring(grd), grd > 0 ? 2 : 1 });
+                    out.push_back({ L"Alarmes", std::to_wstring(log.count(ExerciseLog::EV_ALARM)), 0 });
+                    if (!this->lastReportText.empty()) { out.push_back({ L"Dernier bilan", this->lastReportText, 0 }); }
+                    return out;
+                });
+            cp->addKeys(tDebrief, L"Bilan", L"Enregistre le bilan maintenant (page HTML et trace CSV) et l'ouvre dans le navigateur. L'exercice continue.",
+                { trainDebriefKey }, { L"Enregistrer et ouvrir le bilan" });
         }
 
         //View
@@ -3027,6 +3164,14 @@ void GUIMain::updateGuiData(GUIData* guiData)
     this->guiRadarActiveEBL = guiData->guiRadarActiveEBL;
     this->guiRadarActiveVRM = guiData->guiRadarActiveVRM;
     this->guiRadarGuardAlarmMode = guiData->guiRadarGuardAlarmMode;
+    guiGyroLost = guiData->gyroLost;
+    guiGpsLost = guiData->gpsLost;
+    guiRadarFailed = guiData->radarFailed;
+    guiDepthAlarm = guiData->depthAlarm;
+    guiDepthAlarmLimit = guiData->depthAlarmLimit;
+    guiMobOn = guiData->mobOn;
+    guiMobBrg = guiData->mobBrg;
+    guiMobNm = guiData->mobNm;
 
     this->guiRadarStabilised = guiData->radarStabilised; //kyara
 
@@ -3782,6 +3927,13 @@ void GUIMain::drawGUI()
     //KYARA: feed the instrument console (display only - it never writes back to the model)
     if (instrumentPanel) {
         irr::gui::InstrumentData d;
+        d.gyroLost = guiGyroLost;
+        d.gpsLost = guiGpsLost;
+        d.depthAlarmLimit = guiDepthAlarmLimit;
+        d.depthAlarm = guiDepthAlarm;
+        d.mobOn = guiMobOn;
+        d.mobBrg = guiMobBrg;
+        d.mobNm = guiMobNm;
         d.heading = guiHeading;
         d.cog = guiCOG;
         d.stwKn = guiSpeed;
@@ -3806,7 +3958,21 @@ void GUIMain::drawGUI()
         instrumentPanel->setData(d);
     }
 
-    if (radarLarge) { updateRadarToolButtons(); }
+    if (radarLarge) {
+        updateRadarToolButtons();
+        //Radar out of order (instructor): said on the dark scope
+        if (guiRadarFailed) {
+            const irr::s32 half = (irr::s32)largeRadarScreenRadius;
+            device->getVideoDriver()->draw2DRectangle(irr::video::SColor(255, 0, 0, 0),
+                irr::core::rect<irr::s32>(largeRadarScreenCentreX - half, largeRadarScreenCentreY - half, largeRadarScreenCentreX + half, largeRadarScreenCentreY + half));
+            irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+            if (font) {
+                const irr::core::rect<irr::s32> r(largeRadarScreenCentreX - 200, largeRadarScreenCentreY - 20, largeRadarScreenCentreX + 200, largeRadarScreenCentreY + 20);
+                device->getVideoDriver()->draw2DRectangle(irr::video::SColor(200, 0, 0, 0), r);
+                font->draw(L"RADAR EN PANNE", r, irr::video::SColor(255, 255, 70, 60), true, true);
+            }
+        }
+    }
     guienv->drawAll();
 
     //draw the heading line on the radar
@@ -5188,6 +5354,45 @@ bool GUIMain::scopeMouseEvent(const irr::SEvent& event)
     return false;
 }
 
+bool GUIMain::handleTrainingButton(irr::s32 id)
+{
+    if (!model) { return false; }
+    if (id >= GUI_ID_FAILURE_KEY_FIRST && id < GUI_ID_FAILURE_KEY_FIRST + 2 * SimulationModel::FAIL_COUNT) {
+        const int k = id - GUI_ID_FAILURE_KEY_FIRST;
+        model->setFailure((SimulationModel::Failure)(k / 2), k % 2 == 1);
+        return true;
+    }
+    if (id >= GUI_ID_SIGNAL_KEY_FIRST && id < GUI_ID_SIGNAL_KEY_FIRST + 8) {
+        const int k = id - GUI_ID_SIGNAL_KEY_FIRST;
+        const int counts[6] = { 1, 2, 3, 5, -1, -2 }; //Negative: prolonged blasts
+        if (k < 6) { model->soundSignal(counts[k]); }
+        else { model->setFogSignals(k == 7); }
+        return true;
+    }
+    if (id >= GUI_ID_DEPTH_ALARM_KEY_FIRST && id < GUI_ID_DEPTH_ALARM_KEY_FIRST + 5) {
+        const irr::f32 limits[5] = { 0, 2, 5, 10, 20 };
+        model->setDepthAlarm(limits[id - GUI_ID_DEPTH_ALARM_KEY_FIRST]);
+        return true;
+    }
+    if (id == GUI_ID_MOB_MARK_KEY) { model->markManOverboard(); return true; }
+    if (id == GUI_ID_MOB_CLEAR_KEY) { model->clearManOverboardMark(); return true; }
+    if (id == GUI_ID_DEBRIEF_KEY) {
+        std::string path;
+        if (model->writeExerciseReport(path)) {
+            std::string file = path;
+            const size_t slash = file.find_last_of("/\\");
+            if (slash != std::string::npos) { file = file.substr(slash + 1); }
+            lastReportText = std::wstring(file.begin(), file.end());
+            std::cout << "Exercise report written: " << path << std::endl;
+            ConsoleWindow::openWithSystem(path);
+        } else {
+            lastReportText = L"Impossible d'écrire le bilan";
+        }
+        return true;
+    }
+    return false;
+}
+
 bool GUIMain::handleRadarToolButton(irr::s32 id)
 {
     if (!model) { return false; }
@@ -5295,7 +5500,7 @@ void GUIMain::updateRadarToolButtons()
     setButtonHighlight(radarVectorLenButton, off, t.c_str());
     t = radar.getShipTrails() ? (L"Traces " + std::to_wstring((int)(radar.getTrailMinutes() + 0.5f)) + L"'") : std::wstring(L"Traces OFF");
     setButtonHighlight(radarTrailLenButton, off, t.c_str());
-    setButtonHighlight(radarCoastButton, radar.getCoastline() ? green : off, L"Côte");
+    setButtonHighlight(radarCoastButton, radar.getCoastline() ? green : off, L"C\u00F4te");
 
     wchar_t buf[48];
     swprintf(buf, 48, L"CPA %.1f", radar.getCPALimit());
@@ -5323,11 +5528,11 @@ void GUIMain::updateRadarToolButtons()
     for (int i = 0; i < 6; i++) { if (radarTrialButtons[i]) { radarTrialButtons[i]->setVisible(radarLarge && trial); } }
     for (int i = 0; i < 3; i++) { if (radarTrialValues[i]) { radarTrialValues[i]->setVisible(radarLarge && trial); } }
     if (trial && radarTrialValues[0]) {
-        swprintf(buf, 48, L"Cap %03d°", (int)(radar.getTrialCourse() + 0.5f) % 360);
+        swprintf(buf, 48, L"Cap %03d\u00B0", (int)(radar.getTrialCourse() + 0.5f) % 360);
         radarTrialValues[0]->setText(buf);
         swprintf(buf, 48, L"%.1f nd", radar.getTrialSpeed());
         radarTrialValues[1]->setText(buf);
-        swprintf(buf, 48, L"Délai %d min", (int)(radar.getTrialDelay() + 0.5f));
+        swprintf(buf, 48, L"D\u00E9lai %d min", (int)(radar.getTrialDelay() + 0.5f));
         radarTrialValues[2]->setText(buf);
     }
 }
@@ -5368,13 +5573,13 @@ void GUIMain::drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radiu
         banner(buf, centreY - radius + radius / 5, irr::video::SColor(255, 255, 70, 60));
     }
     if (trial) {
-        swprintf(buf, 160, L"ESSAI  Cap %03d°  %.1f nd  délai %d min", (int)(radar.getTrialCourse() + 0.5f) % 360,
+        swprintf(buf, 160, L"ESSAI  Cap %03d\u00B0  %.1f nd  d\u00E9lai %d min", (int)(radar.getTrialCourse() + 0.5f) % 360,
             radar.getTrialSpeed(), (int)(radar.getTrialDelay() + 0.5f));
         banner(buf, centreY + radius - radius / 4, irr::video::SColor(255, 255, 170, 40));
     }
     const int pi = radar.getPIEditLine();
     if (pi >= 0) {
-        swprintf(buf, 160, L"IP %d : glisser sur l'écran pour tracer la ligne, clic droit pour l'effacer", pi + 1);
+        swprintf(buf, 160, L"IP %d : glisser sur l'\u00E9cran pour tracer la ligne, clic droit pour l'effacer", pi + 1);
         banner(buf, centreY + radius - radius / 8, irr::video::SColor(255, 255, 255, 255));
     }
 }

@@ -2142,6 +2142,19 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
         }
     }
 
+    //Man overboard mark: a circle with a cross, where the person went over
+    if (mobMark) {
+        irr::f32 mx, my;
+        toScreen(mobX - absolutePosition.X, mobZ - absolutePosition.Z, mx, my);
+        if (inScopeCircle(mx, my)) {
+            const irr::f32 r = irr::core::max_(5.0f, (irr::f32)radarRadiusPx / 40.0f);
+            drawCircle(radarImageOverlaid, mx, my, r, 255, 255, 120, 0);
+            drawCircle(radarImageOverlaid, mx, my, r + 1, 255, 255, 120, 0);
+            drawLine(radarImageOverlaid, mx - r * 1.6f, my, mx + r * 1.6f, my, 255, 255, 120, 0);
+            drawLine(radarImageOverlaid, mx, my - r * 1.6f, mx, my + r * 1.6f, 255, 255, 120, 0);
+        }
+    }
+
     //Trial manoeuvre: own ship's course for the delay, then the trial course and speed, over the
     //vector time
     if (trialOn) {

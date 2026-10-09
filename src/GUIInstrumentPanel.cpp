@@ -764,9 +764,10 @@ namespace irr
                         text(font, buf, p.X, p.Y, SCALE_WHITE);
                     }
                 }
-                text(font, TXT_COMPASS, c.X, c.Y - rf * 0.30f, TEXT_TITLE);
+                //Gyro failure: the card no longer follows the ship, the title says so
+                text(font, data.gyroLost ? L"GYRO HS" : TXT_COMPASS, c.X, c.Y - rf * 0.30f, data.gyroLost ? DIGIT_RED : TEXT_TITLE);
                 text(font, L"\u00B0", c.X + dw * 0.5f + dh * 0.45f, wy + dh * 0.15f, SCALE_WHITE);
-                if (data.sogKn > 0.3f) {
+                if (data.sogKn > 0.3f && !data.gpsLost) { //COG comes from the GPS
                     wchar_t buf[24];
                     swprintf(buf, 24, L"COG %03d\u00B0", ((int)(data.cog + 0.5f)) % 360);
                     text(font, buf, c.X, c.Y + rf * 0.43f, COG_MARK);
@@ -777,7 +778,7 @@ namespace irr
                 glowLine(batch, panelPolar(c, rf * 0.70f, 0), panelPolar(c, rf * 0.985f, 0), core::max_(2.0f, rf * 0.022f), LUBBER);
                 batch.tri(panelPolar(c, rf * 0.985f, -4.5f), panelPolar(c, rf * 0.985f, 4.5f), panelPolar(c, rf * 0.90f, 0), LUBBER);
                 //COG marker - only meaningful when actually making way.
-                if (data.sogKn > 0.3f) {
+                if (data.sogKn > 0.3f && !data.gpsLost) {
                     const f32 a = data.cog - hdg;
                     batch.tri(panelPolar(c, rf * 0.99f, a - 4.0f), panelPolar(c, rf * 0.99f, a + 4.0f), panelPolar(c, rf * 0.89f, a), COG_MARK);
                 }
@@ -820,7 +821,8 @@ namespace irr
                 text(font, TXT_LOG, c.X, c.Y - rf * 0.34f, TEXT_TITLE);
                 text(font, TXT_KNOTS, c.X + dw * 0.5f - unitW + dh * 0.12f, wy + dh * 0.62f, TEXT_DIM, false, true);
                 wchar_t sb[32];
-                swprintf(sb, 32, L"%ls %.1f %ls", TXT_GROUND, data.sogKn, TXT_KNOTS);
+                if (data.gpsLost) { swprintf(sb, 32, L"%ls ---", TXT_GROUND); } //SOG comes from the GPS
+                else { swprintf(sb, 32, L"%ls %.1f %ls", TXT_GROUND, data.sogKn, TXT_KNOTS); }
                 text(font, sb, c.X, c.Y + rf * 0.64f, COG_MARK);
             }
             else {
@@ -1115,8 +1117,9 @@ namespace irr
             }
             else if (pass == 2) {
                 const f32 hy = in.UpperLeftCorner.Y + headerH * 0.5f;
-                text(font, fitGPS ? TXT_GPS : TXT_NAV, in.UpperLeftCorner.X + padX, hy, NAV_LABEL, false, true);
-                if (font) {
+                text(font, fitGPS ? (data.gpsLost ? L"GPS  PAS DE POSITION" : TXT_GPS) : TXT_NAV, in.UpperLeftCorner.X + padX, hy,
+                    (fitGPS && data.gpsLost) ? DIGIT_RED : NAV_LABEL, false, true);
+                if (font && !(fitGPS && data.gpsLost)) { //no fix: no GPS time either, and room for the warning
                     const core::dimension2du td = font->getDimension(data.timeText.c_str());
                     text(font, data.timeText.c_str(), in.LowerRightCorner.X - padX - td.Width, hy, NAV_VALUE, false, true);
                 }
@@ -1128,14 +1131,20 @@ namespace irr
                     wchar_t lb[40], ob[40];
                     swprintf(lb, 40, L"%02d\u00B0%06.3f'%lc", laD, (la - laD) * 60.0f, data.lat >= 0 ? L'N' : L'S');
                     swprintf(ob, 40, L"%03d\u00B0%06.3f'%lc", loD, (lo - loD) * 60.0f, data.lon >= 0 ? L'E' : L'W');
+                    //Without a fix: the last position in red, no course or speed over ground
+                    const video::SColor posCol = data.gpsLost ? DIGIT_RED : NAV_VALUE;
                     text(font, L"LAT", in.UpperLeftCorner.X + padX, yLat, NAV_LABEL, false, true);
-                    text(font, lb, valX, yLat, NAV_VALUE, false, true);
+                    text(font, lb, valX, yLat, posCol, false, true);
                     text(font, L"LON", in.UpperLeftCorner.X + padX, yLon, NAV_LABEL, false, true);
-                    text(font, ob, valX, yLon, NAV_VALUE, false, true);
+                    text(font, ob, valX, yLon, posCol, false, true);
 
                     wchar_t cb[24], sb[24];
                     swprintf(cb, 24, L"%03d\u00B0", ((int)(data.cog + 0.5f)) % 360);
                     swprintf(sb, 24, L"%.1f %ls", data.sogKn, TXT_KNOTS);
+                    if (data.gpsLost) {
+                        swprintf(cb, 24, L"---");
+                        swprintf(sb, 24, L"---");
+                    }
                     const f32 midX = (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f;
                     text(font, L"COG", in.UpperLeftCorner.X + padX, yCog, NAV_LABEL, false, true);
                     text(font, cb, valX, yCog, NAV_VALUE, false, true);
@@ -1145,6 +1154,12 @@ namespace irr
 
                 if (fitSounder) {
                     text(font, TXT_SOUNDER, in.UpperLeftCorner.X + padX, depthTop + depthH * 0.5f, NAV_LABEL, false, true);
+                    //Depth alarm: its limit under the label, red while the depth is below it
+                    if (data.depthAlarmLimit > 0) {
+                        wchar_t ab[32];
+                        swprintf(ab, 32, data.depthAlarm ? L"ALARME < %.0f m" : L"alarme %.0f m", data.depthAlarmLimit);
+                        text(font, ab, in.UpperLeftCorner.X + padX, depthTop + depthH * 0.5f + fh * 1.1f, data.depthAlarm ? DIGIT_RED : NAV_LABEL, false, true);
+                    }
                     if (depthValid) {
                         text(font, L"m", in.LowerRightCorner.X - padX - fh * 0.9f, depthTop + depthH - fh * 0.5f, NAV_DEPTH);
                     }
@@ -1153,8 +1168,14 @@ namespace irr
                     }
                 }
 
-                //Footer: tide if the scenario shows it, frame rate small and dim for the instructor.
-                if (fitTide) {
+                //Footer: man overboard mark first (bearing and distance to steer back to it), else the
+                //tide if the scenario shows it; frame rate small and dim for the instructor.
+                if (data.mobOn) {
+                    wchar_t mb[48];
+                    swprintf(mb, 48, L"MOB  %03d\u00B0  %.2f NM", ((int)(data.mobBrg + 0.5f)) % 360, data.mobNm);
+                    text(font, mb, in.UpperLeftCorner.X + padX, yFooter, DIGIT_RED, false, true);
+                }
+                else if (fitTide) {
                     wchar_t tb[32];
                     swprintf(tb, 32, L"%ls %+.1f m", TXT_TIDE, data.tideHeight);
                     text(font, tb, in.UpperLeftCorner.X + padX, yFooter, NAV_LABEL, false, true);

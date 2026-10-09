@@ -623,6 +623,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 device->getGUIEnvironment()->setFocus(0);
                 return true;
             }
+            //Instructor training controls (failures, sound signals, depth alarm, MOB mark, debrief)
+            if (gui->handleTrainingButton(id)) {
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
             // ===== kyara: touches à bascule grand radar =====
             if (id == GUIMain::GUI_ID_BIG_ARPA_MODE_BUTTON) {
                 irr::gui::IGUIElement* e = device->getGUIEnvironment()->getRootGUIElement()->getElementFromId(GUIMain::GUI_ID_BIG_ARPA_ON_BOX, true);

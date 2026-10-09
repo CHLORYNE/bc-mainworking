@@ -112,6 +112,7 @@ set(BC_SOURCES
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     ConsoleWindow.cpp
+    ExerciseLog.cpp
     BCTerrainSceneNode.cpp
     BCTerrainTriangleSelector.cpp
 )

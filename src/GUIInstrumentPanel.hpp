@@ -56,6 +56,12 @@ namespace irr
             f32 pitchDeg = 0;     //KYARA HOULE: + bow up (tangage)
             f32 rollDeg = 0;      //KYARA HOULE: + heeled to starboard (gite / roulis)
             u32 timeMs = 0;       //KYARA HOULE: simulator clock, for the 2-minute peak markers
+            bool gyroLost = false;      //gyro failure: heading frozen, "GYRO HS" on the compass
+            bool gpsLost = false;       //GPS failure: last position, shown as lost
+            f32 depthAlarmLimit = 0;    //echo sounder alarm, m (0: off)
+            bool depthAlarm = false;    //depth under the limit now
+            bool mobOn = false;         //man overboard mark: bearing and distance in the GPS box
+            f32 mobBrg = 0, mobNm = 0;
         };
 
         class GUIInstrumentPanel : public IGUIElement
