@@ -278,6 +278,21 @@ void OtherShips::setRateOfTurn(int number, irr::f32 rateOfTurn)
     }
 }
 
+void OtherShips::setAbsent(int number, bool absent)
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        otherShips.at(number)->setAbsent(absent);
+    }
+}
+
+bool OtherShips::isAbsent(int number) const
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        return otherShips.at(number)->isAbsent();
+    }
+    return false;
+}
+
 std::vector<Leg> OtherShips::getLegs(int number) const
 {
     if (number < (int)otherShips.size() && number >= 0) {

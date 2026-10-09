@@ -238,6 +238,8 @@ public:
     void setOtherShipHeading(int number, irr::f32 hdg);
     void setOtherShipPos(int number, irr::f32 positionX, irr::f32 positionZ);
     void setOtherShipRateOfTurn(int number, irr::f32 rateOfTurn);
+    void setOtherShipAbsent(int number, bool absent);   //multiplayer: no student on this ship
+    bool isOtherShipAbsent(int number) const;
     void setOtherShipSpeed(int number, irr::f32 speed); //Speed in m/s
     void setOtherShipMMSI(int number, irr::u32 mmsi);
     std::vector<Leg> getOtherShipLegs(int number) const;

@@ -56,6 +56,8 @@ public:
     void setPos(int number, irr::f32 positionX, irr::f32 positionZ);
     void setHeading(int number, irr::f32 hdg);
     void setRateOfTurn(int number, irr::f32 rateOfTurn);
+    void setAbsent(int number, bool absent);   //multiplayer: no student on this ship
+    bool isAbsent(int number) const;
     std::vector<Leg> getLegs(int number) const;
     void changeLeg(int shipNumber, int legNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
     void addLeg(int shipNumber, int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);

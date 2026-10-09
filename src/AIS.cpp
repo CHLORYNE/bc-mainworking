@@ -70,7 +70,7 @@ std::vector<irr::u32> AIS::getReadyShips(SimulationModel* model, irr::u32 now) {
         // random delay to reporting to avoid coalescence of reports after a while
         if (elapsed_time >= reportingInterval + (rand() % 500)) {
             lastUpdates[ship] = now;
-            readyShips.push_back(ship);
+            if (!model->isOtherShipAbsent((int)ship)) { readyShips.push_back(ship); } //multiplayer: no student on her
         }
     }
     return readyShips;

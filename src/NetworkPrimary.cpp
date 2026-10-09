@@ -136,6 +136,8 @@ void NetworkPrimary::connectToServer(std::string hostnames)
 
             /* Initiate the connection, allocating the maximum number of channels. */
             peer = enet_host_connect (client, & address, ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT, 0);
+            wantedAddresses.push_back(address);
+            wantedPeers.push_back(peer);
             //Note we don't store peer pointer, as we broadcast to all connected peers.
             if (peer == NULL)
             {
@@ -154,7 +156,8 @@ void NetworkPrimary::connectToServer(std::string hostnames)
                 /* received. Reset the peer in the event the 1 second */
                 /* had run out without any significant event. */
                 enet_peer_reset (peer);
-                device->getLogger()->log("ENet connection failed to:");
+                wantedPeers.back() = 0; //tried again from update()
+                device->getLogger()->log("ENet connection failed to (will retry):");
                 device->getLogger()->log(thisHostname.c_str());
             }
         }
@@ -176,6 +179,7 @@ void NetworkPrimary::update()
     if (!networkRequested) {
         return;
     }
+    retryConnections();
     receiveNetwork();
     sendNetwork();
 }
@@ -201,6 +205,22 @@ void NetworkPrimary::receiveNetwork()
     //Also now a while loop, so several packets arriving in one frame are all drained rather than
     //one per frame.
     while (enet_host_service(client, &event, 0) > 0) {
+        if (event.type == ENET_EVENT_TYPE_CONNECT) {
+            device->getLogger()->log("ENet: a display is connected.");
+            //The exercise at once, so that a display started late does not wait for the next one
+            //(every 100th frame)
+            if (model) {
+                const std::string scenario = generateSendStringScn();
+                ENetPacket* packet = enet_packet_create(scenario.c_str(), scenario.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                enet_peer_send(event.peer, 0, packet);
+            }
+        }
+        if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+            //Gone, or never answered: tried again in a moment
+            for (size_t i = 0; i < wantedPeers.size(); i++) {
+                if (wantedPeers[i] == event.peer) { wantedPeers[i] = 0; }
+            }
+        }
         if (event.type==ENET_EVENT_TYPE_RECEIVE) {
 
             //Convert into a string, max length 8192
@@ -442,6 +462,18 @@ void NetworkPrimary::receiveNetwork()
     }
 }
 
+void NetworkPrimary::retryConnections()
+{
+    const irr::u32 now = device->getTimer()->getRealTime();
+    if (now - lastRetryMs < 2000) { return; }
+    lastRetryMs = now;
+    for (size_t i = 0; i < wantedAddresses.size(); i++) {
+        if (wantedPeers[i]) { continue; }
+        //Not waited for: the answer comes as a CONNECT event, or a DISCONNECT if no one is there
+        wantedPeers[i] = enet_host_connect(client, &wantedAddresses[i], ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT, 0);
+    }
+}
+
 void NetworkPrimary::shutdownAllSecondaries(void)
 {
   sendNetwork("SD"); //SD to Shutdown
@@ -577,7 +609,8 @@ std::string NetworkPrimary::generateSendString()
         stringToSend.append(",");
         stringToSend.append("0"); // Rate of turn: This is not currently used in normal mode
         stringToSend.append(",");
-        stringToSend.append("0"); //Fixme: Sart enabled
+        //Field 5: "A" for a multiplayer ship no student has taken (the secondary hides it), else 0 (SART, unused)
+        stringToSend.append(model->isOtherShipAbsent(number) ? "A" : "0");
         stringToSend.append(",");
         stringToSend.append(netText(model->getOtherShipMMSI(number)));
         stringToSend.append(",");

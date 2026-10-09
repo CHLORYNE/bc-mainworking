@@ -771,6 +771,14 @@ void SimulationModel::setOtherShipRateOfTurn(int number, irr::f32 rateOfTurn) {
     otherShips.setRateOfTurn(number, rateOfTurn);
 }
 
+void SimulationModel::setOtherShipAbsent(int number, bool absent) {
+    otherShips.setAbsent(number, absent);
+}
+
+bool SimulationModel::isOtherShipAbsent(int number) const {
+    return otherShips.isAbsent(number);
+}
+
 std::vector<Leg> SimulationModel::getOtherShipLegs(int number) const {
     return otherShips.getLegs(number);
 }

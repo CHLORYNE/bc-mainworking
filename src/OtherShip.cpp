@@ -581,7 +581,20 @@ RadarData OtherShip::getRadarData(irr::core::vector3df scannerPosition) const
     radarData.contact = (void*)this;
     radarData.mmsi = this->getMMSI(); // NEW: Pass the real MMSI to the radar array
 
+    if (absent) { //no echo at all
+        radarData.hidden = true;
+        radarData.rcs = 0;
+        radarData.range = radarData.minRange = radarData.maxRange = 1.0e9f;
+    }
+
     return radarData;
+}
+
+void OtherShip::setAbsent(bool isAbsent)
+{
+    if (isAbsent == absent) { return; }
+    absent = isAbsent;
+    if (ship) { ship->setVisible(!absent); }
 }
 
 std::vector<Leg>::size_type OtherShip::findCurrentLeg(irr::f32 scenarioTime)

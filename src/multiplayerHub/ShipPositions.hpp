@@ -24,7 +24,8 @@
 struct ShipPosition {
     public:
     irr::f32 speed, positionX, positionZ, bearing, rateOfTurn, timeStored; //Speed in m/s, rate of turn in deg/s
-    ShipPosition():speed(0),positionX(0),positionZ(0), bearing(0), rateOfTurn(0), timeStored(0){}
+    bool reported; //a student has sent this ship's position (else no one has taken her)
+    ShipPosition():speed(0),positionX(0),positionZ(0), bearing(0), rateOfTurn(0), timeStored(0), reported(false){}
 };
 
 //hold current positions, headings and speeds of other ships
@@ -36,6 +37,7 @@ class ShipPositions {
 
     void setShipPosition(unsigned int shipNumber, irr::f32 scenarioTime, irr::f32 positionX, irr::f32 positionZ, irr::f32 speed, irr::f32 bearing, irr::f32 rateOfTurn);
     void getShipPosition(const unsigned int& shipNumber, const irr::f32& scenarioTime, irr::f32& positionX, irr::f32& positionZ, irr::f32& speed, irr::f32& bearing, irr::f32& rateOfTurn);
+    bool isReported(unsigned int shipNumber) const { return shipNumber < shipData.size() && shipData.at(shipNumber).reported; }
 
     private:
     std::vector<ShipPosition> shipData;

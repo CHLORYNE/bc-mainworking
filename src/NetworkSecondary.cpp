@@ -247,6 +247,8 @@ void NetworkSecondary::receiveMessage()
                                 irr::f32 receivedPosX = Utilities::lexical_cast<irr::f32>(thisShipData.at(0));
                                 irr::f32 receivedPosZ = Utilities::lexical_cast<irr::f32>(thisShipData.at(1));
                                 model->setOtherShipPos(i,receivedPosX,receivedPosZ);
+                                //Field 5 "A": a multiplayer ship no student has taken - not shown anywhere
+                                model->setOtherShipAbsent(i, thisShipData.at(5) == "A");
                                 //Todo: Think about using timeError to extrapolate position to get more accurately.
                                 //Todo: use SART etc
                             }

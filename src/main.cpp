@@ -52,6 +52,11 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
+#ifdef __linux__
+#include <sys/prctl.h> //the radar station ends with the simulator
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 
 using namespace irr;
@@ -585,6 +590,84 @@ static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT message,
 }
 #endif
 
+//The first UDP port from 'first' on that nothing on this PC listens on yet (for the radar station).
+static irr::u32 freeUdpPort(irr::u32 first)
+{
+    for (irr::u32 port = first; port < first + 20 && port <= 65535; port++) {
+        asio::io_context io;
+        asio::ip::udp::socket probe(io);
+        asio::error_code error;
+        probe.open(asio::ip::udp::v4(), error);
+        if (error) { return first; }
+        probe.bind(asio::ip::udp::endpoint(asio::ip::udp::v4(), (unsigned short)port), error);
+        if (!error) { return port; } //closed again when probe goes
+    }
+    return first;
+}
+
+//Radar station: another copy of this simulator, started with -radar-station <port> on another screen,
+//showing the large radar of this one. It is a secondary display of this simulator, fed over 127.0.0.1.
+//It is closed with this simulator (Windows: a job object that ends it when this process ends, even
+//after a crash; Linux: the parent-death signal).
+static bool startRadarStation(int screen, irr::u32 port, const std::string& iniArgument)
+{
+#ifdef _WIN32
+    wchar_t exe[MAX_PATH] = { 0 };
+    if (GetModuleFileNameW(NULL, exe, MAX_PATH) == 0) { return false; }
+    std::wstring cmd = L"\"" + std::wstring(exe) + L"\"";
+    if (!iniArgument.empty()) { cmd += L" -c \"" + std::wstring(iniArgument.begin(), iniArgument.end()) + L"\""; } //-c must come first
+    cmd += L" -radar-station " + std::to_wstring(port) + L" -monitor " + std::to_wstring(screen);
+
+    static HANDLE job = 0;
+    if (!job) {
+        job = CreateJobObjectW(NULL, NULL);
+        if (job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+            ZeroMemory(&limits, sizeof(limits));
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+        }
+    }
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    std::vector<wchar_t> cmdLine(cmd.begin(), cmd.end());
+    cmdLine.push_back(0);
+    if (!CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
+        std::cerr << "Could not start the radar station (error " << GetLastError() << ")." << std::endl;
+        return false;
+    }
+    if (job) { AssignProcessToJobObject(job, pi.hProcess); }
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+#elif defined(__linux__)
+    const pid_t parent = getpid();
+    const pid_t child = fork();
+    if (child < 0) { return false; }
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (getppid() != parent) { _exit(0); } //the simulator already ended
+        const std::string portText = std::to_string(port);
+        const std::string screenText = std::to_string(screen);
+        if (!iniArgument.empty()) {
+            execl("/proc/self/exe", "Simulator", "-c", iniArgument.c_str(), "-radar-station", portText.c_str(), "-monitor", screenText.c_str(), (char*)0);
+        }
+        else {
+            execl("/proc/self/exe", "Simulator", "-radar-station", portText.c_str(), "-monitor", screenText.c_str(), (char*)0);
+        }
+        _exit(1);
+    }
+    return true;
+#else
+    (void)screen; (void)port; (void)iniArgument;
+    return false;
+#endif
+}
+
 int main(int argc, char** argv)
 {
     // --- 1. NAUTITECH USB STARTUP CHECK ---
@@ -636,10 +719,26 @@ int main(int argc, char** argv)
         iniFilename = userFolder + iniFilename;
     }
 
+    std::string iniArgument; //-c <file>, passed on to the radar station
     if ((argc > 2) && (strcmp(argv[1], "-c") == 0)) {
         iniFilename = std::string(argv[2]); //TODO: Check this for sanity?
+        iniArgument = iniFilename;
         std::cout << "Using Ini file >" << iniFilename << "<" << std::endl;
     }
+
+    //Large radar on another screen: -radar N (from the launcher), else bc5.ini radar_screen (0 = none).
+    //This copy IS that radar station when started with -radar-station <port>.
+    int radarScreen = (int)IniFile::iniFileTou32(iniFilename, "radar_screen");
+    bool radarStation = false;
+    irr::u32 radarStationPort = 0;
+    for (int arg = 1; arg + 1 < argc; arg++) {
+        if (strcmp(argv[arg], "-radar") == 0) { radarScreen = atoi(argv[arg + 1]); }
+        if (strcmp(argv[arg], "-radar-station") == 0) {
+            radarStation = true;
+            radarStationPort = (irr::u32)atoi(argv[arg + 1]);
+        }
+    }
+    if (radarStation) { radarScreen = 0; }
 
     //The user folder (settings, log): made now if this is the first run on this PC.
     const std::string userFolders[2] = { Utilities::getUserDirBase(), userFolder };
@@ -743,6 +842,10 @@ int main(int argc, char** argv)
     irr::u32 graphicsDepth = IniFile::iniFileTou32(iniFilename, "graphics_depth");
     bool fullScreen = (IniFile::iniFileTou32(iniFilename, "graphics_mode") == 1); //1 for full screen
     bool fakeFullScreen = (IniFile::iniFileTou32(iniFilename, "graphics_mode") == 3); //3 for no border
+    if (radarStation) { //the whole of its screen, without a frame
+        fullScreen = false;
+        fakeFullScreen = true;
+    }
 #ifdef __APPLE__
     if (fakeFullScreen) {
         fullScreen = true; //Fall back for mac
@@ -836,6 +939,9 @@ int main(int argc, char** argv)
 
     //Load UDP network settings
     irr::u32 udpPort = IniFile::iniFileTou32(iniFilename, "udp_send_port");
+    if (radarStation && radarStationPort > 0) {
+        udpPort = radarStationPort;
+    }
     if (udpPort == 0) {
         udpPort = 18304;
     }
@@ -1129,7 +1235,7 @@ int main(int argc, char** argv)
     fileSystem->changeWorkingDirectoryTo(exeFolderPath.c_str());
 #endif
     //icon - kyara 
-    device->setWindowCaption(L"Simulateur de Navigation Maritime");
+    device->setWindowCaption(radarStation ? L"Simulateur de Navigation Maritime - Radar" : L"Simulateur de Navigation Maritime");
 
     // --- ADD THIS BLOCK TO LOAD YOUR CUSTOM WINDOW ICON ---
 #ifdef _WIN32
@@ -1195,7 +1301,7 @@ int main(int argc, char** argv)
     Sound sound;
 
     OperatingMode::Mode mode = OperatingMode::Normal;
-    if (IniFile::iniFileTou32(iniFilename, "secondary_mode") == 1) {
+    if (IniFile::iniFileTou32(iniFilename, "secondary_mode") == 1 || radarStation) {
         mode = OperatingMode::Secondary;
     }
 
@@ -1209,8 +1315,9 @@ int main(int argc, char** argv)
 
     hostname = Utilities::trim(hostname);
 
-    //Save hostname in user directory (hostname.txt). (The directory was made at start-up.)
-    if (Utilities::pathExists(userFolder)) { //TODO: Should we make this if it doesn't exist?
+    //Save hostname in user directory (hostname.txt). (The directory was made at start-up.) Not by the
+    //radar station, which would replace the simulator's own with nothing.
+    if (!radarStation && Utilities::pathExists(userFolder)) { //TODO: Should we make this if it doesn't exist?
         std::string hostnameFile = userFolder + "/hostname.txt";
         std::ofstream file(hostnameFile.c_str());
         if (file.is_open()) {
@@ -1293,13 +1400,38 @@ int main(int argc, char** argv)
     //Create networking, linked to model, choosing whether to use main or secondary network mode
     Network* network = Network::createNetwork(mode, udpPort, device);
     //Network network(&model);
-    network->connectToServer(hostname);
+
+    //The large radar on another screen: a radar station started now, so that it loads while this
+    //simulator does, and added to the displays this one sends its data to. Its port follows the one
+    //this simulator really listens on (another copy on this PC may have taken udp_send_port).
+    std::string displayHosts = hostname;
+    if (radarScreen > 0 && (mode == OperatingMode::Normal || mode == OperatingMode::Multiplayer)) {
+        irr::u32 radarPort = IniFile::iniFileTou32(iniFilename, "radar_station_port");
+        if (radarPort == 0) { radarPort = (network->getPort() > 0 ? (irr::u32)network->getPort() : udpPort) + 100; }
+        radarPort = freeUdpPort(radarPort);
+        bool screenThere = true;
+#ifdef _WIN32
+        cMonitorsVec screens;
+        screenThere = radarScreen <= (int)screens.iMonitors.size();
+#endif
+        if (!screenThere) {
+            std::cerr << "Radar on screen " << radarScreen << ": that screen is not connected." << std::endl;
+        }
+        else if (startRadarStation(radarScreen, radarPort, iniArgument)) {
+            const std::string radarHost = "127.0.0.1:" + std::to_string(radarPort);
+            displayHosts = displayHosts.empty() ? radarHost : displayHosts + "," + radarHost;
+            std::cout << "Radar station started on screen " << radarScreen << ", port " << radarPort << "." << std::endl;
+        }
+    }
+
+    network->connectToServer(mode == OperatingMode::Normal ? displayHosts : hostname);
 
     // If in multiplayer mode, also start 'normal' network, so we can send data to secondary displays
+    // (the radar station among them)
     Network* extraNetwork = 0;
-    if ((mode == OperatingMode::Multiplayer) && (hostname.length() > 0)) {
+    if ((mode == OperatingMode::Multiplayer) && (displayHosts.length() > 0)) {
         extraNetwork = Network::createNetwork(OperatingMode::Normal, udpPort, device);
-        extraNetwork->connectToServer(hostname);
+        extraNetwork->connectToServer(displayHosts);
         //std::cout << "Starting extra network to " << hostname << " on " << udpPort << std::endl;
     }
 
@@ -1544,7 +1676,7 @@ int main(int argc, char** argv)
     if (IniFile::iniFileTou32(iniFilename, "hide_instruments") == 1) {
         guiMain.hide2dInterface();
     }
-    if (IniFile::iniFileTou32(iniFilename, "full_radar") == 1) {
+    if (IniFile::iniFileTou32(iniFilename, "full_radar") == 1 || radarStation) {
         guiMain.setLargeRadar(true);
         model.setRadarDisplayRadius(guiMain.getRadarPixelRadius());
         guiMain.hide2dInterface();
@@ -1555,7 +1687,7 @@ int main(int argc, char** argv)
     //kyara: designate this secondary as the radar station via EITHER full_radar=1 OR the
     //dedicated key secondary_radar_master=1 in THIS instance's ini file. Only the radar
     //station sends radar sync to the primary; view-angle secondaries must not have either key.
-    if (mode == OperatingMode::Secondary && (IniFile::iniFileTou32(iniFilename, "full_radar") == 1 || IniFile::iniFileTou32(iniFilename, "secondary_radar_master") == 1)) {
+    if (mode == OperatingMode::Secondary && (radarStation || IniFile::iniFileTou32(iniFilename, "full_radar") == 1 || IniFile::iniFileTou32(iniFilename, "secondary_radar_master") == 1)) {
         model.setSecondaryRadarMaster(true);
         std::cout << "KYARA: this secondary is the RADAR MASTER - radar sync enabled" << std::endl;
     }

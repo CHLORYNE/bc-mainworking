@@ -610,6 +610,16 @@ int main()
                                                      thisOtherShipSpeed,
                                                      thisOtherShipBearing,
                                                      thisOtherShipRateOfTurn);
+                    //No student on this ship (or none has reported yet): marked absent, and sent far
+                    //away, so that even an older simulator does not show a ship stopped at the map's
+                    //origin, on the chart, the radar or the 3D view.
+                    const bool absent = !shipPositionData.isReported(i);
+                    if (absent) {
+                        thisOtherShipX = -1.0e7f;
+                        thisOtherShipZ = -1.0e7f;
+                        thisOtherShipSpeed = 0;
+                        thisOtherShipRateOfTurn = 0;
+                    }
 
                     otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipX));
                     otherShipsString.append(",");
@@ -624,7 +634,7 @@ int main()
                     otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipRateOfTurn));
                     otherShipsString.append(",");
 
-                    otherShipsString.append("0,0,0,0"); //SART enabled, MMSI, number of legs,leg info. TODO: Can we get MMSI
+                    otherShipsString.append(absent ? "A,0,0,0" : "0,0,0,0"); //absent marker (was SART), MMSI, number of legs, leg info
                     otherShipsString.append("|"); //End of other ship record
                 }
             }

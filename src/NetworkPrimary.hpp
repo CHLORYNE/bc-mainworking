@@ -22,6 +22,7 @@
 #include <string>
 
 #include <enet/enet.h>
+#include <vector>
 
 //Forward declarations
 class SimulationModel;
@@ -48,6 +49,14 @@ private:
 
     ENetHost* client; //One client
     ENetEvent event;
+
+    //Every display asked for, and its connection (0 while not connected). One that is not there yet
+    //(started after this simulator, like the radar station on the second screen) or that dropped is
+    //tried again every 2 seconds - before, a display had to be running before the simulator started.
+    std::vector<ENetAddress> wantedAddresses;
+    std::vector<ENetPeer*> wantedPeers;
+    irr::u32 lastRetryMs = 0;
+    void retryConnections();
 
     std::string generateSendString(); //Prepare the normal data message to send
     std::string generateSendStringShort(); //Prepare the own ship only data message to send

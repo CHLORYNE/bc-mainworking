@@ -51,6 +51,10 @@ public:
     void update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHeight, irr::u32 lightLevel);
     void enableTriangleSelector(bool selectorEnabled);
     void setRateOfTurn(irr::f32 rateOfTurn); // This could be moved to Ship.hpp
+    //Multiplayer: a ship of the scenario that no student has taken (yet). Not drawn, not on the
+    //radar, not in AIS.
+    void setAbsent(bool isAbsent);
+    bool isAbsent() const { return absent; }
     void setTowState(bool active, irr::f32 x, irr::f32 z, irr::f32 hdg); // Kyara: remorquage
     // AUTO RESCUE
             // Kyara SAR: externally driven pose for the scripted rescue run. Same kinematic
@@ -99,6 +103,7 @@ private:
     bool drifting;
     // Kyara FIRE: burning casualty - loses way, drifts, and lists as it floods/burns.
     bool onFire;
+    bool absent = false;
     irr::f32 fireListDeg;      // current list (deg), ramps up while onFire
     bool fireFightingVessel;             // Kyara FIRE: certified for fire-fighting (from boat.ini)
     irr::f32 fireListTarget;   // final list angle (deg)
