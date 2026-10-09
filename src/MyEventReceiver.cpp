@@ -206,7 +206,9 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         if (event.MouseInput.Event == irr::EMIE_MOUSE_MOVED && leftMouseDown)
         {
             irr::gui::IGUIElement* focussedElement = device->getGUIEnvironment()->getFocus();
-            if (!focussedElement)
+            //(On the large radar a drag moves the radar cursor or draws a parallel index line: the
+            //bridge camera behind it stays where it is)
+            if (!focussedElement && !gui->getLargeRadar())
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;

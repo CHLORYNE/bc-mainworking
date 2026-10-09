@@ -15,6 +15,7 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 #include "AIS.hpp"
+#include <cmath>
 #include "Constants.hpp"
 #include "SimulationModel.hpp"
 #include "libs/Irrlicht/irrlicht-svn/include/irrTypes.h"
@@ -80,7 +81,10 @@ std::tuple<std::string, int> AIS::generateClassAReport(SimulationModel* model, i
 
     bool done = false;
 
-    irr::u32 heading = (irr::u32) model->getOtherShipHeading(ship);
+    //0..359: a heading below 0 or of 360 and more would spill into the next fields of the message
+    irr::f32 headingDeg = fmod(model->getOtherShipHeading(ship), 360.0f);
+    if (headingDeg < 0) { headingDeg += 360.0f; }
+    irr::u32 heading = (irr::u32)headingDeg % 360;
     irr::u32 mmsi = model->getOtherShipMMSI(ship);
 
     if (mmsi == 0) {
@@ -105,7 +109,8 @@ std::tuple<std::string, int> AIS::generateClassAReport(SimulationModel* model, i
 
     // AIS speed over ground is in 0.1-knot increments, capped to 102.2 knots
     // getOtherShipSpeed returns speed in m/s, multiply by 1.9438445 to get knots
-    irr::u32 speed = std::min<int>((int) 10.0f * MPS_TO_KTS * model->getOtherShipSpeed(ship), 1022);
+    //(Speed over ground has no sign: a ship going astern used to give a negative number, sent as ~97 kn)
+    irr::u32 speed = std::min<int>((int)(10.0f * MPS_TO_KTS * fabs(model->getOtherShipSpeed(ship))), 1022);
 
     // BC internal coordinate system
     irr::f32 shipLong = model->getOtherShipLong(ship);

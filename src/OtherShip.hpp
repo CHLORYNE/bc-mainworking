@@ -54,7 +54,7 @@ public:
     //Multiplayer: a ship of the scenario that no student has taken (yet). Not drawn, not on the
     //radar, not in AIS.
     void setAbsent(bool isAbsent);
-    bool isAbsent() const { return absent; }
+    bool isAbsent() const { return absent || isSunk(); } //(a sunk casualty: no echo, no AIS either)
     void setTowState(bool active, irr::f32 x, irr::f32 z, irr::f32 hdg); // Kyara: remorquage
     // AUTO RESCUE
             // Kyara SAR: externally driven pose for the scripted rescue run. Same kinematic

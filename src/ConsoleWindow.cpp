@@ -108,9 +108,11 @@ LRESULT CALLBACK consoleWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         self->queueEvent(makeMouseEvent(irr::EMIE_LMOUSE_LEFT_UP, x, y, 0, buttonStates(wParam)));
         return 0;
     case WM_RBUTTONDOWN:
+        SetCapture(hWnd);   //(its release comes here even outside the window, as for the left button)
         self->queueEvent(makeMouseEvent(irr::EMIE_RMOUSE_PRESSED_DOWN, x, y, 0, buttonStates(wParam)));
         return 0;
     case WM_RBUTTONUP:
+        if (!(wParam & MK_LBUTTON)) { ReleaseCapture(); }
         self->queueEvent(makeMouseEvent(irr::EMIE_RMOUSE_LEFT_UP, x, y, 0, buttonStates(wParam)));
         return 0;
     case WM_MOUSEMOVE:

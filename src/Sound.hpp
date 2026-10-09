@@ -398,12 +398,12 @@ private:
 			num_read = sf_read_float(p_data->fileWave, waveBuffer.data(), frameCount * p_data->infoEngine.channels);
 			/*  If we couldn't read a full frameCount of samples we've reached EOF */
 			//Try to restart
-			if (num_read < frameCount)
+			if (num_read < frameCount * p_data->infoEngine.channels)
 			{
 
 				sf_count_t seekLocation = sf_seek(p_data->fileWave, 0, SEEK_SET);
 				if (seekLocation == -1) {
-					return paComplete;
+					waveSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 
 				//Read again
@@ -412,7 +412,7 @@ private:
 
 				/*  If we couldn't read a full frameCount of samples we've reached EOF */
 				if (num_read < frameCount) {
-					return paComplete;
+					waveSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 			}
 		}
@@ -421,12 +421,12 @@ private:
 			num_read = sf_read_float(p_data->fileHorn, hornBuffer.data(), frameCount * p_data->infoEngine.channels);
 			/*  If we couldn't read a full frameCount of samples we've reached EOF */
 			//Try to restart
-			if (num_read < frameCount)
+			if (num_read < frameCount * p_data->infoEngine.channels)
 			{
 
 				sf_count_t seekLocation = sf_seek(p_data->fileHorn, 0, SEEK_SET);
 				if (seekLocation == -1) {
-					return paComplete;
+					hornSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 
 				//Read again
@@ -435,7 +435,7 @@ private:
 
 				/*  If we couldn't read a full frameCount of samples we've reached EOF */
 				if (num_read < frameCount) {
-					return paComplete;
+					hornSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 			}
 		}
@@ -444,12 +444,12 @@ private:
 			num_read = sf_read_float(p_data->fileAlarm, alarmBuffer.data(), frameCount * p_data->infoEngine.channels);
 			/*  If we couldn't read a full frameCount of samples we've reached EOF */
 			//Try to restart
-			if (num_read < frameCount)
+			if (num_read < frameCount * p_data->infoEngine.channels)
 			{
 
 				sf_count_t seekLocation = sf_seek(p_data->fileAlarm, 0, SEEK_SET);
 				if (seekLocation == -1) {
-					return paComplete;
+					alarmSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 
 				//Read again
@@ -458,7 +458,7 @@ private:
 
 				/*  If we couldn't read a full frameCount of samples we've reached EOF */
 				if (num_read < frameCount) {
-					return paComplete;
+					alarmSoundLoaded = false; //unreadable: this sound only, the others go on
 				}
 			}
 		}
@@ -466,11 +466,11 @@ private:
 		bool playRain = rainSoundLoaded;
 		if (playRain) {
 			num_read = sf_read_float(p_data->fileRain, rainBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileRain, 0, SEEK_SET) == -1) { playRain = false; }
 				else {
 					num_read = sf_read_float(p_data->fileRain, rainBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playRain = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playRain = false; }
 				}
 			}
 		}
@@ -478,11 +478,11 @@ private:
 		bool playStorm = stormSoundLoaded;
 		if (playStorm) {
 			num_read = sf_read_float(p_data->fileStorm, stormBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileStorm, 0, SEEK_SET) == -1) { playStorm = false; }
 				else {
 					num_read = sf_read_float(p_data->fileStorm, stormBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playStorm = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playStorm = false; }
 				}
 			}
 		}
@@ -492,14 +492,14 @@ private:
 		bool playProxy = proxySoundLoaded;
 		if (playProxy) {
 			num_read = sf_read_float(p_data->fileProxy, proxyBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount)
+			if (num_read < frameCount * p_data->infoEngine.channels)
 			{
 				if (sf_seek(p_data->fileProxy, 0, SEEK_SET) == -1) {
 					playProxy = false;
 				}
 				else {
 					num_read = sf_read_float(p_data->fileProxy, proxyBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) {
+					if (num_read < frameCount * p_data->infoEngine.channels) {
 						playProxy = false;
 					}
 				}
@@ -510,14 +510,14 @@ private:
 		bool playRadarAlarm = radarAlarmSoundLoaded;
 		if (playRadarAlarm) {
 			num_read = sf_read_float(p_data->fileRadarAlarm, radarAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount)
+			if (num_read < frameCount * p_data->infoEngine.channels)
 			{
 				if (sf_seek(p_data->fileRadarAlarm, 0, SEEK_SET) == -1) {
 					playRadarAlarm = false;
 				}
 				else {
 					num_read = sf_read_float(p_data->fileRadarAlarm, radarAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) {
+					if (num_read < frameCount * p_data->infoEngine.channels) {
 						playRadarAlarm = false;
 					}
 				}
@@ -561,11 +561,11 @@ private:
 		bool playThunder = thunderSoundLoaded;
 		if (playThunder) {
 			num_read = sf_read_float(p_data->fileThunder, thunderBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileThunder, 0, SEEK_SET) == -1) { playThunder = false; }
 				else {
 					num_read = sf_read_float(p_data->fileThunder, thunderBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playThunder = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playThunder = false; }
 				}
 			}
 		}
@@ -625,11 +625,11 @@ private:
 		bool playFireBurning = fireBurningSoundLoaded;
 		if (playFireBurning) {
 			num_read = sf_read_float(p_data->fileFireBurning, fireBurningBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileFireBurning, 0, SEEK_SET) == -1) { playFireBurning = false; }
 				else {
 					num_read = sf_read_float(p_data->fileFireBurning, fireBurningBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playFireBurning = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playFireBurning = false; }
 				}
 			}
 		}
@@ -637,11 +637,11 @@ private:
 		bool playAbandonAlarm = abandonAlarmSoundLoaded;
 		if (playAbandonAlarm) {
 			num_read = sf_read_float(p_data->fileAbandonAlarm, abandonAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileAbandonAlarm, 0, SEEK_SET) == -1) { playAbandonAlarm = false; }
 				else {
 					num_read = sf_read_float(p_data->fileAbandonAlarm, abandonAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playAbandonAlarm = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playAbandonAlarm = false; }
 				}
 			}
 		}
@@ -649,11 +649,11 @@ private:
 		bool playWater = waterSoundLoaded;
 		if (playWater) {
 			num_read = sf_read_float(p_data->fileWater, waterBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileWater, 0, SEEK_SET) == -1) { playWater = false; }
 				else {
 					num_read = sf_read_float(p_data->fileWater, waterBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playWater = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playWater = false; }
 				}
 			}
 		}
@@ -661,11 +661,11 @@ private:
 		bool playFireAlarm = fireAlarmSoundLoaded;
 		if (playFireAlarm) {
 			num_read = sf_read_float(p_data->fileFireAlarm, fireAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileFireAlarm, 0, SEEK_SET) == -1) { playFireAlarm = false; }
 				else {
 					num_read = sf_read_float(p_data->fileFireAlarm, fireAlarmBuffer.data(), frameCount * p_data->infoEngine.channels);
-					if (num_read < frameCount) { playFireAlarm = false; }
+					if (num_read < frameCount * p_data->infoEngine.channels) { playFireAlarm = false; }
 				}
 			}
 		}
@@ -673,7 +673,7 @@ private:
 		bool playGroan = groanSoundLoaded;
 		if (playGroan) {
 			num_read = sf_read_float(p_data->fileGroan, groanBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileGroan, 0, SEEK_SET) == -1) { playGroan = false; }
 				else { num_read = sf_read_float(p_data->fileGroan, groanBuffer.data(), frameCount * p_data->infoEngine.channels); if (num_read < frameCount) playGroan = false; }
 			}
@@ -682,7 +682,7 @@ private:
 		bool playSteam = steamSoundLoaded;
 		if (playSteam) {
 			num_read = sf_read_float(p_data->fileSteam, steamBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileSteam, 0, SEEK_SET) == -1) { playSteam = false; }
 				else { num_read = sf_read_float(p_data->fileSteam, steamBuffer.data(), frameCount * p_data->infoEngine.channels); if (num_read < frameCount) playSteam = false; }
 			}
@@ -692,7 +692,7 @@ private:
 		bool playExplosion = false;
 		if (explosionSoundLoaded && explosionPlaying) {
 			num_read = sf_read_float(p_data->fileExplosion, explosionBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) { explosionPlaying = false; }
+			if (num_read < frameCount * p_data->infoEngine.channels) { explosionPlaying = false; }
 			playExplosion = true;
 		}
 		// FIRE: vhf beep — one-shot
@@ -700,7 +700,7 @@ private:
 		bool playVhf = vhfSoundLoaded;
 		if (playVhf) {
 			num_read = sf_read_float(p_data->fileVhf, vhfBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileVhf, 0, SEEK_SET) == -1) { playVhf = false; }
 				else { num_read = sf_read_float(p_data->fileVhf, vhfBuffer.data(), frameCount * p_data->infoEngine.channels); if (num_read < frameCount) playVhf = false; }
 			}
@@ -709,7 +709,7 @@ private:
 		bool playHelo = heloSoundLoaded;
 		if (playHelo) {
 			num_read = sf_read_float(p_data->fileHelo, heloBuffer.data(), frameCount * p_data->infoEngine.channels);
-			if (num_read < frameCount) {
+			if (num_read < frameCount * p_data->infoEngine.channels) {
 				if (sf_seek(p_data->fileHelo, 0, SEEK_SET) == -1) { playHelo = false; }
 				else { num_read = sf_read_float(p_data->fileHelo, heloBuffer.data(), frameCount * p_data->infoEngine.channels); if (num_read < frameCount) playHelo = false; }
 			}
@@ -797,7 +797,7 @@ private:
 		}
 
 		//Copy into output buffer, with mixing
-		for (int i = 0; i < frameCount * p_data->infoWave.channels; i++) {
+		for (int i = 0; i < frameCount * p_data->infoEngine.channels; i++) { //(every buffer is in the engine sound's format)
 			out[i] = engineVolume * engineBuffer[i] * 0.33;
 			if (waveSoundLoaded) {
 				out[i] += waveVolume * waveBuffer[i] * 0.33;

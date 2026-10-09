@@ -286,7 +286,7 @@ void NMEA::receive()
                                 apb.bearing_orig_to_dest_type = fields[11][0];
                                 apb.heading_to_dest = std::stof(fields[12]);
                                 apb.heading_to_dest_type = fields[13][0];
-                            } catch (const std::invalid_argument& e)
+                            } catch (const std::exception& e) //invalid_argument, or out_of_range for a value like 1e99
                             {
                                 std::cerr << "error while parsing a float value for APB" << std::endl;
                                 continue;
@@ -316,7 +316,7 @@ void NMEA::receive()
                                 rmb.arrival_status = fields[12][0];
                                 rmb.faa_mode = '\0';
                                 if (fields.size() == 14) rmb.faa_mode = fields[13][0];
-                            } catch (const std::invalid_argument& e)
+                            } catch (const std::exception& e) //invalid_argument, or out_of_range for a value like 1e99
                             {
                                 std::cerr << "error while parsing a float value for RMB" << std::endl;
                                 continue;

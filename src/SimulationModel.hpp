@@ -445,6 +445,10 @@ public:
     void setAlarm(bool alarmState);
     //The radar's settings and targets (clicks on the scope, CPA alarm, trial manoeuvre, lines...)
     RadarCalculation& getRadar() { return radarCalculation; }
+    //Longitude / latitude of a point in scene coordinates (the scene is re-centred on own ship, so
+    //the offset has to be added before terrain.xToLong / zToLat)
+    irr::f32 sceneXToLong(irr::f32 x) const;
+    irr::f32 sceneZToLat(irr::f32 z) const;
     void toggleRadarOn();
     bool isRadarOn() const;
     //The radar picture's texture and the part of it shown (see RadarScreen::getTexture)

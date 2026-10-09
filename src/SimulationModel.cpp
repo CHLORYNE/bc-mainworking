@@ -729,6 +729,14 @@ irr::f32 SimulationModel::getOtherShipPosZ(int number) const {
     return otherShips.getPosition(number).Z + offsetPosition.Z;
 }
 
+irr::f32 SimulationModel::sceneXToLong(irr::f32 x) const {
+    return terrain.xToLong(x + offsetPosition.X);
+}
+
+irr::f32 SimulationModel::sceneZToLat(irr::f32 z) const {
+    return terrain.zToLat(z + offsetPosition.Z);
+}
+
 irr::f32 SimulationModel::getOtherShipLong(int number) const {
     return terrain.xToLong(getOtherShipPosX(number));
 }
@@ -1963,7 +1971,7 @@ void SimulationModel::setStbdEngine(irr::f32 stbd)
     //Set engine sound level
     // DEE_NOV22 same comment as for port engine
     //KYARA ENGINE IDLE: same idle-floor mapping as setPortEngine, see comment there.
-    const irr::f32 ENGINE_IDLE_VOLUME = 0.78f;
+    const irr::f32 ENGINE_IDLE_VOLUME = 0.40f; //(as setPortEngine: it was 0.78, louder at idle than at full ahead)
     const irr::f32 ENGINE_FULL_VOLUME = 0.5f;
 
     if (ownShip.isSingleEngine()) {
@@ -4519,9 +4527,8 @@ void SimulationModel::pushComms(const std::wstring& line)
 void SimulationModel::beginDistressComms(int shipIndex)
 {
     casualtyName = otherShips.getName(shipIndex);
-    irr::core::vector3df p = otherShips.getPosition(shipIndex);
     std::wstring wname = widen(casualtyName);
-    std::wstring wpos = formatLatLong(terrain.zToLat(p.Z), terrain.xToLong(p.X));
+    std::wstring wpos = formatLatLong(getOtherShipLat(shipIndex), getOtherShipLong(shipIndex)); //(with the scene offset)
 
     maydayLines.clear();
     maydayLines.push_back(L"MAYDAY MAYDAY MAYDAY");

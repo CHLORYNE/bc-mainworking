@@ -1960,8 +1960,10 @@ void OwnShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHei
         irr::f32 axialWind = windSpeed * cos(relativeWindFlowDirection * irr::core::DEGTORAD);
         irr::f32 lateralWind = windSpeed * sin(relativeWindFlowDirection * irr::core::DEGTORAD);
 
-        irr::f32 relWindAxial_mps = (axialWind - axialSpd) * KTS_TO_MPS;
-        irr::f32 relWindLateral_mps = (lateralWind - lateralSpd) * KTS_TO_MPS;
+        //(windSpeed, axialSpd and lateralSpd are all in m/s already: the wind forces used to be
+        //converted twice, and came out at about a quarter of their value)
+        irr::f32 relWindAxial_mps = axialWind - axialSpd;
+        irr::f32 relWindLateral_mps = lateralWind - lateralSpd;
         irr::f32 frontalArea = breadth * airDraught;
         irr::f32 sideArea = length * airDraught;
 

@@ -783,6 +783,9 @@ void RadarCalculation::setArpaMode(int mode)
             }
         }
         arpaTracks.clear(); // This will be regenerated as we have set display ID to 0
+        //(indices into arpaContacts, which has just changed)
+        pendingSelectContact = -1;
+        pendingAcquireTries = 0;
     }
 }
 
@@ -1859,7 +1862,7 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
                     //Dangerous: a tracked ship passing closer than the CPA limit within the TCPA limit
                     const bool trackedShip = !thisArpaContact.estimate.stationary && !thisArpaContact.isBuoy &&
                         thisArpaContact.estimate.displayID > 0;
-                    if (cpaAlarmOn && trackedShip) {
+                    if (trackedShip) {
                         thisArpaContact.estimate.danger = fabs(thisArpaContact.estimate.cpa) < cpaLimitNm &&
                             thisArpaContact.estimate.tcpa >= 0 && thisArpaContact.estimate.tcpa <= tcpaLimitMinutes;
                     }
@@ -1894,7 +1897,7 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
                         thisArpaContact.estimate.trialCpa = bestDist / M_IN_NM;
                         //Opening from the start: the closest point is behind (shown as "past")
                         thisArpaContact.estimate.trialTcpa = (bestT <= 0.0f && d <= 0) ? -1.0f : bestT / 60.0f;
-                        if (cpaAlarmOn && trackedShip) {
+                        if (trackedShip) {
                             thisArpaContact.estimate.trialDanger = thisArpaContact.estimate.trialCpa < cpaLimitNm &&
                                 thisArpaContact.estimate.trialTcpa >= 0 && thisArpaContact.estimate.trialTcpa <= tcpaLimitMinutes;
                         }
@@ -1909,9 +1912,13 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
 
 void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::f32 ownShipHeading, irr::f32 ownShipSpeed, irr::core::vector3d<int64_t> absolutePosition)
 {
-    //A ship that is no longer dangerous: its alarm can sound again next time
+    //A ship that has been out of danger for 30 s: its alarm can sound again next time. (Not at
+    //once: the estimate is noisy, and a CPA hovering at the limit would re-sound just after "Acquitter")
     for (size_t i = 0; i < arpaContacts.size(); i++) {
-        if (!arpaContacts[i].estimate.danger) { arpaContacts[i].dangerAcknowledged = false; }
+        ARPAContact& c = arpaContacts[i];
+        if (c.estimate.danger) { c.safeSince = 0; continue; }
+        if (c.safeSince == 0) { c.safeSince = lastAbsoluteTime > 0 ? lastAbsoluteTime : 1; }
+        if (lastAbsoluteTime >= c.safeSince + 30) { c.dangerAcknowledged = false; }
     }
 
 #ifdef WITH_PROFILING
@@ -2787,8 +2794,9 @@ void RadarCalculation::toggleOffCentre() {
         radarScreenStale = true; //kyara: l'origine a bougé -> tout le bitmap doit être redessiné
     }
     else {
-        offsetXFraction = 0.4f; offsetYFraction = 0.4f;
-
+        //Back to the centre (it used to jump to a fixed 0.4, 0.4 and never came back)
+        offsetXFraction = 0.0f; offsetYFraction = 0.0f;
+        radarScreenStale = true;
     }
 }
 irr::f32 RadarCalculation::getOffsetXFraction() const { return offsetXFraction; }
@@ -2815,12 +2823,13 @@ bool RadarCalculation::takeArpaModeChangedByClick()
     return changed;
 }
 
-void RadarCalculation::setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading)
+bool RadarCalculation::setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading)
 {
-    if (radarRadiusPx == 0) { return; }
+    if (radarRadiusPx == 0) { return false; }
     const irr::f32 xNm = (irr::f32)mouseRelPosition.X / (irr::f32)radarRadiusPx * getRangeNm();
     const irr::f32 yNm = -1.0f * (irr::f32)mouseRelPosition.Y / (irr::f32)radarRadiusPx * getRangeNm();
-    if (std::sqrt(xNm * xNm + yNm * yNm) <= getRangeNm()) {
+    const bool inRange = std::sqrt(xNm * xNm + yNm * yNm) <= getRangeNm();
+    if (inRange) {
         cursorRangeXNm = xNm;
         cursorRangeYNm = yNm;
     }
@@ -2828,6 +2837,7 @@ void RadarCalculation::setCursorFromMouse(irr::core::vector2di mouseRelPosition,
     if (headUp) { CursorBrg += ownShipHeading; }
     CursorBrg = Angles::normaliseAngle(CursorBrg);
     CursorRangeNm = std::sqrt(cursorRangeXNm * cursorRangeXNm + cursorRangeYNm * cursorRangeYNm);
+    return inRange;
 }
 
 int RadarCalculation::contactNearPoint(irr::f32 xNm, irr::f32 yNm, bool tracked) const
@@ -2854,7 +2864,11 @@ void RadarCalculation::handleScopeEvents(irr::f32 ownShipHeading)
 {
     for (size_t i = 0; i < scopeEvents.size(); i++) {
         const ScopeMouseEvent& e = scopeEvents[i];
-        setCursorFromMouse(e.rel, ownShipHeading);
+        //Outside the range ring (possible when off-centred): nothing there, and the cursor did not move
+        if (!setCursorFromMouse(e.rel, ownShipHeading)) {
+            if (e.left) { pressPending = false; }
+            continue;
+        }
         const irr::f32 xNm = CursorRangeNm * sin(CursorBrg * RAD_IN_DEG); //true east
         const irr::f32 yNm = CursorRangeNm * cos(CursorBrg * RAD_IN_DEG); //true north
 

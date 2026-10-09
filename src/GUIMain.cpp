@@ -2378,8 +2378,8 @@ irr::core::vector2di GUIMain::getCursorPositionRadar() const
     if (radarDetached) {
         if (!radarMouseInside) { return irr::core::vector2di(10000, 10000); }
         irr::core::vector2di centre(largeRadarScreenCentreX, largeRadarScreenCentreY);
-        centre.X += (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius);
-        centre.Y -= (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius);
+        centre.X += (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius / RADAR_FIT_MARGIN);
+        centre.Y -= (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius / RADAR_FIT_MARGIN);
         return irr::core::vector2di(radarMouse.X, radarMouse.Y) - centre;
     }
 
@@ -2394,8 +2394,8 @@ irr::core::vector2di GUIMain::getCursorPositionRadar() const
     if (radarLarge) {
         radarScreenCentre.X = largeRadarScreenCentreX;
         radarScreenCentre.Y = largeRadarScreenCentreY;
-        radarScreenCentre.X += (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius); //kyara
-        radarScreenCentre.Y -= (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius);
+        radarScreenCentre.X += (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius / RADAR_FIT_MARGIN); //kyara
+        radarScreenCentre.Y -= (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius / RADAR_FIT_MARGIN);
     }
     else {
         radarScreenCentre.X = smallRadarScreenCentreX;
@@ -2481,6 +2481,15 @@ void GUIMain::updateVisibility()
     for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = largeRadarControls->getChildren().begin();
         it != largeRadarControls->getChildren().end(); ++it) {
         (*it)->setVisible(radarLarge);
+    }
+    //...except what only shows sometimes: the trial manoeuvre rows, and one of the ARPA / AIS boxes
+    //(hidden elements cannot be clicked; these would otherwise be, until the next frame is drawn)
+    {
+        const bool trial = radarLarge && model && model->getRadar().getTrialOn();
+        for (int i = 0; i < 6; i++) { if (radarTrialButtons[i]) { radarTrialButtons[i]->setVisible(trial); } }
+        for (int i = 0; i < 3; i++) { if (radarTrialValues[i]) { radarTrialValues[i]->setVisible(trial); } }
+        if (arpaText2) { arpaText2->setVisible(radarLarge && !aisDataMode); }
+        if (aisText2) { aisText2->setVisible(radarLarge && aisDataMode); }
     }
     for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = largeRadarPIControls->getChildren().begin();
         it != largeRadarPIControls->getChildren().end(); ++it) {
@@ -3882,11 +3891,14 @@ void GUIMain::draw2dRadar()
                 (irr::u32)(255 * brgScale), (irr::u32)(220 * brgScale), 0); // amber, matches the ring
             const irr::f32 labelR = (irr::f32)radius * 1.055f;      // just outside the sweep
 
+            //Around the scope's rim (not the off-centred ship), turned with the picture in head-up /
+            //course-up, so each number sits on its tick of the bearing scale
+            const irr::f32 scaleTurn = radarHeadUp ? -guiHeading : 0.0f;
             for (int brg = 0; brg < 360; brg += 30) {
                 // 0 = up on screen, clockwise (same convention as the sweep and blips)
-                irr::f32 ang = brg * irr::core::DEGTORAD;
-                irr::s32 lx = centreX + (irr::s32)(labelR * sin(ang));
-                irr::s32 ly = centreY - (irr::s32)(labelR * cos(ang));
+                irr::f32 ang = (brg + scaleTurn) * irr::core::DEGTORAD;
+                irr::s32 lx = largeRadarScreenCentreX + (irr::s32)(labelR * sin(ang));
+                irr::s32 ly = largeRadarScreenCentreY - (irr::s32)(labelR * cos(ang));
 
                 // 3-digit maritime format: 000, 030, 060 ... 330
                 wchar_t buf[8];
@@ -5137,13 +5149,15 @@ bool GUIMain::isOnLargeScope(irr::core::position2di p) const
 bool GUIMain::scopeMouseEvent(const irr::SEvent& event)
 {
     if (!radarLarge || !model || event.EventType != irr::EET_MOUSE_INPUT_EVENT) { return false; }
+    //Radar off: nothing to click on (the clicks would wait and all act when it is switched on)
+    if (!model->isRadarOn()) { scopeLeftDown = false; return false; }
     const irr::core::position2di p(event.MouseInput.X, event.MouseInput.Y);
     irr::gui::IGUIElement* root = guienv->getRootGUIElement();
     const bool onScope = isOnLargeScope(p) && root->getElementFromPoint(p) == root;
     //Mouse relative to own ship's place on the scope (off-centred or not), as for the radar cursor
     const irr::f32 r = (irr::f32)largeRadarScreenRadius / RADAR_FIT_MARGIN;
-    const irr::core::vector2di rel(p.X - (largeRadarScreenCentreX + (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius)),
-                                   p.Y - (largeRadarScreenCentreY - (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius)));
+    const irr::core::vector2di rel(p.X - (largeRadarScreenCentreX + (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius / RADAR_FIT_MARGIN)),
+                                   p.Y - (largeRadarScreenCentreY - (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius / RADAR_FIT_MARGIN)));
     (void)r;
     switch (event.MouseInput.Event) {
     case irr::EMIE_LMOUSE_PRESSED_DOWN:

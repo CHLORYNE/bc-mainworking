@@ -116,6 +116,7 @@ struct ARPAContact {
     bool wasInGuardZone;         //kyara: guard zone alarm transition tracking (previous frame in/out)
     bool guardAlarmLatched;      //kyara: this contact is currently sustaining the guard alarm (mode-dependent: IN=inside, OUT=left)
     bool dangerAcknowledged = false; //CPA alarm silenced for this contact (until it becomes dangerous again)
+    uint64_t safeSince = 0;          //when it last stopped being dangerous (0: dangerous, or never was)
 
 
     ARPAContact() {
@@ -261,7 +262,7 @@ public:
     irr::f32 getTCPALimit() const;
     void setCPAAlarmOn(bool on);
     bool getCPAAlarmOn() const;
-    bool isCPAAlarmSounding() const;   //a dangerous target not yet acknowledged
+    bool isCPAAlarmSounding() const;   //a dangerous target not yet acknowledged (danger is shown even with the alarm off)
     void acknowledgeCPAAlarm();
     int countDangerousTargets() const;
 
@@ -376,7 +377,7 @@ private:
     bool pressPending = false;
     bool arpaModeChangedByClick = false;
     int pendingSelectContact = -1;         //contact clicked: selected in the list once it has a track number
-    void setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading);
+    bool setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading); //false: outside the range ring
     void handleScopeEvents(irr::f32 ownShipHeading);
     int contactNearPoint(irr::f32 xNm, irr::f32 yNm, bool tracked) const; //nearest ship echo to a point (true east/north of own ship)
     int piEditLine = -1;

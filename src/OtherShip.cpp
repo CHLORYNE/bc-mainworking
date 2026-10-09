@@ -326,7 +326,7 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
     if (drifting || onFire) {   // Kyara FIRE: casualties always drift {
         //Move with tidal stream (if not aground)
         irr::f32 depth = -1 * model->getTerrain()->getHeight(xPos, zPos) + yPos;
-        irr::core::vector2df streamVector = model->getTidalStream(model->getTerrain()->xToLong(xPos), model->getTerrain()->zToLat(zPos), model->getTimestamp());
+        irr::core::vector2df streamVector = model->getTidalStream(model->sceneXToLong(xPos), model->sceneZToLat(zPos), model->getTimestamp());
 
         // Add component from wind
         irr::f32 windSpeed = model->getWindSpeed() * KTS_TO_MPS;
@@ -581,7 +581,7 @@ RadarData OtherShip::getRadarData(irr::core::vector3df scannerPosition) const
     radarData.contact = (void*)this;
     radarData.mmsi = this->getMMSI(); // NEW: Pass the real MMSI to the radar array
 
-    if (absent) { //no echo at all
+    if (isAbsent()) { //no echo at all
         radarData.hidden = true;
         radarData.rcs = 0;
         radarData.range = radarData.minRange = radarData.maxRange = 1.0e9f;
