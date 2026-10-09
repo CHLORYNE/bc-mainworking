@@ -42,8 +42,12 @@ public:
     //view, above all on a Surround / Eyefinity canvas, would otherwise cover it), and lets other
     //programs go over it when the simulator is in the background. Called every frame.
     void keepAboveSimulator();
-    //Frame position on the desktop and client size, for saving and restoring the placement.
+    //Frame position on the desktop and client size, for saving and restoring the placement. In full
+    //screen: the window's place before it went full screen.
     bool getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const;
+    //Full screen on the screen the window is on (no frame), and back to the window it was.
+    void setFullScreen(bool on);
+    bool isFullScreen() const { return fullScreen; }
 
     //Pass to driver->beginScene() to draw into this window.
     const irr::video::SExposedVideoData& videoData() const { return windowData; }
@@ -64,6 +68,9 @@ private:
     bool closePending;
     bool opened;
     bool borderless;
+    bool fullScreen = false;
+    irr::s32 windowedX = 0, windowedY = 0;   //placement before going full screen
+    irr::u32 windowedW = 0, windowedH = 0;
 
 #ifdef _WIN32
     void* hwnd;

@@ -19,6 +19,7 @@
 
 
 #include "GUIMain.hpp"
+#include <algorithm>
 #include "BridgeSkin.hpp"
 #include "CentreScreen.hpp"
 #include "WeatherPanel.hpp"
@@ -66,6 +67,12 @@ std::string consolePlacementFile(irr::u32 instance)
 {
     if (instance > 1) { return Utilities::getUserDir() + "consoleWindow-" + std::to_string(instance) + ".ini"; }
     return Utilities::getUserDir() + "consoleWindow.ini";
+}
+
+std::string radarPlacementFile(irr::u32 instance)
+{
+    if (instance > 1) { return Utilities::getUserDir() + "radarWindow-" + std::to_string(instance) + ".ini"; }
+    return Utilities::getUserDir() + "radarWindow.ini";
 }
 } // namespace
 
@@ -1570,6 +1577,18 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     irr::s32 smallRadarButtonLeft = radarTL.X + 0.01 * su;
     irr::s32 smallRadarButtonTop = radarTL.Y + 0.01 * sh;
     smallRadarButton = guienv->addButton(irr::core::rect<irr::s32>(smallRadarButtonLeft, smallRadarButtonTop, smallRadarButtonLeft + 0.020 * su, smallRadarButtonTop + 0.030 * sh), 0, GUI_ID_SMALL_RADAR_BUTTON, language->translate("smallRadar").c_str());
+    //The large radar in a window of its own (another screen): "Détacher" here; "Rattacher" and
+    //"Plein écran" in that window
+    {
+        const irr::s32 bw = (irr::s32)(0.062 * su);
+        const irr::s32 gap = (irr::s32)(0.004 * su);
+        const irr::s32 bl = smallRadarButtonLeft + (irr::s32)(0.020 * su) + gap;
+        const irr::s32 bb = smallRadarButtonTop + (irr::s32)(0.030 * sh);
+        detachRadarButton = guienv->addButton(irr::core::rect<irr::s32>(bl, smallRadarButtonTop, bl + bw, bb), 0, GUI_ID_DETACH_RADAR_BUTTON, L"Détacher");
+        radarFullScreenButton = guienv->addButton(irr::core::rect<irr::s32>(bl + bw + gap, smallRadarButtonTop, bl + 2 * bw + gap, bb), 0, GUI_ID_RADAR_FULLSCREEN_BUTTON, L"Plein écran");
+        detachRadarButton->setVisible(false);
+        radarFullScreenButton->setVisible(false);
+    }
     bigRadarButton->setToolTipText(language->translate("fullScreenRadar").c_str());
     if (instrumentPanel) { //kyara: the only radar control left on the main view
         bigRadarButton->setRelativePosition(statusRow(0));
@@ -2131,6 +2150,21 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             setConsoleDetached(true);
         }
     }
+
+    //Radar window: on the screen given to it, or where it was last session (if it was detached).
+    {
+        const irr::u32 fps = IniFile::iniFileTou32(iniFilename, "radar_window_fps");
+        if (fps > 0) { radarFrameMs = 1000 / fps; }
+        const std::string placement = radarPlacementFile(consoleInstance);
+        radarPlaceX = IniFile::iniFileTos32(placement, "X", radarPlaceX);
+        radarPlaceY = IniFile::iniFileTos32(placement, "Y", radarPlaceY);
+        radarPlaceW = IniFile::iniFileTou32(placement, "Width");
+        radarPlaceH = IniFile::iniFileTou32(placement, "Height");
+        radarPlaceFullScreen = IniFile::iniFileTou32(placement, "FullScreen") == 1;
+        if (!vr3dMode && (radarOnScreen || IniFile::iniFileTou32(placement, "Detached") == 1)) {
+            setRadarDetached(true);
+        }
+    }
 }
 
 GUIMain::~GUIMain()
@@ -2302,7 +2336,7 @@ irr::u32 GUIMain::getRadarPixelRadius() const
     //kyara: the picture is drawn RADAR_FIT_MARGIN smaller than its viewport (see RadarScreen.hpp),
     //so report the real on-screen circle radius. This keeps the bitmap resolution and the
     //cursor/range mapping matched to what's actually displayed.
-    if (radarLarge) {
+    if (radarLarge || radarDetached) { //(a detached radar is the large one, in its own window)
         return (irr::u32)((irr::f32)largeRadarScreenRadius / RADAR_FIT_MARGIN);
     }
     else {
@@ -2314,6 +2348,15 @@ irr::core::vector2di GUIMain::getCursorPositionRadar() const
 {
     //Basic mouse position
     irr::core::vector2di cursorPosition = device->getCursorControl()->getPosition();
+
+    //Detached radar: the mouse over its window (in the large radar's coordinates), else none
+    if (radarDetached) {
+        if (!radarMouseInside) { return irr::core::vector2di(10000, 10000); }
+        irr::core::vector2di centre(largeRadarScreenCentreX, largeRadarScreenCentreY);
+        centre.X += (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius);
+        centre.Y -= (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius);
+        return irr::core::vector2di(radarMouse.X, radarMouse.Y) - centre;
+    }
 
     //KYARA: no small radar on screen -> report the cursor far outside any scope. RadarCalculation
     //ignores clicks beyond the range, so a click on the console can never move the radar cursor.
@@ -2536,6 +2579,7 @@ void GUIMain::updateVisibility()
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
     }
+    updateRadarWindowButtons();
 }
 
 void GUIMain::hideInSecondary() {
@@ -3555,52 +3599,55 @@ void GUIMain::drawGUI()
     // Inc 3 (comms): distress/MAYDAY prompt + communications log while a casualty is active.
     if (guiDistressActive) { drawCommsOverlay(); }
     else if (commsMinButton) { commsMinButton->setVisible(false); }   // hide the toggle when the panel is gone
-    //manually trigger gui event if buttons are held down
-    if (eblUpButton->isPressed()) { manuallyTriggerClick(eblUpButton); }
-    if (eblDownButton->isPressed()) { manuallyTriggerClick(eblDownButton); }
-    if (eblLeftButton->isPressed()) { manuallyTriggerClick(eblLeftButton); }
-    if (eblRightButton->isPressed()) { manuallyTriggerClick(eblRightButton); }
+    //Once a frame: not again when the detached radar's window is drawn
+    if (!inRadarPass) {
+        //manually trigger gui event if buttons are held down
+        if (eblUpButton->isPressed()) { manuallyTriggerClick(eblUpButton); }
+        if (eblDownButton->isPressed()) { manuallyTriggerClick(eblDownButton); }
+        if (eblLeftButton->isPressed()) { manuallyTriggerClick(eblLeftButton); }
+        if (eblRightButton->isPressed()) { manuallyTriggerClick(eblRightButton); }
 
-    if (eblUpButton2->isPressed()) { manuallyTriggerClick(eblUpButton2); }
-    if (eblDownButton2->isPressed()) { manuallyTriggerClick(eblDownButton2); }
-    if (eblLeftButton2->isPressed()) { manuallyTriggerClick(eblLeftButton2); }
-    if (eblRightButton2->isPressed()) { manuallyTriggerClick(eblRightButton2); }
+        if (eblUpButton2->isPressed()) { manuallyTriggerClick(eblUpButton2); }
+        if (eblDownButton2->isPressed()) { manuallyTriggerClick(eblDownButton2); }
+        if (eblLeftButton2->isPressed()) { manuallyTriggerClick(eblLeftButton2); }
+        if (eblRightButton2->isPressed()) { manuallyTriggerClick(eblRightButton2); }
 
-    if (radarCursorLeftButton->isPressed()) { manuallyTriggerClick(radarCursorLeftButton); }
-    if (radarCursorRightButton->isPressed()) { manuallyTriggerClick(radarCursorRightButton); }
-    if (radarCursorUpButton->isPressed()) { manuallyTriggerClick(radarCursorUpButton); }
-    if (radarCursorDownButton->isPressed()) { manuallyTriggerClick(radarCursorDownButton); }
+        if (radarCursorLeftButton->isPressed()) { manuallyTriggerClick(radarCursorLeftButton); }
+        if (radarCursorRightButton->isPressed()) { manuallyTriggerClick(radarCursorRightButton); }
+        if (radarCursorUpButton->isPressed()) { manuallyTriggerClick(radarCursorUpButton); }
+        if (radarCursorDownButton->isPressed()) { manuallyTriggerClick(radarCursorDownButton); }
 
-    if (radarCursorLeftButton2->isPressed()) { manuallyTriggerClick(radarCursorLeftButton2); }
-    if (radarCursorRightButton2->isPressed()) { manuallyTriggerClick(radarCursorRightButton2); }
-    if (radarCursorUpButton2->isPressed()) { manuallyTriggerClick(radarCursorUpButton2); }
-    if (radarCursorDownButton2->isPressed()) { manuallyTriggerClick(radarCursorDownButton2); }
+        if (radarCursorLeftButton2->isPressed()) { manuallyTriggerClick(radarCursorLeftButton2); }
+        if (radarCursorRightButton2->isPressed()) { manuallyTriggerClick(radarCursorRightButton2); }
+        if (radarCursorUpButton2->isPressed()) { manuallyTriggerClick(radarCursorUpButton2); }
+        if (radarCursorDownButton2->isPressed()) { manuallyTriggerClick(radarCursorDownButton2); }
 
-    if (nonFollowUpPortButton && wheelScrollbar) {
-        //Handle port NFU rudder button
-        if (nonFollowUpPortButton->isPressed() && !nfuPortDown) {
-            nfuPortDown = true; //Set this before we trigger the event, as this will be checked for override
-            wheelScrollbar->setPos(-30);
-            manuallyTriggerScroll(wheelScrollbar);
+        if (nonFollowUpPortButton && wheelScrollbar) {
+            //Handle port NFU rudder button
+            if (nonFollowUpPortButton->isPressed() && !nfuPortDown) {
+                nfuPortDown = true; //Set this before we trigger the event, as this will be checked for override
+                wheelScrollbar->setPos(-30);
+                manuallyTriggerScroll(wheelScrollbar);
+            }
+            if (!nonFollowUpPortButton->isPressed() && nfuPortDown) {
+                wheelScrollbar->setPos(wheelScrollbar->getSecondary());
+                manuallyTriggerScroll(wheelScrollbar);
+                nfuPortDown = false; //Set this after we trigger the event, as this will be checked for override
+            }
         }
-        if (!nonFollowUpPortButton->isPressed() && nfuPortDown) {
-            wheelScrollbar->setPos(wheelScrollbar->getSecondary());
-            manuallyTriggerScroll(wheelScrollbar);
-            nfuPortDown = false; //Set this after we trigger the event, as this will be checked for override
-        }
-    }
 
-    if (nonFollowUpStbdButton && wheelScrollbar) {
-        //Handle stbd NFU rudder button
-        if (nonFollowUpStbdButton->isPressed() && !nfuStbdDown) {
-            nfuStbdDown = true; //Set this before we trigger the event, as this will be checked for override
-            wheelScrollbar->setPos(30);
-            manuallyTriggerScroll(wheelScrollbar);
-        }
-        if (!nonFollowUpStbdButton->isPressed() && nfuStbdDown) {
-            wheelScrollbar->setPos(wheelScrollbar->getSecondary());
-            manuallyTriggerScroll(wheelScrollbar);
-            nfuStbdDown = false; //Set this after we trigger the event, as this will be checked for override
+        if (nonFollowUpStbdButton && wheelScrollbar) {
+            //Handle stbd NFU rudder button
+            if (nonFollowUpStbdButton->isPressed() && !nfuStbdDown) {
+                nfuStbdDown = true; //Set this before we trigger the event, as this will be checked for override
+                wheelScrollbar->setPos(30);
+                manuallyTriggerScroll(wheelScrollbar);
+            }
+            if (!nonFollowUpStbdButton->isPressed() && nfuStbdDown) {
+                wheelScrollbar->setPos(wheelScrollbar->getSecondary());
+                manuallyTriggerScroll(wheelScrollbar);
+                nfuStbdDown = false; //Set this after we trigger the event, as this will be checked for override
+            }
         }
     }
 
@@ -4374,7 +4421,8 @@ const irr::video::SExposedVideoData& GUIMain::getMainVideoData() const
 #ifdef _WIN32
     return noVideoData;   //Irrlicht's WGL manager switches back to the main window by itself
 #else
-    return (consoleWindowUsed && consoleWindow) ? consoleWindow->mainVideoData() : noVideoData;
+    if (consoleWindowUsed && consoleWindow) { return consoleWindow->mainVideoData(); }
+    return (radarWindowUsed && radarWindow) ? radarWindow->mainVideoData() : noVideoData;
 #endif
 }
 
@@ -4382,7 +4430,7 @@ irr::u32 GUIMain::mainWindowFPS() const
 {
     //Every endScene() counts as a frame for the driver, the console window's included.
     const irr::s32 fps = device->getVideoDriver()->getFPS();
-    const irr::s32 own = consoleDetached ? (irr::s32)consoleRenderRate : 0;
+    const irr::s32 own = (consoleDetached ? (irr::s32)consoleRenderRate : 0) + (radarDetached ? (irr::s32)radarRenderRate : 0);
     return (irr::u32)((fps > own) ? fps - own : fps);
 }
 
@@ -4667,6 +4715,317 @@ void GUIMain::shutdownConsoleWindow()
     consoleWindow = 0;
 }
 
+
+//=================================================================================================
+//Detached radar
+//=================================================================================================
+void GUIMain::updateRadarWindowButtons()
+{
+    if (!detachRadarButton || !radarFullScreenButton) { return; }
+    //On the main screen's large radar: "Détacher". In the radar window: "Rattacher" and "Plein écran".
+    detachRadarButton->setVisible(radarLarge && (inRadarPass || !radarDetached));
+    detachRadarButton->setText(inRadarPass ? L"Rattacher" : L"Détacher");
+    radarFullScreenButton->setVisible(radarLarge && inRadarPass);
+    radarFullScreenButton->setText((radarWindow && radarWindow->isFullScreen()) ? L"Fenêtre" : L"Plein écran");
+    if (inRadarPass && smallRadarButton) { smallRadarButton->setVisible(false); } //no bridge view in that window
+}
+
+void GUIMain::saveRadarPlacement(bool detached)
+{
+    if (radarOnScreen) { return; } //placed by the launcher or bc5.ini, not by the user
+    if (radarWindow && radarWindow->isOpen()) {
+        radarWindow->getPlacement(radarPlaceX, radarPlaceY, radarPlaceW, radarPlaceH);
+        radarPlaceFullScreen = radarWindow->isFullScreen();
+    }
+    std::ofstream f(radarPlacementFile(consoleInstance).c_str());
+    if (!f) { return; }
+    f << "Detached=" << (detached ? 1 : 0) << std::endl;
+    f << "X=" << radarPlaceX << std::endl;
+    f << "Y=" << radarPlaceY << std::endl;
+    if (radarPlaceW > 0 && radarPlaceH > 0) {
+        f << "Width=" << radarPlaceW << std::endl;
+        f << "Height=" << radarPlaceH << std::endl;
+    }
+    f << "FullScreen=" << (radarPlaceFullScreen ? 1 : 0) << std::endl;
+}
+
+void GUIMain::setRadarDetached(bool detached)
+{
+    if (detached == radarDetached || !smallRadarButton) { return; }
+    irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+    const irr::core::list<irr::gui::IGUIElement*>& children = root->getChildren();
+
+    if (detached) {
+        if (!radarWindow) { radarWindow = new ConsoleWindow(); }
+        //Its own screen, filled; or the last place and size; or most of the main screen's size.
+        irr::s32 x = radarPlaceX;
+        irr::s32 y = radarPlaceY;
+        irr::u32 w = radarPlaceW;
+        irr::u32 h = radarPlaceH;
+        if (radarOnScreen) {
+            x = radarScreenArea.UpperLeftCorner.X;
+            y = radarScreenArea.UpperLeftCorner.Y;
+            w = (irr::u32)radarScreenArea.getWidth();
+            h = (irr::u32)radarScreenArea.getHeight();
+        }
+        else if (w < 200 || h < 150) {
+            w = (irr::u32)(su * 0.6f);
+            h = (irr::u32)(sh * 0.6f);
+        }
+        if (!radarWindow->open(device, L"NAUTITECH - Radar", x, y, w, h, radarOnScreen)) {
+            std::cerr << "Could not open the radar window (OpenGL driver needed)." << std::endl;
+            return;
+        }
+        if (!radarOnScreen && radarPlaceFullScreen) { radarWindow->setFullScreen(true); }
+        radarWindowUsed = true;
+
+        //The radar's own elements: those the large radar layout shows and the bridge view does not.
+        //(Windows open over the bridge view, the weather one for instance, stay out of the radar window.)
+        //(The large radar is the layout with the 2D interface hidden, as the RADAR button leaves it.)
+        std::vector<irr::gui::IGUIElement*> bridgeShown;
+        radarLarge = false;
+        showInterface = true;
+        updateVisibility();
+        for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+            if ((*it)->isVisible()) { bridgeShown.push_back(*it); }
+        }
+        inRadarPass = true;
+        radarLarge = true;
+        showInterface = false;
+        updateVisibility();
+        for (size_t i = 0; i < radarElements.size(); i++) { radarElements[i]->drop(); }
+        radarElements.clear();
+        for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+            if ((*it)->isVisible() && std::find(bridgeShown.begin(), bridgeShown.end(), *it) == bridgeShown.end()) {
+                (*it)->grab();
+                radarElements.push_back(*it);
+            }
+        }
+        inRadarPass = false;
+        radarLarge = false;   //the main screen goes back to the bridge view, with its interface
+        showInterface = true;
+        radarDetached = true;
+        radarMouseInside = false;
+        radarMouseDown = false;
+        radarLastRenderMs = 0;
+        radarRenderCount = 0;
+        radarRenderRate = 0;
+        radarRateStartMs = device->getTimer()->getRealTime();
+        saveRadarPlacement(true);
+    }
+    else {
+        saveRadarPlacement(false);
+        if (radarMouseDown && model) { model->setMouseDown(false); }
+        radarMouseDown = false;
+        radarMouseInside = false;
+        if (radarWindow) { radarWindow->close(); }
+        for (size_t i = 0; i < radarElements.size(); i++) { radarElements[i]->drop(); }
+        radarElements.clear();
+        radarDetached = false;
+        radarLarge = true;    //the radar comes back on the main screen, as the RADAR button shows it
+        showInterface = false;
+    }
+    updateVisibility();
+}
+
+void GUIMain::enterRadarPass()
+{
+    inRadarPass = true;
+    radarLarge = true;
+    radarPassShowInterface = showInterface;
+    showInterface = false;
+    updateVisibility();
+    //Only the radar in that window: anything else open on the main screen is hidden for the pass.
+    const irr::core::list<irr::gui::IGUIElement*>& children = guienv->getRootGUIElement()->getChildren();
+    radarPassHidden.clear();
+    for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+        if ((*it)->isVisible() && std::find(radarElements.begin(), radarElements.end(), *it) == radarElements.end()) {
+            (*it)->grab();
+            (*it)->setVisible(false);
+            radarPassHidden.push_back(*it);
+        }
+    }
+}
+
+void GUIMain::exitRadarPass()
+{
+    for (size_t i = 0; i < radarPassHidden.size(); i++) {
+        radarPassHidden[i]->setVisible(true);
+        radarPassHidden[i]->drop();
+    }
+    radarPassHidden.clear();
+    inRadarPass = false;
+    radarLarge = false;
+    showInterface = radarPassShowInterface;
+    updateVisibility();
+}
+
+void GUIMain::dispatchRadarWindowInput()
+{
+    std::vector<irr::SEvent> events;
+    bool closeRequested = false;
+    radarWindow->poll(events, closeRequested);
+    if (closeRequested) {
+        setRadarDetached(false);   //closing the window puts the radar back on the main screen
+        return;
+    }
+    if (events.empty()) { return; }
+
+    enterRadarPass();
+    irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+    for (size_t i = 0; i < events.size(); i++) {
+        irr::SEvent e = events[i];
+        //Window pixels to the large radar's layout (main-screen coordinates)
+        const irr::f32 lx = radarSource.UpperLeftCorner.X + (e.MouseInput.X - radarOrigin.X) / radarScale;
+        const irr::f32 ly = radarSource.UpperLeftCorner.Y + (e.MouseInput.Y - radarOrigin.Y) / radarScale;
+        e.MouseInput.X = (irr::s32)lx;
+        e.MouseInput.Y = (irr::s32)ly;
+        const irr::core::position2di p(e.MouseInput.X, e.MouseInput.Y);
+        radarMouse = p;
+        radarMouseInside = radarSource.isPointInside(p);
+
+        switch (e.MouseInput.Event) {
+        case irr::EMIE_MOUSE_WHEEL: {
+            //Over a control (radar knob, list) the wheel belongs to it, as on the main screen
+            irr::gui::IGUIElement* over = root->getElementFromPoint(p);
+            if (over && over != root) { over->OnEvent(e); }
+            break;
+        }
+        case irr::EMIE_LMOUSE_PRESSED_DOWN:
+        case irr::EMIE_RMOUSE_PRESSED_DOWN:
+            guienv->postEventFromUser(e);
+            //On the picture (no control under the mouse): the radar cursor, as with the mouse on
+            //the main screen's large radar
+            if (root->getElementFromPoint(p) == root && model) {
+                radarMouseDown = true;
+                model->setMouseDown(true);
+            }
+            break;
+        case irr::EMIE_LMOUSE_LEFT_UP:
+        case irr::EMIE_RMOUSE_LEFT_UP: {
+            guienv->postEventFromUser(e);
+            if (radarMouseDown && model) { model->setMouseDown(false); }
+            radarMouseDown = false;
+            //No keyboard focus left on the radar's buttons: Space/Enter in the bridge view must not
+            //press them. (Kept while a drop-down list is open.)
+            irr::gui::IGUIElement* focus = guienv->getFocus();
+            if (focus && !(focus->getType() == irr::gui::EGUIET_LIST_BOX && focus->getParent() &&
+                           focus->getParent()->getType() == irr::gui::EGUIET_COMBO_BOX)) {
+                guienv->removeFocus(focus);
+            }
+            break;
+        }
+        default:
+            guienv->postEventFromUser(e);
+            break;
+        }
+    }
+    exitRadarPass();
+}
+
+void GUIMain::renderDetachedRadar()
+{
+    //Asked for by a button (often one of the radar window's): done here, outside any radar pass.
+    if (radarDetachRequest >= 0) {
+        const bool wanted = (radarDetachRequest == 1);
+        radarDetachRequest = -1;
+        setRadarDetached(wanted);
+    }
+    if (!radarDetached || !radarWindow) { return; }
+    if (radarFullScreenRequest) {
+        radarFullScreenRequest = false;
+        radarWindow->setFullScreen(!radarWindow->isFullScreen());
+        saveRadarPlacement(true);
+    }
+
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::core::dimension2du mainSize = driver->getScreenSize();
+    const irr::core::dimension2du size = radarWindow->getClientSize();
+
+    //The layout part shown (the whole main screen; on a very wide canvas, the radar's columns) and
+    //its scale into the window, kept for the input too.
+    {
+        irr::core::rect<irr::s32> src(0, 0, (irr::s32)mainSize.Width, (irr::s32)mainSize.Height);
+        if (mainSize.Width > 2 * mainSize.Height) {
+            irr::core::rect<irr::s32> used = radarLargeRect;
+            for (size_t i = 0; i < radarElements.size(); i++) { used.addInternalPoint(radarElements[i]->getAbsolutePosition().UpperLeftCorner); used.addInternalPoint(radarElements[i]->getAbsolutePosition().LowerRightCorner); }
+            src.UpperLeftCorner.X = irr::core::max_(0, used.UpperLeftCorner.X - (irr::s32)(0.02f * mainSize.Height));
+            src.LowerRightCorner.X = irr::core::min_((irr::s32)mainSize.Width, used.LowerRightCorner.X + (irr::s32)(0.02f * mainSize.Height));
+        }
+        radarSource = src;
+        if (size.Width > 0 && size.Height > 0) {
+            radarScale = irr::core::min_((irr::f32)size.Width / src.getWidth(), (irr::f32)size.Height / src.getHeight());
+            radarOrigin.X = ((irr::s32)size.Width - (irr::s32)(src.getWidth() * radarScale)) / 2;
+            radarOrigin.Y = ((irr::s32)size.Height - (irr::s32)(src.getHeight() * radarScale)) / 2;
+        }
+    }
+
+    dispatchRadarWindowInput();
+    if (!radarDetached) { return; }
+    radarWindow->keepAboveSimulator();
+
+    const irr::u32 now = device->getTimer()->getRealTime();
+    if (now - radarRateStartMs >= 1000) {
+        radarRenderRate = radarRenderCount * 1000 / (now - radarRateStartMs);
+        radarRenderCount = 0;
+        radarRateStartMs = now;
+    }
+    if (now - radarLastRenderMs < radarFrameMs) { return; }
+    if (size.Width < 64 || size.Height < 64) { return; }   //minimised
+    radarLastRenderMs = now;
+    radarRenderCount++;
+
+    //The large radar is drawn at the main screen's size, then scaled into the window
+    if (!radarTarget || radarTarget->getSize() != mainSize) {
+        if (radarTarget) { driver->removeTexture(radarTarget); }
+        radarTarget = driver->addRenderTargetTexture(mainSize, "DetachedRadar", irr::video::ECF_A8R8G8B8);
+        if (!radarTarget) { return; }
+    }
+
+    driver->OnResize(size);
+    driver->beginScene(irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 0, 0), 1.0f, 0, radarWindow->videoData());
+    driver->OnResize(mainSize);
+    driver->setRenderTarget(radarTarget, irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 0, 0));
+    enterRadarPass();
+    if (model && model->isRadarOn()) {
+        //As the main loop does for the large radar on the main screen
+        driver->setViewPort(getLargeRadarRect());
+        model->setWaterVisible(false);
+        model->setRadarCameraActive();
+        device->getSceneManager()->drawAll();
+        model->setWaterVisible(true);
+        model->setMainCameraActive();
+    }
+    driver->setViewPort(irr::core::rect<irr::s32>(0, 0, (irr::s32)mainSize.Width, (irr::s32)mainSize.Height));
+    drawGUI();
+    exitRadarPass();
+    driver->setRenderTarget(0, 0);
+    driver->OnResize(size);
+    const irr::core::rect<irr::s32> dest(radarOrigin.X, radarOrigin.Y,
+                                         radarOrigin.X + (irr::s32)(radarSource.getWidth() * radarScale),
+                                         radarOrigin.Y + (irr::s32)(radarSource.getHeight() * radarScale));
+    driver->draw2DImage(radarTarget, dest, radarSource);
+    driver->endScene();
+    driver->OnResize(mainSize);
+}
+
+void GUIMain::shutdownRadarWindow()
+{
+    if (!radarWindow) { return; }
+    if (radarDetached) {
+        saveRadarPlacement(true);   //detached again next session
+        for (size_t i = 0; i < radarElements.size(); i++) { radarElements[i]->drop(); }
+        radarElements.clear();
+        radarDetached = false;
+    }
+    radarWindow->close();
+    delete radarWindow;
+    radarWindow = 0;
+    if (radarTarget) {
+        device->getVideoDriver()->removeTexture(radarTarget);
+        radarTarget = 0;
+    }
+}
 
 #include <cwchar> //KYARA FEUX EDIT: std::swprintf
 //=================================================================================================

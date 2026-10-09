@@ -333,6 +333,8 @@ public:
         GUI_ID_PALETTE_AUTO,
         GUI_ID_GLOW_SCROLL_BAR,
         GUI_ID_WEATHER_BUTTON,
+        GUI_ID_DETACH_RADAR_BUTTON,
+        GUI_ID_RADAR_FULLSCREEN_BUTTON,
 
     };
 
@@ -358,6 +360,22 @@ public:
     const irr::video::SExposedVideoData& getMainVideoData() const;
     //Saves the console window placement and puts the console back. Call before the device is dropped.
     void shutdownConsoleWindow();
+
+    //Large radar in a window of its own, drawn by this simulator (no second copy of it): it can go on
+    //another screen, full screen, while the main screen keeps the bridge view. Same picture and
+    //controls as the large radar on the main screen, scaled to the window. Its place is remembered.
+    bool isRadarDetached() const { return radarDetached; }
+    //Done at the start of the next renderDetachedRadar() (asked from a button of the radar itself).
+    void requestRadarDetached(bool detached) { radarDetachRequest = detached ? 1 : 0; }
+    void requestRadarFullScreenToggle() { radarFullScreenRequest = true; }
+    //Call before load(): desktop area of a screen given to the radar (launcher -radar N, bc5.ini
+    //radar_screen) - the radar opens there at the start, full screen, and that placement is not saved.
+    void setRadarScreen(const irr::core::rect<irr::s32>& area) { radarScreenArea = area; radarOnScreen = true; }
+    //Call once per frame, after the main window's endScene() (and the console window's): handles the
+    //radar window's input and draws it. Restores the driver's screen size before returning.
+    void renderDetachedRadar();
+    //Saves the radar window placement and closes it. Call before the device is dropped.
+    void shutdownRadarWindow();
     bool getSmallRadarEnabled() const; //kyara: false when the instrument console replaces the small radar
     //kyara
     void togglePrimaryControls();
@@ -619,7 +637,43 @@ private:
     void dispatchConsoleWindowInput();
     void applyDetachedConsoleVisibility();
     void saveConsolePlacement(bool detached);
-    irr::u32 mainWindowFPS() const;                  //driver FPS minus the console window's own frames
+    irr::u32 mainWindowFPS() const;                  //driver FPS minus the console and radar windows' own frames
+
+    //Detached radar. The radar's elements stay in the GUI tree: for each of its frames and input events
+    //the GUI is switched to the large radar layout (main-screen coordinates), drawn into radarTarget, and
+    //switched back; radarTarget is then drawn, scaled, into radarWindow.
+    ConsoleWindow* radarWindow = 0;
+    bool radarDetached = false;
+    bool radarWindowUsed = false;
+    irr::video::ITexture* radarTarget = 0;
+    std::vector<irr::gui::IGUIElement*> radarElements;     //root elements shown by the large radar only
+    std::vector<irr::gui::IGUIElement*> radarPassHidden;   //hidden for the radar pass, shown again after
+    bool inRadarPass = false;
+    bool radarPassShowInterface = true;                    //the main screen's, during a radar pass
+    irr::core::rect<irr::s32> radarSource;                 //part of the layout shown in the window
+    irr::f32 radarScale = 1.0f;                            //window pixels per layout pixel
+    irr::core::position2di radarOrigin;                    //window position of radarSource's corner
+    irr::core::position2di radarMouse;                     //last mouse position in the window, layout coordinates
+    bool radarMouseInside = false;
+    bool radarMouseDown = false;
+    int radarDetachRequest = -1;                           //-1 none, 0 attach, 1 detach
+    bool radarFullScreenRequest = false;
+    irr::u32 radarLastRenderMs = 0;
+    irr::u32 radarFrameMs = 16;
+    irr::u32 radarRenderCount = 0, radarRateStartMs = 0, radarRenderRate = 0;
+    irr::s32 radarPlaceX = 120, radarPlaceY = 120;         //radar window placement (radarWindow.ini)
+    irr::u32 radarPlaceW = 0, radarPlaceH = 0;
+    bool radarPlaceFullScreen = false;
+    bool radarOnScreen = false;                            //radar given a screen of its own
+    irr::core::rect<irr::s32> radarScreenArea;
+    irr::gui::IGUIButton* detachRadarButton = 0;
+    irr::gui::IGUIButton* radarFullScreenButton = 0;
+    void setRadarDetached(bool detached);
+    void enterRadarPass();
+    void exitRadarPass();
+    void dispatchRadarWindowInput();
+    void saveRadarPlacement(bool detached);
+    void updateRadarWindowButtons();
     bool instrumentExtraRPM = false;      //bc5.ini instrument_extra
     bool instrumentExtraWind = false;
     irr::f32 guiCOG = 0;                  //deg

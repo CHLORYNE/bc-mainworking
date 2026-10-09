@@ -8,6 +8,7 @@
 #include "ConsoleWindow.hpp"
 
 #include <string>
+#include <cstring>
 
 namespace {
 
@@ -239,6 +240,7 @@ void ConsoleWindow::close()
     hwnd = 0;
     hdc = 0;
     opened = false;
+    fullScreen = false;
     pending.clear();
     closePending = false;
 }
@@ -255,6 +257,10 @@ void ConsoleWindow::poll(std::vector<irr::SEvent>& events, bool& closeRequested)
 bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const
 {
     if (!opened) { return false; }
+    if (fullScreen) {
+        x = windowedX; y = windowedY; w = windowedW; h = windowedH;
+        return true;
+    }
     WINDOWPLACEMENT wp;
     wp.length = sizeof(wp);
     if (!GetWindowPlacement((HWND)hwnd, &wp)) { return false; }
@@ -267,6 +273,32 @@ bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32
     w = fw > 0 ? (irr::u32)fw : clientSize.Width;
     h = fh > 0 ? (irr::u32)fh : clientSize.Height;
     return true;
+}
+
+void ConsoleWindow::setFullScreen(bool on)
+{
+    if (!opened || on == fullScreen) { return; }
+    HWND window = (HWND)hwnd;
+    if (on) {
+        if (!getPlacement(windowedX, windowedY, windowedW, windowedH)) { return; }
+        MONITORINFO mi;
+        mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &mi);
+        if (IsZoomed(window)) { ShowWindow(window, SW_SHOWNOACTIVATE); } //not maximised underneath
+        SetWindowLongPtrW(window, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(window, 0, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+            mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        fullScreen = true;
+    }
+    else {
+        fullScreen = false;
+        const DWORD style = borderless ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+        RECT frame = { 0, 0, (LONG)windowedW, (LONG)windowedH };
+        if (!borderless) { AdjustWindowRectEx(&frame, style, FALSE, WS_EX_NOACTIVATE); }
+        SetWindowLongPtrW(window, GWL_STYLE, style | WS_VISIBLE);
+        SetWindowPos(window, 0, windowedX, windowedY, frame.right - frame.left, frame.bottom - frame.top,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
 }
 
 //=================================================================================================
@@ -384,6 +416,7 @@ void ConsoleWindow::close()
     display = 0;
     window = 0;
     opened = false;
+    fullScreen = false;
     pending.clear();
     closePending = false;
 }
@@ -441,6 +474,10 @@ void ConsoleWindow::poll(std::vector<irr::SEvent>& events, bool& closeRequested)
 bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const
 {
     if (!opened) { return false; }
+    if (fullScreen) {
+        x = windowedX; y = windowedY; w = windowedW; h = windowedH;
+        return true;
+    }
     Display* dpy = (Display*)display;
     Window child;
     int rx = 0, ry = 0;
@@ -450,6 +487,33 @@ bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32
     w = clientSize.Width;
     h = clientSize.Height;
     return true;
+}
+
+void ConsoleWindow::setFullScreen(bool on)
+{
+    if (!opened || on == fullScreen) { return; }
+    Display* dpy = (Display*)display;
+    Window win = (Window)window;
+    if (on && !getPlacement(windowedX, windowedY, windowedW, windowedH)) { return; }
+    //Asked of the window manager; and placed by hand as well, for a desk without one (test builds).
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = win;
+    ev.xclient.message_type = XInternAtom(dpy, "_NET_WM_STATE", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = on ? 1 : 0;
+    ev.xclient.data.l[1] = (long)XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+    ev.xclient.data.l[3] = 1;
+    XSendEvent(dpy, DefaultRootWindow(dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    if (on) {
+        XMoveResizeWindow(dpy, win, 0, 0, (unsigned)DisplayWidth(dpy, DefaultScreen(dpy)), (unsigned)DisplayHeight(dpy, DefaultScreen(dpy)));
+    }
+    else {
+        XMoveResizeWindow(dpy, win, windowedX, windowedY, windowedW, windowedH);
+    }
+    XFlush(dpy);
+    fullScreen = on;
 }
 
 #endif

@@ -854,9 +854,24 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
             if (id == GUIMain::GUI_ID_BIG_RADAR_BUTTON)
             {
-                gui->setLargeRadar(true);
-                model->setRadarDisplayRadius(gui->getRadarPixelRadius());
-                gui->hide2dInterface();
+                if (gui->isRadarDetached()) {
+                    gui->requestRadarDetached(false); //the radar comes back on this screen
+                }
+                else {
+                    gui->setLargeRadar(true);
+                    model->setRadarDisplayRadius(gui->getRadarPixelRadius());
+                    gui->hide2dInterface();
+                }
+            }
+
+            //Large radar in its own window, and back (the button is on the radar, in either place)
+            if (id == GUIMain::GUI_ID_DETACH_RADAR_BUTTON)
+            {
+                gui->requestRadarDetached(!gui->isRadarDetached());
+            }
+            if (id == GUIMain::GUI_ID_RADAR_FULLSCREEN_BUTTON)
+            {
+                gui->requestRadarFullScreenToggle();
             }
 
             if (id == GUIMain::GUI_ID_SMALL_RADAR_BUTTON)
