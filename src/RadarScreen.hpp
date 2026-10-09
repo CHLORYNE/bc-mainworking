@@ -39,6 +39,9 @@ public:
     void setRadarDisplayRadius(irr::u32 radiusPx);
     void update(irr::video::IImage* radarImage);
     irr::scene::ISceneNode* getSceneNode() const;
+    //The radar picture as shown on the screen: its texture, and the part of it shown (texture
+    //coordinates from 'offset' to 'offset + scale', on both axes). 0 before the first update.
+    irr::video::ITexture* getTexture(irr::f32& scale, irr::f32& offset) const;
     void setDisplayOffset(irr::f32 x, irr::f32 y);
     void rescale(irr::f32 factor); //the ship was resized live: keep the screen where it was on her
 

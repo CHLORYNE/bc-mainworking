@@ -2779,6 +2779,11 @@ void SimulationModel::setMainCameraActive()
     camera.setActive();
 }
 
+irr::video::ITexture* SimulationModel::getRadarTexture(irr::f32& scale, irr::f32& offset) const
+{
+    return radarScreen.getTexture(scale, offset);
+}
+
 void SimulationModel::setRadarCameraActive()
 {
     radarCamera.setActive();

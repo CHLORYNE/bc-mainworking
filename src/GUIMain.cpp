@@ -1584,8 +1584,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         const irr::s32 gap = (irr::s32)(0.004 * su);
         const irr::s32 bl = smallRadarButtonLeft + (irr::s32)(0.020 * su) + gap;
         const irr::s32 bb = smallRadarButtonTop + (irr::s32)(0.030 * sh);
-        detachRadarButton = guienv->addButton(irr::core::rect<irr::s32>(bl, smallRadarButtonTop, bl + bw, bb), 0, GUI_ID_DETACH_RADAR_BUTTON, L"Détacher");
-        radarFullScreenButton = guienv->addButton(irr::core::rect<irr::s32>(bl + bw + gap, smallRadarButtonTop, bl + 2 * bw + gap, bb), 0, GUI_ID_RADAR_FULLSCREEN_BUTTON, L"Plein écran");
+        detachRadarButton = guienv->addButton(irr::core::rect<irr::s32>(bl, smallRadarButtonTop, bl + bw, bb), 0, GUI_ID_DETACH_RADAR_BUTTON, L"D\u00E9tacher");
+        radarFullScreenButton = guienv->addButton(irr::core::rect<irr::s32>(bl + bw + gap, smallRadarButtonTop, bl + 2 * bw + gap, bb), 0, GUI_ID_RADAR_FULLSCREEN_BUTTON, L"Plein \u00E9cran");
         detachRadarButton->setVisible(false);
         radarFullScreenButton->setVisible(false);
     }
@@ -4724,9 +4724,9 @@ void GUIMain::updateRadarWindowButtons()
     if (!detachRadarButton || !radarFullScreenButton) { return; }
     //On the main screen's large radar: "Détacher". In the radar window: "Rattacher" and "Plein écran".
     detachRadarButton->setVisible(radarLarge && (inRadarPass || !radarDetached));
-    detachRadarButton->setText(inRadarPass ? L"Rattacher" : L"Détacher");
+    detachRadarButton->setText(inRadarPass ? L"Rattacher" : L"D\u00E9tacher");
     radarFullScreenButton->setVisible(radarLarge && inRadarPass);
-    radarFullScreenButton->setText((radarWindow && radarWindow->isFullScreen()) ? L"Fenêtre" : L"Plein écran");
+    radarFullScreenButton->setText((radarWindow && radarWindow->isFullScreen()) ? L"Fen\u00EAtre" : L"Plein \u00E9cran");
     if (inRadarPass && smallRadarButton) { smallRadarButton->setVisible(false); } //no bridge view in that window
 }
 
@@ -4987,16 +4987,35 @@ void GUIMain::renderDetachedRadar()
     driver->OnResize(mainSize);
     driver->setRenderTarget(radarTarget, irr::video::ECBF_COLOR | irr::video::ECBF_DEPTH, irr::video::SColor(255, 0, 0, 0));
     enterRadarPass();
-    if (model && model->isRadarOn()) {
-        //As the main loop does for the large radar on the main screen
-        driver->setViewPort(getLargeRadarRect());
-        model->setWaterVisible(false);
-        model->setRadarCameraActive();
-        device->getSceneManager()->drawAll();
-        model->setWaterVisible(true);
-        model->setMainCameraActive();
-    }
     driver->setViewPort(irr::core::rect<irr::s32>(0, 0, (irr::s32)mainSize.Width, (irr::s32)mainSize.Height));
+    if (model && model->isRadarOn()) {
+        //The radar picture straight from its texture. (The main screen gets it by rendering the scene
+        //through the radar camera; doing that here as well cost a second scene pass every frame, the
+        //terrain re-working its detail for the other camera each time.)
+        irr::f32 scale = 1.0f, offset = 0.0f;
+        irr::video::ITexture* picture = model->getRadarTexture(scale, offset);
+        if (picture && scale > 0.0f) {
+            const irr::core::rect<irr::s32> scope = getLargeRadarRect();
+            const irr::core::dimension2du ts = picture->getOriginalSize();
+            //Texture part from offset to offset + scale across the scope; what lies outside the
+            //texture is the black surround, left as it is.
+            const irr::f32 a0 = irr::core::max_(offset, 0.0f);
+            const irr::f32 a1 = irr::core::min_(offset + scale, 1.0f);
+            if (a1 > a0) {
+                const irr::f32 sw = (irr::f32)scope.getWidth() / scale;
+                const irr::f32 sh2 = (irr::f32)scope.getHeight() / scale;
+                const irr::core::rect<irr::s32> dst(
+                    scope.UpperLeftCorner.X + (irr::s32)((a0 - offset) * sw + 0.5f),
+                    scope.UpperLeftCorner.Y + (irr::s32)((a0 - offset) * sh2 + 0.5f),
+                    scope.UpperLeftCorner.X + (irr::s32)((a1 - offset) * sw + 0.5f),
+                    scope.UpperLeftCorner.Y + (irr::s32)((a1 - offset) * sh2 + 0.5f));
+                const irr::core::rect<irr::s32> src(
+                    (irr::s32)(a0 * ts.Width + 0.5f), (irr::s32)(a0 * ts.Height + 0.5f),
+                    (irr::s32)(a1 * ts.Width + 0.5f), (irr::s32)(a1 * ts.Height + 0.5f));
+                driver->draw2DImage(picture, dst, src);
+            }
+        }
+    }
     drawGUI();
     exitRadarPass();
     driver->setRenderTarget(0, 0);

@@ -138,6 +138,16 @@ void RadarScreen::update(irr::video::IImage* radarImage)
 
 }
 
+irr::video::ITexture* RadarScreen::getTexture(irr::f32& scale, irr::f32& offset) const
+{
+    if (!radarScreen || radarScreen->getMaterialCount() == 0) { return 0; }
+    const irr::video::SMaterial& m = radarScreen->getMaterial(0);
+    const irr::core::matrix4& t = m.getTextureMatrix(0);
+    scale = t[0];
+    offset = t[8];
+    return m.getTexture(0);
+}
+
 irr::scene::ISceneNode* RadarScreen::getSceneNode() const
 {
     return radarScreen;

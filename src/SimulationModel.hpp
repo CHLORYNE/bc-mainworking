@@ -444,6 +444,8 @@ public:
     void setAlarm(bool alarmState);
     void toggleRadarOn();
     bool isRadarOn() const;
+    //The radar picture's texture and the part of it shown (see RadarScreen::getTexture)
+    irr::video::ITexture* getRadarTexture(irr::f32& scale, irr::f32& offset) const;
     irr::video::SColor getRadarSurroundColour() const;
     void increaseRadarRange();
     void decreaseRadarRange();
