@@ -74,6 +74,10 @@ struct ARPAEstimatedState {
     ARPA_CONTACT_TYPE contactType; //Duplicate of what's in the parent, but useful to pass to the GUI
     bool isBuoy;
     irr::u32 mmsi = 0;
+    bool danger = false;      //CPA and TCPA both inside the alarm limits
+    irr::f32 trialCpa = 0;    //with the trial manoeuvre (Nm), when one is set
+    irr::f32 trialTcpa = 0;   //(mins)
+    bool trialDanger = false;
 
     ARPAEstimatedState() {
         trueHeading = 0; //kyara
@@ -111,6 +115,7 @@ struct ARPAContact {
     bool usingRecentReference;   // NEW: hysteresis state for vector flicker fix
     bool wasInGuardZone;         //kyara: guard zone alarm transition tracking (previous frame in/out)
     bool guardAlarmLatched;      //kyara: this contact is currently sustaining the guard alarm (mode-dependent: IN=inside, OUT=left)
+    bool dangerAcknowledged = false; //CPA alarm silenced for this contact (until it becomes dangerous again)
 
 
     ARPAContact() {
@@ -235,6 +240,48 @@ public:
     irr::video::SColor getRadarForegroundColour() const;
     irr::video::SColor getRadarBackgroundColour() const;
     irr::video::SColor getRadarSurroundColour() const;
+    //Mouse on the scope: a press or a release of the left or right button, with the mouse position
+    //relative to the scope centre in pixels (as for update). Handled at the next update:
+    //left click = track the echo there (switches MARPA on if ARPA is off), right click = stop
+    //tracking it; while a parallel index line is being drawn, left drag = draw it, right click = clear it.
+    void scopeMouse(bool left, bool down, irr::core::vector2di mouseRelPosition);
+    bool takeArpaModeChangedByClick(); //true once after a click switched MARPA on
+
+    //Parallel index lines drawn with the mouse
+    static const int PI_LINES = 4;
+    void setPIEditLine(int line);      //-1: not drawing; 0..PI_LINES-1: the line drawn by the next drag
+    int getPIEditLine() const;
+    void clearPILines();
+    int countPILines() const;
+
+    //CPA / TCPA alarm: a tracked ship whose CPA and TCPA are both under the limits is dangerous
+    void setCPALimit(irr::f32 cpaNm);
+    void setTCPALimit(irr::f32 tcpaMinutes);
+    irr::f32 getCPALimit() const;
+    irr::f32 getTCPALimit() const;
+    void setCPAAlarmOn(bool on);
+    bool getCPAAlarmOn() const;
+    bool isCPAAlarmSounding() const;   //a dangerous target not yet acknowledged
+    void acknowledgeCPAAlarm();
+    int countDangerousTargets() const;
+
+    //Trial manoeuvre: own ship's course and speed tried out (after a delay), giving trial CPA/TCPA
+    void setTrial(bool on, irr::f32 courseDeg, irr::f32 speedKts, irr::f32 delayMinutes);
+    bool getTrialOn() const;
+    irr::f32 getTrialCourse() const;
+    irr::f32 getTrialSpeed() const;
+    irr::f32 getTrialDelay() const;
+
+    //Vector and trail lengths
+    irr::f32 getVectorMinutes() const;
+    void setTrailMinutes(irr::f32 minutes);
+    irr::f32 getTrailMinutes() const;
+    bool getShipTrails() const;
+
+    //Coastline (sea level contour of the terrain) drawn over the radar picture
+    void setCoastline(bool on);
+    bool getCoastline() const;
+
     void update(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown);
 
 private:
@@ -321,6 +368,37 @@ private:
     void drawCircle(irr::video::IImage* radarImage, irr::f32 centreX, irr::f32 centreY, irr::f32 radius, irr::u32 alpha, irr::u32 red, irr::u32 green, irr::u32 blue);//Try with f32 as inputs so we can do interpolation based on the theoretical start and end
     void drawTriangle(irr::video::IImage* radarImage, irr::f32 centreX, irr::f32 centreY, irr::f32 radius, irr::u32 alpha, irr::u32 red, irr::u32 green, irr::u32 blue, irr::f32 headingDeg = 0.0f);//Triangle marker, used for ship contacts. headingDeg rotates it (screen bearing convention, 0=up); defaults to straight up.
     bool isPointInEllipse(irr::f32 pointX, irr::f32 pointZ, irr::f32 centreX, irr::f32 centreZ, irr::f32 width, irr::f32 length, irr::f32 angle);
+
+    //Mouse on the scope
+    struct ScopeMouseEvent { bool left; bool down; irr::core::vector2di rel; };
+    std::vector<ScopeMouseEvent> scopeEvents;
+    irr::f32 pressXNm = 0, pressYNm = 0;   //true east/north of the cursor where the left button went down
+    bool pressPending = false;
+    bool arpaModeChangedByClick = false;
+    int pendingSelectContact = -1;         //contact clicked: selected in the list once it has a track number
+    void setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading);
+    void handleScopeEvents(irr::f32 ownShipHeading);
+    int contactNearPoint(irr::f32 xNm, irr::f32 yNm, bool tracked) const; //nearest ship echo to a point (true east/north of own ship)
+    int piEditLine = -1;
+
+    //CPA alarm and trial manoeuvre
+    irr::f32 cpaLimitNm = 0.5f;
+    irr::f32 tcpaLimitMinutes = 12.0f;
+    bool cpaAlarmOn = true;
+    bool trialOn = false;
+    irr::f32 trialCourseDeg = 0, trialSpeedKts = 0, trialDelayMinutes = 0;
+    irr::f32 trailMinutes = 6.0f;
+
+    //Coastline: segments (absolute metres x1,z1,x2,z2), worked out around own ship when needed
+    bool showCoastline = false;
+    std::vector<irr::f32> coastSegments;
+    irr::f32 coastCentreX = 0, coastCentreZ = 0, coastRangeNm = 0, coastTide = -1000;
+    uint64_t coastTime = 0;
+    void updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime);
+    uint64_t lastAbsoluteTime = 0;
+    irr::f32 ownCogDeg = 0, ownSogMps = 0;  //own ship's last course and speed over ground (trial manoeuvre)
+    irr::f32 pendingAcquireXNm = 0, pendingAcquireYNm = 0;
+    int pendingAcquireTries = 0;           //ARPA was off when clicked: tried again once MARPA has estimates
 
 };
 

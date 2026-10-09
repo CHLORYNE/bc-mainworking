@@ -442,6 +442,8 @@ public:
     void setFrozenCamera(bool frozen);
     void toggleFrozenCamera();
     void setAlarm(bool alarmState);
+    //The radar's settings and targets (clicks on the scope, CPA alarm, trial manoeuvre, lines...)
+    RadarCalculation& getRadar() { return radarCalculation; }
     void toggleRadarOn();
     bool isRadarOn() const;
     //The radar picture's texture and the part of it shown (see RadarScreen::getTexture)

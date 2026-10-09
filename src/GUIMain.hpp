@@ -335,6 +335,22 @@ public:
         GUI_ID_WEATHER_BUTTON,
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
+        //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
+        GUI_ID_RADAR_VECTOR_LEN_BUTTON,
+        GUI_ID_RADAR_TRAIL_LEN_BUTTON,
+        GUI_ID_RADAR_COAST_BUTTON,
+        GUI_ID_RADAR_CPA_BUTTON,
+        GUI_ID_RADAR_TCPA_BUTTON,
+        GUI_ID_RADAR_CPA_ALARM_BUTTON,
+        GUI_ID_RADAR_PI_BUTTON,
+        GUI_ID_RADAR_PI_CLEAR_BUTTON,
+        GUI_ID_RADAR_TRIAL_BUTTON,
+        GUI_ID_RADAR_TRIAL_CRS_DOWN,
+        GUI_ID_RADAR_TRIAL_CRS_UP,
+        GUI_ID_RADAR_TRIAL_SPD_DOWN,
+        GUI_ID_RADAR_TRIAL_SPD_UP,
+        GUI_ID_RADAR_TRIAL_DELAY_DOWN,
+        GUI_ID_RADAR_TRIAL_DELAY_UP,
 
     };
 
@@ -376,6 +392,15 @@ public:
     void renderDetachedRadar();
     //Saves the radar window placement and closes it. Call before the device is dropped.
     void shutdownRadarWindow();
+
+    //Large radar tools (vector/trail lengths, coastline, CPA alarm, parallel index lines, trial
+    //manoeuvre): true if the button was one of them.
+    bool handleRadarToolButton(irr::s32 id);
+    //Mouse on the large radar's scope (main screen, or the radar window during its pass): presses and
+    //releases go to the radar (track a target, draw a parallel index line), the wheel changes the
+    //range. True if the event was used up (the wheel).
+    bool scopeMouseEvent(const irr::SEvent& event);
+    bool isOnLargeScope(irr::core::position2di p) const;
     bool getSmallRadarEnabled() const; //kyara: false when the instrument console replaces the small radar
     //kyara
     void togglePrimaryControls();
@@ -668,6 +693,21 @@ private:
     irr::core::rect<irr::s32> radarScreenArea;
     irr::gui::IGUIButton* detachRadarButton = 0;
     irr::gui::IGUIButton* radarFullScreenButton = 0;
+    //Large radar tools
+    irr::gui::IGUIButton* radarVectorLenButton = 0;
+    irr::gui::IGUIButton* radarTrailLenButton = 0;
+    irr::gui::IGUIButton* radarCoastButton = 0;
+    irr::gui::IGUIButton* radarCpaButton = 0;
+    irr::gui::IGUIButton* radarTcpaButton = 0;
+    irr::gui::IGUIButton* radarCpaAlarmButton = 0;
+    irr::gui::IGUIButton* radarPIButton = 0;
+    irr::gui::IGUIButton* radarPIClearButton = 0;
+    irr::gui::IGUIButton* radarTrialButton = 0;
+    irr::gui::IGUIButton* radarTrialButtons[6] = { 0, 0, 0, 0, 0, 0 }; //course -/+, speed -/+, delay -/+
+    irr::gui::IGUIStaticText* radarTrialValues[3] = { 0, 0, 0 };       //course, speed, delay
+    bool scopeLeftDown = false;                            //left press on the scope, its release goes there too
+    void updateRadarToolButtons();
+    void drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radius);
     void setRadarDetached(bool detached);
     void enterRadarPass();
     void exitRadarPass();

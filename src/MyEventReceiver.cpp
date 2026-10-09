@@ -132,6 +132,9 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
     // From mouse - keep track of button press state
     if (event.EventType == irr::EET_MOUSE_INPUT_EVENT)
     {
+        //On the large radar's picture: clicks track targets / draw parallel index lines, the wheel
+        //changes the range
+        if (gui->scopeMouseEvent(event)) { return true; }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
         {
             leftMouseDown = true;
@@ -613,6 +616,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED)
         {
+            //Large radar tools (lengths, coastline, CPA alarm, parallel index, trial manoeuvre)
+            if (gui->handleRadarToolButton(id)) {
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
             // ===== kyara: touches à bascule grand radar =====
             if (id == GUIMain::GUI_ID_BIG_ARPA_MODE_BUTTON) {
                 irr::gui::IGUIElement* e = device->getGUIEnvironment()->getRootGUIElement()->getElementFromId(GUIMain::GUI_ID_BIG_ARPA_ON_BOX, true);
@@ -1093,6 +1101,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_ACK_ALARMS_BUTTON)
             {
                 model->setAlarm(false);
+                model->getRadar().acknowledgeCPAAlarm();
             }
 
             if (id == GUIMain::GUI_ID_ADD_LINE_BUTTON)

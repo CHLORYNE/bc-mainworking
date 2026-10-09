@@ -922,6 +922,11 @@ void RadarCalculation::update(irr::video::IImage* radarImage, irr::video::IImage
         CursorBrg = Angles::normaliseAngle(CursorBrg);
         CursorRangeNm = pow(pow(cursorRangeXNm, 2) + pow(cursorRangeYNm, 2), 0.5);
 
+        lastAbsoluteTime = absoluteTime;
+        ownCogDeg = ownShip.getCOG();
+        ownSogMps = ownShip.getSOG();
+        handleScopeEvents(ownShip.getHeading());
+
     } {
         IPROF("Scan");
         scan(offsetPosition, terrain, ownShip, buoys, otherShips, weather, rain, tideHeight, deltaTime, absoluteTime); // scan into scanArray
@@ -929,6 +934,19 @@ void RadarCalculation::update(irr::video::IImage* radarImage, irr::video::IImage
         IPROF("Update ARPA");
         updateARPA(offsetPosition, ownShip, absoluteTime); //From data in arpaContacts, updated in scan()
         updateGuardZoneAlarm(deltaTime); //kyara: guard zone IN/OUT alarm check
+        //A click while ARPA was off switched MARPA on: the echo is taken once it has an estimate
+        if (pendingAcquireTries > 0) {
+            pendingAcquireTries--;
+            const int c = contactNearPoint(pendingAcquireXNm, pendingAcquireYNm, false);
+            if (c >= 0) {
+                pendingAcquireTries = 0;
+                arpaContacts.at(c).estimate.stationary = false;
+                pendingSelectContact = c;
+            }
+        }
+        if (showCoastline) {
+            updateCoastline(offsetPosition, terrain, ownShip, tideHeight, absoluteTime);
+        }
     } {
         IPROF("Render");
 
@@ -1644,6 +1662,8 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
 {
     thisArpaContact.estimate.isBuoy = thisArpaContact.isBuoy;
     thisArpaContact.estimate.mmsi = thisArpaContact.mmsi;
+    thisArpaContact.estimate.danger = false;
+    thisArpaContact.estimate.trialDanger = false;
 
     // FIXED: Now properly clears the contact if it is a normal contact AND (ARPA is off OR it's a buoy and buoy ARPA is disabled)
     if (thisArpaContact.contactType == CONTACT_NORMAL && (arpaMode < 1 || (thisArpaContact.isBuoy && !showArpaOnBuoys))) {
@@ -1718,6 +1738,10 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
                     if (thisArpaContact.estimate.displayID == 0) {
                         arpaTracks.push_back(contactID);
                         thisArpaContact.estimate.displayID = getARPATracksSize(); // The display ID is the current size of the arpaTracks list.
+                        if (contactID == pendingSelectContact) { //clicked on the scope: shown in the list
+                            setArpaListSelection(thisArpaContact.estimate.displayID - 1);
+                            pendingSelectContact = -1;
+                        }
                         // If a manual contact, make it the selected one
                         if (thisArpaContact.contactType == CONTACT_MANUAL) {
                             setArpaListSelection(thisArpaContact.estimate.displayID - 1); // Zero indexed list
@@ -1832,6 +1856,50 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
                     thisArpaContact.estimate.tcpa = 60 * relDistanceToCPA / relativeSpeed; // (nm / (nm/hr)), so time in hours, converted to minutes
                     //std::cout << "Contact " << thisArpaContact.estimate.displayID << " CPA: " <<  thisArpaContact.estimate.cpa << " nm in " << thisArpaContact.estimate.tcpa << " minutes" << std::endl;
 
+                    //Dangerous: a tracked ship passing closer than the CPA limit within the TCPA limit
+                    const bool trackedShip = !thisArpaContact.estimate.stationary && !thisArpaContact.isBuoy &&
+                        thisArpaContact.estimate.displayID > 0;
+                    if (cpaAlarmOn && trackedShip) {
+                        thisArpaContact.estimate.danger = fabs(thisArpaContact.estimate.cpa) < cpaLimitNm &&
+                            thisArpaContact.estimate.tcpa >= 0 && thisArpaContact.estimate.tcpa <= tcpaLimitMinutes;
+                    }
+
+                    //Trial manoeuvre: own ship keeps her course and speed for the delay, then takes the
+                    //trial ones. Closest approach over both legs.
+                    if (trialOn) {
+                        const irr::f32 vo1x = ownSogMps * sin(ownCogDeg * RAD_IN_DEG);
+                        const irr::f32 vo1z = ownSogMps * cos(ownCogDeg * RAD_IN_DEG);
+                        const irr::f32 trialMps = trialSpeedKts / MPS_TO_KTS;
+                        const irr::f32 vo2x = trialMps * sin(trialCourseDeg * RAD_IN_DEG);
+                        const irr::f32 vo2z = trialMps * cos(trialCourseDeg * RAD_IN_DEG);
+                        const irr::f32 vtx = thisArpaContact.estimate.absVectorX;
+                        const irr::f32 vtz = thisArpaContact.estimate.absVectorZ;
+                        const irr::f32 d = trialDelayMinutes * 60.0f;
+                        //Closest approach of r + v t for t in [0, tMax] (tMax < 0: no end)
+                        auto closest = [](irr::f32 rx, irr::f32 rz, irr::f32 vx, irr::f32 vz, irr::f32 tMax, irr::f32& tBest) -> irr::f32 {
+                            const irr::f32 v2 = vx * vx + vz * vz;
+                            irr::f32 t = (v2 > 1e-6f) ? -(rx * vx + rz * vz) / v2 : 0.0f;
+                            if (t < 0) { t = 0; }
+                            if (tMax >= 0 && t > tMax) { t = tMax; }
+                            tBest = t;
+                            return std::sqrt((rx + vx * t) * (rx + vx * t) + (rz + vz * t) * (rz + vz * t));
+                        };
+                        irr::f32 t1 = 0, t2 = 0;
+                        const irr::f32 dist1 = closest(relXEst, relZEst, vtx - vo1x, vtz - vo1z, d, t1);
+                        const irr::f32 r1x = relXEst + (vtx - vo1x) * d;
+                        const irr::f32 r1z = relZEst + (vtz - vo1z) * d;
+                        const irr::f32 dist2 = closest(r1x, r1z, vtx - vo2x, vtz - vo2z, -1.0f, t2);
+                        irr::f32 bestDist = dist2, bestT = d + t2;
+                        if (d > 0 && dist1 < dist2) { bestDist = dist1; bestT = t1; }
+                        thisArpaContact.estimate.trialCpa = bestDist / M_IN_NM;
+                        //Opening from the start: the closest point is behind (shown as "past")
+                        thisArpaContact.estimate.trialTcpa = (bestT <= 0.0f && d <= 0) ? -1.0f : bestT / 60.0f;
+                        if (cpaAlarmOn && trackedShip) {
+                            thisArpaContact.estimate.trialDanger = thisArpaContact.estimate.trialCpa < cpaLimitNm &&
+                                thisArpaContact.estimate.trialTcpa >= 0 && thisArpaContact.estimate.trialTcpa <= tcpaLimitMinutes;
+                        }
+                    }
+
 
                 } //If time between scans > 0 
             } //Contact not lost
@@ -1841,6 +1909,10 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
 
 void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::f32 ownShipHeading, irr::f32 ownShipSpeed, irr::core::vector3d<int64_t> absolutePosition)
 {
+    //A ship that is no longer dangerous: its alarm can sound again next time
+    for (size_t i = 0; i < arpaContacts.size(); i++) {
+        if (!arpaContacts[i].estimate.danger) { arpaContacts[i].dangerAcknowledged = false; }
+    }
 
 #ifdef WITH_PROFILING
     IPROF_FUNC;
@@ -2031,6 +2103,72 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
         }
     }
 
+    //Screen position (bitmap pixels) of a point given in true metres east/north of own ship
+    const irr::f32 pxPerMetre = ((irr::f32)bitmapWidth / 2.0f) / (M_IN_NM * getRangeNm());
+    auto toScreen = [&](irr::f32 relX, irr::f32 relZ, irr::f32& px, irr::f32& py) {
+        if (headUp) {
+            const irr::f32 cosO = cos(-1 * radarOffsetAngle * irr::core::DEGTORAD);
+            const irr::f32 sinO = sin(-1 * radarOffsetAngle * irr::core::DEGTORAD);
+            const irr::f32 nx = relX * cosO - relZ * sinO;
+            const irr::f32 nz = relX * sinO + relZ * cosO;
+            relX = nx;
+            relZ = nz;
+        }
+        px = originX + relX * pxPerMetre;
+        py = originY - relZ * pxPerMetre;
+    };
+    //Inside the scope circle (fixed, whatever the off-centring)
+    const irr::f32 scopeR = (irr::f32)bitmapWidth / 2.0f - 2.0f;
+    auto inScopeCircle = [&](irr::f32 px, irr::f32 py) {
+        return (px - centrePixel) * (px - centrePixel) + (py - centrePixel) * (py - centrePixel) <= scopeR * scopeR;
+    };
+
+    //Coastline (sea level contour), as on the chart
+    if (showCoastline) {
+        for (size_t k = 0; k + 3 < coastSegments.size(); k += 4) {
+            irr::f32 x1, y1, x2, y2;
+            toScreen(coastSegments[k] - absolutePosition.X, coastSegments[k + 1] - absolutePosition.Z, x1, y1);
+            toScreen(coastSegments[k + 2] - absolutePosition.X, coastSegments[k + 3] - absolutePosition.Z, x2, y2);
+            if (inScopeCircle(x1, y1) && inScopeCircle(x2, y2)) {
+                drawLine(radarImageOverlaid, x1, y1, x2, y2, 255, 90, 220, 160);
+            }
+        }
+    }
+
+    //Trial manoeuvre: own ship's course for the delay, then the trial course and speed, over the
+    //vector time
+    if (trialOn) {
+        const irr::f32 d = irr::core::min_(trialDelayMinutes, vectorLengthMinutes) * 60.0f;
+        const irr::f32 rest = vectorLengthMinutes * 60.0f - d;
+        const irr::f32 kx = ownSogMps * sin(ownCogDeg * RAD_IN_DEG) * d;
+        const irr::f32 kz = ownSogMps * cos(ownCogDeg * RAD_IN_DEG) * d;
+        const irr::f32 trialMps = trialSpeedKts / MPS_TO_KTS;
+        const irr::f32 ex = kx + trialMps * sin(trialCourseDeg * RAD_IN_DEG) * rest;
+        const irr::f32 ez = kz + trialMps * cos(trialCourseDeg * RAD_IN_DEG) * rest;
+        irr::f32 ax, ay, bx, by;
+        toScreen(kx, kz, ax, ay);
+        toScreen(ex, ez, bx, by);
+        //Two pixels wide, so it reads over the sea clutter
+        auto thickLine = [&](irr::f32 x0, irr::f32 y0, irr::f32 x1, irr::f32 y1) {
+            drawLine(radarImageOverlaid, x0, y0, x1, y1, 255, 255, 160, 0);
+            drawLine(radarImageOverlaid, x0 + 1, y0, x1 + 1, y1, 255, 255, 160, 0);
+            drawLine(radarImageOverlaid, x0, y0 + 1, x1, y1 + 1, 255, 255, 160, 0);
+        };
+        if (d > 0) { thickLine(originX, originY, ax, ay); }
+        //Dashed: 8 px on, 8 px off
+        const irr::f32 len = std::sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+        const int dashes = (int)(len / 8.0f);
+        for (int k = 0; k < dashes; k += 2) {
+            const irr::f32 f0 = (irr::f32)k / dashes, f1 = (irr::f32)(k + 1) / dashes;
+            thickLine(ax + (bx - ax) * f0, ay + (by - ay) * f0, ax + (bx - ax) * f1, ay + (by - ay) * f1);
+        }
+        if (dashes < 2) { thickLine(ax, ay, bx, by); }
+    }
+
+    //Dangerous targets flash (half a second on, half off); the selected one gets a square
+    const bool flashOn = device && ((device->getTimer()->getRealTime() / 500) % 2 == 0);
+    const int selectedContact = getARPAContactIDFromTrackIndex(arpaListSelection);
+
     //Draw ARPA stuff here from arpaContacts, into radarImage
     for (unsigned int i = 0; i < arpaContacts.size(); i++) {
         ARPAEstimatedState thisEstimate = arpaContacts.at(i).estimate;
@@ -2038,6 +2176,8 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
         bool contactIsBuoy = arpaContacts.at(i).isBuoy;
         //Pick the marker colour for this contact type
         irr::video::SColor markerColour = contactIsBuoy ? buoyContactColour : shipContactColour;
+        const bool contactDanger = trialOn ? thisEstimate.trialDanger : thisEstimate.danger;
+        if (contactDanger) { markerColour = irr::video::SColor(255, 255, 50, 40); }
 
         //A buoy is only drawn once it's been classified as stationary-or-not, but a SHIP
         //should be shown whenever we have a valid range estimate - even if the tracker
@@ -2075,6 +2215,19 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                     markerHeadingDeg);
             }
 
+            if (contactDanger && flashOn) {
+                const irr::f32 rr = (irr::f32)radarRadiusPx / 16.0f;
+                drawCircle(radarImageOverlaid, deltaX, deltaY, rr, 255, 255, 50, 40);
+                drawCircle(radarImageOverlaid, deltaX, deltaY, rr + 1.0f, 255, 255, 50, 40);
+            }
+            if ((int)i == selectedContact && !thisEstimate.stationary) {
+                const irr::f32 h = (irr::f32)radarRadiusPx / 20.0f;
+                drawLine(radarImageOverlaid, deltaX - h, deltaY - h, deltaX + h, deltaY - h, 255, 255, 255, 255);
+                drawLine(radarImageOverlaid, deltaX + h, deltaY - h, deltaX + h, deltaY + h, 255, 255, 255, 255);
+                drawLine(radarImageOverlaid, deltaX + h, deltaY + h, deltaX - h, deltaY + h, 255, 255, 255, 255);
+                drawLine(radarImageOverlaid, deltaX - h, deltaY + h, deltaX - h, deltaY - h, 255, 255, 255, 255);
+            }
+
             // Draw Real MMSI or fallback to ARPA Track ID
             irr::u32 numberToDraw = 0;
             if (showMMSI && !contactIsBuoy && arpaContacts.at(i).mmsi > 0) {
@@ -2101,6 +2254,12 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                     adjustedVectorX = thisEstimate.absVectorX;
                     adjustedVectorZ = thisEstimate.absVectorZ;
                 }
+                else if (trialOn) {
+                    //Relative to own ship on her trial course and speed
+                    const irr::f32 trialMps = trialSpeedKts / MPS_TO_KTS;
+                    adjustedVectorX = thisEstimate.absVectorX - trialMps * sin(trialCourseDeg * RAD_IN_DEG);
+                    adjustedVectorZ = thisEstimate.absVectorZ - trialMps * cos(trialCourseDeg * RAD_IN_DEG);
+                }
                 else {
                     adjustedVectorX = thisEstimate.relVectorX;
                     adjustedVectorZ = thisEstimate.relVectorZ;
@@ -2126,10 +2285,12 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
             }
         }
         // --- NEW: DRAW BUOY TRAILS (Historical Path, as dots) ---
+        const uint64_t trailStart = (lastAbsoluteTime > (uint64_t)(trailMinutes * 60.0f)) ? lastAbsoluteTime - (uint64_t)(trailMinutes * 60.0f) : 0;
         if (showBuoyTrails && contactIsBuoy && arpaContacts.at(i).scans.size() > 1) {
             // Skip the most recent scan (index size()-1): that position is already
             // marked by the live contact symbol, so only the older scans get dots.
             for (size_t s = 0; s < arpaContacts.at(i).scans.size() - 1; s++) {
+                if (arpaContacts.at(i).scans[s].timeStamp < trailStart) { continue; }
                 irr::f32 relX, relZ;
                 if (trueVectors) {
                     // True Trails: Absolute world position of the past scan, relative to current own ship position
@@ -2167,6 +2328,7 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
             // Skip the most recent scan (index size()-1): that position is already
             // marked by the live contact symbol, so only the older scans get dots.
             for (size_t s = 0; s < arpaContacts.at(i).scans.size() - 1; s++) {
+                if (arpaContacts.at(i).scans[s].timeStamp < trailStart) { continue; }
                 irr::f32 relX, relZ;
                 if (trueVectors) {
                     // True Trails: Absolute world position of the past scan, relative to current own ship position
@@ -2187,8 +2349,8 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                     relX = nx; relZ = nz;
                 }
 
-                irr::s32 px = centrePixel + (relX / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
-                irr::s32 py = centrePixel - (relZ / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
+                irr::s32 px = originX + (relX / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
+                irr::s32 py = originY - (relZ / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
 
                 // Small filled dot (a 1px cross reads more reliably than drawCircle's outline trace at tiny radii)
                 drawLine(radarImageOverlaid, px - 1, py, px + 1, py,
@@ -2207,7 +2369,9 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
     // travelled, relative to its current absolute position (which is plotted at the centre).
     if (showOwnShipTrails && trueVectors && ownShipScans.size() > 1) {
         // Skip the most recent entry: that position is the current centre marker itself.
+        const uint64_t ownTrailStart = (lastAbsoluteTime > (uint64_t)(trailMinutes * 60.0f)) ? lastAbsoluteTime - (uint64_t)(trailMinutes * 60.0f) : 0;
         for (size_t s = 0; s < ownShipScans.size() - 1; s++) {
+            if (ownShipScans[s].timeStamp < ownTrailStart) { continue; }
             irr::f32 relX = ownShipScans[s].x - absolutePosition.X;
             irr::f32 relZ = ownShipScans[s].z - absolutePosition.Z;
 
@@ -2219,8 +2383,8 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                 relX = nx; relZ = nz;
             }
 
-            irr::s32 px = centrePixel + (relX / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
-            irr::s32 py = centrePixel - (relZ / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
+            irr::s32 px = originX + (relX / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
+            irr::s32 py = originY - (relZ / (M_IN_NM * getRangeNm())) * (bitmapWidth / 2.0);
 
             // Small filled dot, same style as other ship/buoy trails
             drawLine(radarImageOverlaid, px - 1, py, px + 1, py,
@@ -2631,3 +2795,271 @@ irr::f32 RadarCalculation::getOffsetXFraction() const { return offsetXFraction; 
 irr::f32 RadarCalculation::getOffsetYFraction() const { return offsetYFraction; }
 int  RadarCalculation::getEchoStretch() const { return echoStretchLevel; }
 bool RadarCalculation::getUseRealHeading() const { return useRealHeading; }
+
+//=================================================================================================
+//Mouse on the scope, parallel index lines, CPA alarm, trial manoeuvre, lengths, coastline
+//=================================================================================================
+void RadarCalculation::scopeMouse(bool left, bool down, irr::core::vector2di mouseRelPosition)
+{
+    ScopeMouseEvent e;
+    e.left = left;
+    e.down = down;
+    e.rel = mouseRelPosition;
+    scopeEvents.push_back(e);
+}
+
+bool RadarCalculation::takeArpaModeChangedByClick()
+{
+    const bool changed = arpaModeChangedByClick;
+    arpaModeChangedByClick = false;
+    return changed;
+}
+
+void RadarCalculation::setCursorFromMouse(irr::core::vector2di mouseRelPosition, irr::f32 ownShipHeading)
+{
+    if (radarRadiusPx == 0) { return; }
+    const irr::f32 xNm = (irr::f32)mouseRelPosition.X / (irr::f32)radarRadiusPx * getRangeNm();
+    const irr::f32 yNm = -1.0f * (irr::f32)mouseRelPosition.Y / (irr::f32)radarRadiusPx * getRangeNm();
+    if (std::sqrt(xNm * xNm + yNm * yNm) <= getRangeNm()) {
+        cursorRangeXNm = xNm;
+        cursorRangeYNm = yNm;
+    }
+    CursorBrg = irr::core::RADTODEG * std::atan2(cursorRangeXNm, cursorRangeYNm);
+    if (headUp) { CursorBrg += ownShipHeading; }
+    CursorBrg = Angles::normaliseAngle(CursorBrg);
+    CursorRangeNm = std::sqrt(cursorRangeXNm * cursorRangeXNm + cursorRangeYNm * cursorRangeYNm);
+}
+
+int RadarCalculation::contactNearPoint(irr::f32 xNm, irr::f32 yNm, bool tracked) const
+{
+    //Within a sixth of the range ring spacing... at least 150 m
+    irr::f32 best = irr::core::max_(getRangeNm() / 12.0f, 150.0f / M_IN_NM);
+    int found = -1;
+    for (size_t i = 0; i < arpaContacts.size(); i++) {
+        const ARPAEstimatedState& e = arpaContacts[i].estimate;
+        if (arpaContacts[i].isBuoy || e.range <= 0 || e.lost) { continue; }
+        if (tracked && e.stationary) { continue; }
+        const irr::f32 cx = e.range * sin(e.bearing * RAD_IN_DEG);
+        const irr::f32 cy = e.range * cos(e.bearing * RAD_IN_DEG);
+        const irr::f32 dist = std::sqrt((cx - xNm) * (cx - xNm) + (cy - yNm) * (cy - yNm));
+        if (dist < best) {
+            best = dist;
+            found = (int)i;
+        }
+    }
+    return found;
+}
+
+void RadarCalculation::handleScopeEvents(irr::f32 ownShipHeading)
+{
+    for (size_t i = 0; i < scopeEvents.size(); i++) {
+        const ScopeMouseEvent& e = scopeEvents[i];
+        setCursorFromMouse(e.rel, ownShipHeading);
+        const irr::f32 xNm = CursorRangeNm * sin(CursorBrg * RAD_IN_DEG); //true east
+        const irr::f32 yNm = CursorRangeNm * cos(CursorBrg * RAD_IN_DEG); //true north
+
+        if (e.left && e.down) {
+            pressXNm = xNm;
+            pressYNm = yNm;
+            pressPending = true;
+            continue;
+        }
+        const bool editingPI = (piEditLine >= 0 && piEditLine < (int)piBearings.size() && piEditLine < (int)piRanges.size());
+        if (e.left && !e.down) {
+            if (!pressPending) { continue; }
+            pressPending = false;
+            const irr::f32 dx = xNm - pressXNm;
+            const irr::f32 dy = yNm - pressYNm;
+            const irr::f32 moved = std::sqrt(dx * dx + dy * dy);
+            if (editingPI) {
+                //The line through the press and the release: its direction, and its signed distance
+                //from own ship (as drawn: along 'bearing', through the point at 'range' on bearing - 90)
+                if (moved > getRangeNm() * 0.02f) {
+                    const irr::f32 brg = Angles::normaliseAngle(std::atan2(dx, dy) / RAD_IN_DEG);
+                    irr::f32 range = pressXNm * -cos(brg * RAD_IN_DEG) + pressYNm * sin(brg * RAD_IN_DEG);
+                    if (fabs(range) < 0.001f) { range = 0.001f; } //(0 means "no line")
+                    piBearings.at(piEditLine) = brg;
+                    piRanges.at(piEditLine) = range;
+                }
+            }
+            else if (moved < getRangeNm() * 0.03f) {
+                //A click (not a drag of the cursor): track the ship echo there
+                if (arpaMode < 1) {
+                    setArpaMode(1); //MARPA: targets taken by hand
+                    arpaModeChangedByClick = true;
+                    pendingAcquireXNm = xNm;
+                    pendingAcquireYNm = yNm;
+                    pendingAcquireTries = 3; //estimates come with the next updates
+                    continue;
+                }
+                const int c = contactNearPoint(xNm, yNm, false);
+                if (c >= 0) {
+                    ARPAContact& contact = arpaContacts.at(c);
+                    contact.estimate.stationary = false;
+                    if (contact.estimate.displayID > 0) {
+                        setArpaListSelection(contact.estimate.displayID - 1);
+                    }
+                    else {
+                        pendingSelectContact = c;
+                    }
+                }
+            }
+            continue;
+        }
+        if (!e.left && e.down) {
+            if (editingPI) {
+                piBearings.at(piEditLine) = 0;
+                piRanges.at(piEditLine) = 0;
+            }
+            else {
+                //Right click: stop tracking the ship there
+                const int c = contactNearPoint(xNm, yNm, true);
+                if (c >= 0) {
+                    arpaContacts.at(c).estimate.stationary = true;
+                    arpaContacts.at(c).estimate.danger = false;
+                    arpaContacts.at(c).contact = 0;
+                }
+            }
+        }
+    }
+    scopeEvents.clear();
+}
+
+void RadarCalculation::setPIEditLine(int line)
+{
+    piEditLine = (line >= 0 && line < PI_LINES && line < (int)piBearings.size()) ? line : -1;
+    pressPending = false;
+}
+int RadarCalculation::getPIEditLine() const { return piEditLine; }
+void RadarCalculation::clearPILines()
+{
+    for (size_t i = 0; i < piBearings.size() && i < piRanges.size(); i++) {
+        piBearings[i] = 0;
+        piRanges[i] = 0;
+    }
+}
+int RadarCalculation::countPILines() const
+{
+    int n = 0;
+    for (size_t i = 0; i < piRanges.size(); i++) { if (fabs(piRanges[i]) > 0.0001f) { n++; } }
+    return n;
+}
+
+void RadarCalculation::setCPALimit(irr::f32 cpaNm) { cpaLimitNm = cpaNm; }
+void RadarCalculation::setTCPALimit(irr::f32 tcpaMinutes) { tcpaLimitMinutes = tcpaMinutes; }
+irr::f32 RadarCalculation::getCPALimit() const { return cpaLimitNm; }
+irr::f32 RadarCalculation::getTCPALimit() const { return tcpaLimitMinutes; }
+void RadarCalculation::setCPAAlarmOn(bool on) { cpaAlarmOn = on; }
+bool RadarCalculation::getCPAAlarmOn() const { return cpaAlarmOn; }
+bool RadarCalculation::isCPAAlarmSounding() const
+{
+    if (!cpaAlarmOn || !radarOn) { return false; }
+    for (size_t i = 0; i < arpaContacts.size(); i++) {
+        if (arpaContacts[i].estimate.danger && !arpaContacts[i].dangerAcknowledged) { return true; }
+    }
+    return false;
+}
+void RadarCalculation::acknowledgeCPAAlarm()
+{
+    for (size_t i = 0; i < arpaContacts.size(); i++) {
+        if (arpaContacts[i].estimate.danger) { arpaContacts[i].dangerAcknowledged = true; }
+    }
+}
+int RadarCalculation::countDangerousTargets() const
+{
+    int n = 0;
+    for (size_t i = 0; i < arpaContacts.size(); i++) { if (arpaContacts[i].estimate.danger) { n++; } }
+    return n;
+}
+
+void RadarCalculation::setTrial(bool on, irr::f32 courseDeg, irr::f32 speedKts, irr::f32 delayMinutes)
+{
+    trialOn = on;
+    trialCourseDeg = Angles::normaliseAngle(courseDeg);
+    trialSpeedKts = irr::core::max_(0.0f, speedKts);
+    trialDelayMinutes = irr::core::max_(0.0f, delayMinutes);
+}
+bool RadarCalculation::getTrialOn() const { return trialOn; }
+irr::f32 RadarCalculation::getTrialCourse() const { return trialCourseDeg; }
+irr::f32 RadarCalculation::getTrialSpeed() const { return trialSpeedKts; }
+irr::f32 RadarCalculation::getTrialDelay() const { return trialDelayMinutes; }
+
+irr::f32 RadarCalculation::getVectorMinutes() const { return vectorLengthMinutes; }
+void RadarCalculation::setTrailMinutes(irr::f32 minutes) { trailMinutes = minutes; }
+irr::f32 RadarCalculation::getTrailMinutes() const { return trailMinutes; }
+bool RadarCalculation::getShipTrails() const { return showShipTrails; }
+
+void RadarCalculation::setCoastline(bool on)
+{
+    showCoastline = on;
+    if (!on) { coastSegments.clear(); }
+    coastRangeNm = 0; //worked out again at the next update
+}
+bool RadarCalculation::getCoastline() const { return showCoastline; }
+
+void RadarCalculation::updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime)
+{
+    const irr::core::vector3df pos = ownShip.getPosition();
+    const irr::f32 absX = (irr::f32)offsetPosition.X + pos.X;
+    const irr::f32 absZ = (irr::f32)offsetPosition.Z + pos.Z;
+    const irr::f32 half = getRangeNm() * M_IN_NM * 1.05f;
+    //Again when the range changes, own ship has moved a good part of it, the tide has changed, or now and then
+    const irr::f32 moved = std::sqrt((absX - coastCentreX) * (absX - coastCentreX) + (absZ - coastCentreZ) * (absZ - coastCentreZ));
+    if (coastRangeNm == getRangeNm() && moved < half * 0.15f && fabs(tideHeight - coastTide) < 0.25f && absoluteTime < coastTime + 60) {
+        return;
+    }
+    coastRangeNm = getRangeNm();
+    coastCentreX = absX;
+    coastCentreZ = absZ;
+    coastTide = tideHeight;
+    coastTime = absoluteTime;
+    coastSegments.clear();
+
+    //Heights on a square grid around own ship (scene coordinates), then the sea level contour by
+    //marching squares
+    const int N = 128;
+    const irr::f32 cell = 2.0f * half / N;
+    std::vector<irr::f32> h((N + 1) * (N + 1));
+    for (int j = 0; j <= N; j++) {
+        for (int i = 0; i <= N; i++) {
+            h[j * (N + 1) + i] = terrain.getHeight(pos.X - half + i * cell, pos.Z - half + j * cell) - tideHeight;
+        }
+    }
+    const irr::f32 baseX = absX - half;
+    const irr::f32 baseZ = absZ - half;
+    auto edgePoint = [&](int i0, int j0, int i1, int j1, irr::f32& x, irr::f32& z) {
+        const irr::f32 a = h[j0 * (N + 1) + i0];
+        const irr::f32 b = h[j1 * (N + 1) + i1];
+        irr::f32 t = (fabs(a - b) > 1e-6f) ? a / (a - b) : 0.5f;
+        if (t < 0) { t = 0; }
+        if (t > 1) { t = 1; }
+        x = baseX + (i0 + (i1 - i0) * t) * cell;
+        z = baseZ + (j0 + (j1 - j0) * t) * cell;
+    };
+    for (int j = 0; j < N; j++) {
+        for (int i = 0; i < N; i++) {
+            //Corners: 0 (i,j), 1 (i+1,j), 2 (i+1,j+1), 3 (i,j+1); edges: 0 = 0-1, 1 = 1-2, 2 = 2-3, 3 = 3-0
+            const int code = (h[j * (N + 1) + i] > 0 ? 1 : 0) | (h[j * (N + 1) + i + 1] > 0 ? 2 : 0) |
+                             (h[(j + 1) * (N + 1) + i + 1] > 0 ? 4 : 0) | (h[(j + 1) * (N + 1) + i] > 0 ? 8 : 0);
+            if (code == 0 || code == 15) { continue; }
+            irr::f32 ex[4], ez[4];
+            edgePoint(i, j, i + 1, j, ex[0], ez[0]);
+            edgePoint(i + 1, j, i + 1, j + 1, ex[1], ez[1]);
+            edgePoint(i + 1, j + 1, i, j + 1, ex[2], ez[2]);
+            edgePoint(i, j + 1, i, j, ex[3], ez[3]);
+            //Pairs of edges crossed by the contour, for each corner pattern
+            static const int segs[16][4] = {
+                {-1,-1,-1,-1}, {3,0,-1,-1}, {0,1,-1,-1}, {3,1,-1,-1},
+                {1,2,-1,-1},   {3,0,1,2},   {0,2,-1,-1}, {3,2,-1,-1},
+                {2,3,-1,-1},   {0,2,-1,-1}, {0,1,2,3},   {1,2,-1,-1},
+                {1,3,-1,-1},   {0,1,-1,-1}, {3,0,-1,-1}, {-1,-1,-1,-1} };
+            for (int k = 0; k < 4 && segs[code][k] >= 0; k += 2) {
+                const int a = segs[code][k], b = segs[code][k + 1];
+                coastSegments.push_back(ex[a]);
+                coastSegments.push_back(ez[a]);
+                coastSegments.push_back(ex[b]);
+                coastSegments.push_back(ez[b]);
+            }
+        }
+    }
+}

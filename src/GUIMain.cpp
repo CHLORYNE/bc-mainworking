@@ -1832,6 +1832,33 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //offCentreButton2 = addRadarBtn(cell(2, 1, EY + 4 * EP, GRH), GUI_ID_RADAR_OFFCENTRE_BUTTON, L"D\u00E9centr.", accBtn); //kyara: décentrage
     offCentreButton2 = 0; //not shown (line above); updateGuiData still highlights it, so it must be null, not garbage
 
+    //Radar tools, in the free space under the alarm row: vector and trail lengths, coastline; CPA
+    //alarm limits; parallel index lines and trial manoeuvre (whose course / speed / delay rows only
+    //show while it is on). Labels are set every frame (updateRadarToolButtons).
+    {
+        const irr::f32 TY = 0.306f, TP = 0.026f;
+        radarVectorLenButton = addRadarBtn(cell(0, 1, TY + 0 * TP, GRH), GUI_ID_RADAR_VECTOR_LEN_BUTTON, L"Vect.", accSoft);
+        radarTrailLenButton = addRadarBtn(cell(1, 1, TY + 0 * TP, GRH), GUI_ID_RADAR_TRAIL_LEN_BUTTON, L"Traces", accSoft);
+        radarCoastButton = addRadarBtn(cell(2, 1, TY + 0 * TP, GRH), GUI_ID_RADAR_COAST_BUTTON, L"C\u00F4te", accSoft);
+        radarCpaButton = addRadarBtn(cell(0, 1, TY + 1 * TP, GRH), GUI_ID_RADAR_CPA_BUTTON, L"CPA", accBtn);
+        radarTcpaButton = addRadarBtn(cell(1, 1, TY + 1 * TP, GRH), GUI_ID_RADAR_TCPA_BUTTON, L"TCPA", accBtn);
+        radarCpaAlarmButton = addRadarBtn(cell(2, 1, TY + 1 * TP, GRH), GUI_ID_RADAR_CPA_ALARM_BUTTON, L"Alarme CPA", accBtn);
+        radarPIButton = addRadarBtn(cell(0, 1, TY + 2 * TP, GRH), GUI_ID_RADAR_PI_BUTTON, L"IP", accBtn);
+        radarPIClearButton = addRadarBtn(cell(1, 1, TY + 2 * TP, GRH), GUI_ID_RADAR_PI_CLEAR_BUTTON, L"Effacer IP", accBtn);
+        radarTrialButton = addRadarBtn(cell(2, 1, TY + 2 * TP, GRH), GUI_ID_RADAR_TRIAL_BUTTON, L"Essai", accBtn);
+        const irr::s32 trialIds[6] = { GUI_ID_RADAR_TRIAL_CRS_DOWN, GUI_ID_RADAR_TRIAL_CRS_UP, GUI_ID_RADAR_TRIAL_SPD_DOWN,
+                                       GUI_ID_RADAR_TRIAL_SPD_UP, GUI_ID_RADAR_TRIAL_DELAY_DOWN, GUI_ID_RADAR_TRIAL_DELAY_UP };
+        const wchar_t* trialLabels[6] = { L"Cap -", L"Cap +", L"Vit. -", L"Vit. +", L"D\u00E9lai -", L"D\u00E9lai +" };
+        for (int row = 0; row < 3; row++) {
+            const irr::f32 y = TY + (3 + row) * TP;
+            radarTrialButtons[2 * row] = addRadarBtn(cell(0, 1, y, GRH), trialIds[2 * row], trialLabels[2 * row], accBtn);
+            radarTrialButtons[2 * row + 1] = addRadarBtn(cell(2, 1, y, GRH), trialIds[2 * row + 1], trialLabels[2 * row + 1], accBtn);
+            radarTrialValues[row] = guienv->addStaticText(L"", cell(1, 1, y, GRH), false, false, largeRadarControls);
+            radarTrialValues[row]->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
+            radarTrialValues[row]->setOverrideColor(irr::video::SColor(255, 255, 170, 40));
+        }
+    }
+
     // Radar cursor buttons
     radarCursorLeftButton2 = guienv->addButton(irr::core::rect<irr::s32>(radarTL.X + 0.670 * radarSu, radarTL.Y + 0.640 * radarSu, radarTL.X + 0.700 * radarSu, radarTL.Y + 0.670 * radarSu), 0, GUI_ID_RADAR_DECREASE_X_BUTTON, L"<");
     radarCursorRightButton2 = guienv->addButton(irr::core::rect<irr::s32>(radarTL.X + 0.730 * radarSu, radarTL.Y + 0.640 * radarSu, radarTL.X + 0.760 * radarSu, radarTL.Y + 0.670 * radarSu), 0, GUI_ID_RADAR_INCREASE_X_BUTTON, L">");
@@ -1972,9 +1999,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     arpaVectorMode->addItem(language->translate("relArpa").c_str());
     arpaVectorMode->setVisible(false);
 
-    // Temps de vecteur [6][min]
-    //guienv->addEditBox(L"6", cell(0, 1, 0.456f, GRH), true, largeRadarControls, GUI_ID_BIG_ARPA_VECTOR_TIME_BOX);
-    (guienv->addStaticText(language->translate("minsARPA").c_str(), cell(1, 1, 0.456f, GRH), false, true, largeRadarControls))->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
+    //(Vector time: the "Vect." tool button above)
 
     // Liste ARPA (deux colonnes)
     const irr::f32 splitX = GM + GC + GG * 0.5f;
@@ -3441,19 +3466,24 @@ void GUIMain::drawGUI()
             tcpaDisplaySecs = zeroPadded;
         }
 
-        if (arpaContactStates.at(i).contactType == CONTACT_MANUAL) {
-            displayText.append(language->translate("manualContact"));
-        }
-        else {
-            displayText.append(language->translate("arpaContact"));
-        }
-        displayText.append(L" ");
-        displayText.append(irr::core::stringw(i + 1)); //Contact ID (1,2,...)
-        displayText.append(L":");
-
-        if (!arpaContactStates.at(i).isBuoy && arpaContactStates.at(i).mmsi > 0) {
-            displayText.append(L" MMSI:");
-            displayText.append(irr::core::stringw(arpaContactStates.at(i).mmsi));
+        {
+            //One line per target: its number, then CPA and TCPA (with the trial manoeuvre while one
+            //is on, marked E); '!' in front when it is dangerous.
+            const bool trial = model && model->getRadar().getTrialOn();
+            const ARPAEstimatedState& st = arpaContactStates.at(i);
+            const bool danger = trial ? st.trialDanger : st.danger;
+            const irr::f32 rowCpa = fabs(trial ? st.trialCpa : st.cpa);
+            const irr::f32 rowTcpa = trial ? st.trialTcpa : st.tcpa;
+            displayText.append(danger ? L"! " : L"  ");
+            displayText.append(irr::core::stringw(i + 1)); //Contact ID (1,2,...)
+            if (st.contactType == CONTACT_MANUAL) { displayText.append(L"M"); }
+            displayText.append(trial ? L"  E " : L"  ");
+            displayText.append(f32To2dp(rowCpa).c_str());
+            if (rowTcpa >= 0) {
+                displayText.append(L" ");
+                displayText.append(irr::core::stringw((irr::s32)floor(rowTcpa)));
+                displayText.append(L"'");
+            }
         }
 
         arpaList->addItem(displayText.c_str());
@@ -3481,11 +3511,19 @@ void GUIMain::drawGUI()
                     if (i == selectedItem) { arpaText->addItem(displayText.c_str()); }
                     if (i == selectedItem2) { arpaText2->addItem(displayText.c_str()); }
                 }
+                //Bearing and range
+                displayText = L"";
+                displayText.append(irr::core::stringw((irr::s32)round(arpaContactStates.at(i).bearing) % 360));
+                displayText.append(L"\u00B0 ");
+                displayText.append(f32To2dp(arpaContactStates.at(i).range).c_str());
+                displayText.append(L" NM");
+                if (i == selectedItem) { arpaText->addItem(displayText.c_str()); }
+                if (i == selectedItem2) { arpaText2->addItem(displayText.c_str()); }
                 //CPA
                 displayText = L"";
                 displayText.append(language->translate("cpa"));
                 displayText.append(L":");
-                displayText.append(f32To2dp(cpa).c_str());
+                displayText.append(f32To2dp(fabs(cpa)).c_str());
                 displayText.append(language->translate("nm"));
                 //Add to the correct box
                 if (i == selectedItem) {
@@ -3542,12 +3580,43 @@ void GUIMain::drawGUI()
                 if (i == selectedItem2) {
                     arpaText2->addItem(displayText.c_str());
                 }
+                //With the trial manoeuvre
+                if (model && model->getRadar().getTrialOn()) {
+                    const ARPAEstimatedState& st = arpaContactStates.at(i);
+                    displayText = L"Essai CPA:";
+                    displayText.append(f32To2dp(st.trialCpa).c_str());
+                    if (i == selectedItem2) { arpaText2->addItem(displayText.c_str()); }
+                    displayText = L"Essai TCPA:";
+                    if (st.trialTcpa >= 0) {
+                        const irr::s32 m = (irr::s32)floor(st.trialTcpa);
+                        const irr::s32 sec = (irr::s32)floor(60.0f * (st.trialTcpa - m));
+                        displayText.append(irr::core::stringw(m));
+                        displayText.append(sec < 10 ? L":0" : L":");
+                        displayText.append(irr::core::stringw(sec));
+                    }
+                    else {
+                        displayText.append(L" ");
+                        displayText.append(language->translate("past"));
+                    }
+                    if (i == selectedItem2) { arpaText2->addItem(displayText.c_str()); }
+                }
             }
 
         }
 
     }
     //}
+    //Readable on the dark radar panel; dangerous targets in red
+    {
+        const bool trial = model && model->getRadar().getTrialOn();
+        for (irr::u32 i = 0; i < arpaList2->getItemCount() && i < arpaContactStates.size(); i++) {
+            const bool danger = trial ? arpaContactStates[i].trialDanger : arpaContactStates[i].danger;
+            arpaList2->setItemOverrideColor(i, irr::gui::EGUI_LBC_TEXT, danger ? irr::video::SColor(255, 255, 90, 80) : irr::video::SColor(255, 220, 226, 234));
+        }
+        for (irr::u32 i = 0; i < arpaText2->getItemCount(); i++) {
+            arpaText2->setItemOverrideColor(i, irr::gui::EGUI_LBC_TEXT, irr::video::SColor(255, 220, 226, 234));
+        }
+    }
     if (selectedItem > -1 && (irr::s32)arpaList->getItemCount() > selectedItem) {
         arpaList->setSelected(selectedItem);
     }
@@ -3728,6 +3797,7 @@ void GUIMain::drawGUI()
         instrumentPanel->setData(d);
     }
 
+    if (radarLarge) { updateRadarToolButtons(); }
     guienv->drawAll();
 
     //draw the heading line on the radar
@@ -3942,6 +4012,10 @@ void GUIMain::draw2dRadar()
         device->getVideoDriver()->draw2DPolygon(cursorCentre, radius / 20, irr::video::SColor(255, 255, 0, 0), 4); //a 4 segment polygon, i.e. a square!
     }
 
+    //Danger, trial manoeuvre and parallel index messages on the scope
+    if (radarLarge) {
+        drawRadarAlerts(largeRadarScreenCentreX, largeRadarScreenCentreY, radius);
+    }
 }
 
 void GUIMain::draw2dBearing()
@@ -4886,6 +4960,7 @@ void GUIMain::dispatchRadarWindowInput()
 
         switch (e.MouseInput.Event) {
         case irr::EMIE_MOUSE_WHEEL: {
+            if (scopeMouseEvent(e)) { break; } //on the picture: the range
             //Over a control (radar knob, list) the wheel belongs to it, as on the main screen
             irr::gui::IGUIElement* over = root->getElementFromPoint(p);
             if (over && over != root) { over->OnEvent(e); }
@@ -4900,10 +4975,12 @@ void GUIMain::dispatchRadarWindowInput()
                 radarMouseDown = true;
                 model->setMouseDown(true);
             }
+            scopeMouseEvent(e); //track a target, draw a parallel index line
             break;
         case irr::EMIE_LMOUSE_LEFT_UP:
         case irr::EMIE_RMOUSE_LEFT_UP: {
             guienv->postEventFromUser(e);
+            scopeMouseEvent(e);
             if (radarMouseDown && model) { model->setMouseDown(false); }
             radarMouseDown = false;
             //No keyboard focus left on the radar's buttons: Space/Enter in the bridge view must not
@@ -5043,6 +5120,248 @@ void GUIMain::shutdownRadarWindow()
     if (radarTarget) {
         device->getVideoDriver()->removeTexture(radarTarget);
         radarTarget = 0;
+    }
+}
+
+//=================================================================================================
+//Large radar tools
+//=================================================================================================
+bool GUIMain::isOnLargeScope(irr::core::position2di p) const
+{
+    const irr::f32 r = (irr::f32)largeRadarScreenRadius / RADAR_FIT_MARGIN;
+    const irr::f32 dx = (irr::f32)(p.X - largeRadarScreenCentreX);
+    const irr::f32 dy = (irr::f32)(p.Y - largeRadarScreenCentreY);
+    return dx * dx + dy * dy <= r * r;
+}
+
+bool GUIMain::scopeMouseEvent(const irr::SEvent& event)
+{
+    if (!radarLarge || !model || event.EventType != irr::EET_MOUSE_INPUT_EVENT) { return false; }
+    const irr::core::position2di p(event.MouseInput.X, event.MouseInput.Y);
+    irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+    const bool onScope = isOnLargeScope(p) && root->getElementFromPoint(p) == root;
+    //Mouse relative to own ship's place on the scope (off-centred or not), as for the radar cursor
+    const irr::f32 r = (irr::f32)largeRadarScreenRadius / RADAR_FIT_MARGIN;
+    const irr::core::vector2di rel(p.X - (largeRadarScreenCentreX + (irr::s32)(guiRadarOffsetX * largeRadarScreenRadius)),
+                                   p.Y - (largeRadarScreenCentreY - (irr::s32)(guiRadarOffsetY * largeRadarScreenRadius)));
+    (void)r;
+    switch (event.MouseInput.Event) {
+    case irr::EMIE_LMOUSE_PRESSED_DOWN:
+    case irr::EMIE_RMOUSE_PRESSED_DOWN:
+        if (onScope) {
+            const bool left = (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN);
+            model->getRadar().scopeMouse(left, true, rel);
+            if (left) { scopeLeftDown = true; }
+        }
+        break;
+    case irr::EMIE_LMOUSE_LEFT_UP:
+        if (scopeLeftDown) {
+            scopeLeftDown = false;
+            model->getRadar().scopeMouse(true, false, rel);
+        }
+        break;
+    case irr::EMIE_MOUSE_WHEEL:
+        if (onScope) {
+            //Wheel forward: closer in (shorter range), as on a chart
+            if (event.MouseInput.Wheel > 0) { model->decreaseRadarRange(); }
+            else { model->increaseRadarRange(); }
+            return true;
+        }
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
+bool GUIMain::handleRadarToolButton(irr::s32 id)
+{
+    if (!model) { return false; }
+    RadarCalculation& radar = model->getRadar();
+    //Next value in a list of steps, after the current one (back to the first after the last)
+    auto nextStep = [](const irr::f32* steps, int count, irr::f32 current) {
+        for (int i = 0; i < count; i++) {
+            if (steps[i] > current + 0.001f) { return steps[i]; }
+        }
+        return steps[0];
+    };
+    switch (id) {
+    case GUI_ID_RADAR_VECTOR_LEN_BUTTON: {
+        static const irr::f32 steps[4] = { 3, 6, 12, 30 };
+        radar.setRadarARPAVectors(nextStep(steps, 4, radar.getVectorMinutes()));
+        break;
+    }
+    case GUI_ID_RADAR_TRAIL_LEN_BUTTON: {
+        //Off, then 1, 3, 6, 12 and 30 minutes of past positions (the "Traces navires" box follows)
+        static const irr::f32 steps[6] = { 0, 1, 3, 6, 12, 30 };
+        const irr::f32 now = radar.getShipTrails() ? radar.getTrailMinutes() : 0.0f;
+        const irr::f32 next = nextStep(steps, 6, now);
+        radar.setShipTrails(next > 0);
+        if (next > 0) { radar.setTrailMinutes(next); }
+        irr::gui::IGUIElement* box = guienv->getRootGUIElement()->getElementFromId(GUI_ID_RADAR_SHIP_TRAILS_CHECKBOX, true);
+        if (box && box->getType() == irr::gui::EGUIET_CHECK_BOX) { static_cast<irr::gui::IGUICheckBox*>(box)->setChecked(next > 0); }
+        break;
+    }
+    case GUI_ID_RADAR_COAST_BUTTON:
+        radar.setCoastline(!radar.getCoastline());
+        break;
+    case GUI_ID_RADAR_CPA_BUTTON: {
+        static const irr::f32 steps[4] = { 0.2f, 0.5f, 1.0f, 2.0f };
+        radar.setCPALimit(nextStep(steps, 4, radar.getCPALimit()));
+        break;
+    }
+    case GUI_ID_RADAR_TCPA_BUTTON: {
+        static const irr::f32 steps[4] = { 6, 12, 20, 30 };
+        radar.setTCPALimit(nextStep(steps, 4, radar.getTCPALimit()));
+        break;
+    }
+    case GUI_ID_RADAR_CPA_ALARM_BUTTON:
+        //While it sounds, the button silences it; otherwise it switches the alarm on and off
+        if (radar.isCPAAlarmSounding()) { radar.acknowledgeCPAAlarm(); }
+        else { radar.setCPAAlarmOn(!radar.getCPAAlarmOn()); }
+        break;
+    case GUI_ID_RADAR_PI_BUTTON: {
+        const int next = radar.getPIEditLine() + 1;
+        radar.setPIEditLine(next < RadarCalculation::PI_LINES ? next : -1);
+        break;
+    }
+    case GUI_ID_RADAR_PI_CLEAR_BUTTON:
+        radar.clearPILines();
+        radar.setPIEditLine(-1);
+        break;
+    case GUI_ID_RADAR_TRIAL_BUTTON:
+        if (radar.getTrialOn()) {
+            radar.setTrial(false, radar.getTrialCourse(), radar.getTrialSpeed(), radar.getTrialDelay());
+        }
+        else {
+            //Starts from own ship's present course and speed
+            radar.setTrial(true, (irr::f32)((irr::s32)(guiCOG + 0.5f) % 360), floorf(guiSOGKts * 2.0f + 0.5f) / 2.0f, 0.0f);
+        }
+        break;
+    case GUI_ID_RADAR_TRIAL_CRS_DOWN:
+    case GUI_ID_RADAR_TRIAL_CRS_UP:
+        radar.setTrial(true, radar.getTrialCourse() + (id == GUI_ID_RADAR_TRIAL_CRS_UP ? 5.0f : -5.0f), radar.getTrialSpeed(), radar.getTrialDelay());
+        break;
+    case GUI_ID_RADAR_TRIAL_SPD_DOWN:
+    case GUI_ID_RADAR_TRIAL_SPD_UP:
+        radar.setTrial(true, radar.getTrialCourse(),
+            irr::core::clamp(radar.getTrialSpeed() + (id == GUI_ID_RADAR_TRIAL_SPD_UP ? 1.0f : -1.0f), 0.0f, 40.0f), radar.getTrialDelay());
+        break;
+    case GUI_ID_RADAR_TRIAL_DELAY_DOWN:
+    case GUI_ID_RADAR_TRIAL_DELAY_UP:
+        radar.setTrial(true, radar.getTrialCourse(), radar.getTrialSpeed(),
+            irr::core::clamp(radar.getTrialDelay() + (id == GUI_ID_RADAR_TRIAL_DELAY_UP ? 1.0f : -1.0f), 0.0f, 30.0f));
+        break;
+    default:
+        return false;
+    }
+    updateRadarToolButtons();
+    return true;
+}
+
+void GUIMain::updateRadarToolButtons()
+{
+    if (!model || !radarVectorLenButton) { return; }
+    RadarCalculation& radar = model->getRadar();
+    const irr::video::SColor off(0, 0, 0, 0);
+    const irr::video::SColor orange(150, 255, 140, 0);
+    const irr::video::SColor red(170, 220, 40, 40);
+    const irr::video::SColor green(130, 40, 170, 90);
+
+    //The ARPA mode button shows the radar's mode (a click on the scope can switch MARPA on, and
+    //bc5.ini arpa_on can start with ARPA on)
+    const int mode = radar.getArpaMode();
+    if (radar.takeArpaModeChangedByClick()) { setARPAComboboxes(mode); }
+    if (arpaModeButton2) {
+        const wchar_t* modeText = (mode == 0) ? L"ARPA: Man" : (mode == 1) ? L"ARPA: MARPA" : L"ARPA: ARPA";
+        if (wcscmp(arpaModeButton2->getText(), modeText) != 0) { arpaModeButton2->setText(modeText); }
+    }
+
+    std::wstring t = L"Vect. " + std::to_wstring((int)(radar.getVectorMinutes() + 0.5f)) + L"'";
+    setButtonHighlight(radarVectorLenButton, off, t.c_str());
+    t = radar.getShipTrails() ? (L"Traces " + std::to_wstring((int)(radar.getTrailMinutes() + 0.5f)) + L"'") : std::wstring(L"Traces OFF");
+    setButtonHighlight(radarTrailLenButton, off, t.c_str());
+    setButtonHighlight(radarCoastButton, radar.getCoastline() ? green : off, L"Côte");
+
+    wchar_t buf[48];
+    swprintf(buf, 48, L"CPA %.1f", radar.getCPALimit());
+    setButtonHighlight(radarCpaButton, off, buf);
+    swprintf(buf, 48, L"TCPA %d'", (int)(radar.getTCPALimit() + 0.5f));
+    setButtonHighlight(radarTcpaButton, off, buf);
+    const bool sounding = radar.isCPAAlarmSounding();
+    const bool flash = (device->getTimer()->getRealTime() / 500) % 2 == 0;
+    if (sounding) { setButtonHighlight(radarCpaAlarmButton, flash ? red : off, L"Acquitter"); }
+    else { setButtonHighlight(radarCpaAlarmButton, radar.getCPAAlarmOn() ? green : off, radar.getCPAAlarmOn() ? L"Alarme ON" : L"Alarme OFF"); }
+
+    const int pi = radar.getPIEditLine();
+    if (pi >= 0) {
+        swprintf(buf, 48, L"Tracer IP %d", pi + 1);
+        setButtonHighlight(radarPIButton, orange, buf);
+    }
+    else {
+        swprintf(buf, 48, L"IP (%d)", radar.countPILines());
+        setButtonHighlight(radarPIButton, off, buf);
+    }
+    setButtonHighlight(radarPIClearButton, off, L"Effacer IP");
+
+    const bool trial = radar.getTrialOn();
+    setButtonHighlight(radarTrialButton, trial ? orange : off, L"Essai");
+    for (int i = 0; i < 6; i++) { if (radarTrialButtons[i]) { radarTrialButtons[i]->setVisible(radarLarge && trial); } }
+    for (int i = 0; i < 3; i++) { if (radarTrialValues[i]) { radarTrialValues[i]->setVisible(radarLarge && trial); } }
+    if (trial && radarTrialValues[0]) {
+        swprintf(buf, 48, L"Cap %03d°", (int)(radar.getTrialCourse() + 0.5f) % 360);
+        radarTrialValues[0]->setText(buf);
+        swprintf(buf, 48, L"%.1f nd", radar.getTrialSpeed());
+        radarTrialValues[1]->setText(buf);
+        swprintf(buf, 48, L"Délai %d min", (int)(radar.getTrialDelay() + 0.5f));
+        radarTrialValues[2]->setText(buf);
+    }
+}
+
+void GUIMain::drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radius)
+{
+    if (!model) { return; }
+    RadarCalculation& radar = model->getRadar();
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) { return; }
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    //A line of text on a dark band, centred on x
+    auto banner = [&](const wchar_t* text, irr::s32 y, irr::video::SColor colour) {
+        const irr::core::dimension2du d = font->getDimension(text);
+        const irr::core::rect<irr::s32> r(centreX - (irr::s32)d.Width / 2 - 8, y, centreX + (irr::s32)d.Width / 2 + 8, y + (irr::s32)d.Height + 6);
+        driver->draw2DRectangle(irr::video::SColor(190, 0, 0, 0), r);
+        font->draw(text, r, colour, true, true);
+    };
+    const bool flash = (device->getTimer()->getRealTime() / 500) % 2 == 0;
+    wchar_t buf[160];
+
+    //The most urgent dangerous target (actual, or with the trial manoeuvre)
+    const bool trial = radar.getTrialOn();
+    int worst = -1;
+    for (size_t i = 0; i < arpaContactStates.size(); i++) {
+        const ARPAEstimatedState& st = arpaContactStates[i];
+        const bool danger = trial ? st.trialDanger : st.danger;
+        const irr::f32 tcpa = trial ? st.trialTcpa : st.tcpa;
+        if (danger && (worst < 0 || tcpa < (trial ? arpaContactStates[worst].trialTcpa : arpaContactStates[worst].tcpa))) { worst = (int)i; }
+    }
+    if (worst >= 0 && (flash || !radar.isCPAAlarmSounding())) {
+        const ARPAEstimatedState& st = arpaContactStates[worst];
+        const irr::f32 cpa = fabs(trial ? st.trialCpa : st.cpa);
+        const irr::f32 tcpa = trial ? st.trialTcpa : st.tcpa;
+        const int m = (int)floor(tcpa);
+        const int sec = (int)floor(60.0f * (tcpa - m));
+        swprintf(buf, 160, L"%ls  cible %d : CPA %.2f NM dans %d:%02d", trial ? L"ESSAI DANGEREUX" : L"DANGER", worst + 1, cpa, m, sec);
+        banner(buf, centreY - radius + radius / 5, irr::video::SColor(255, 255, 70, 60));
+    }
+    if (trial) {
+        swprintf(buf, 160, L"ESSAI  Cap %03d°  %.1f nd  délai %d min", (int)(radar.getTrialCourse() + 0.5f) % 360,
+            radar.getTrialSpeed(), (int)(radar.getTrialDelay() + 0.5f));
+        banner(buf, centreY + radius - radius / 4, irr::video::SColor(255, 255, 170, 40));
+    }
+    const int pi = radar.getPIEditLine();
+    if (pi >= 0) {
+        swprintf(buf, 160, L"IP %d : glisser sur l'écran pour tracer la ligne, clic droit pour l'effacer", pi + 1);
+        banner(buf, centreY + radius - radius / 8, irr::video::SColor(255, 255, 255, 255));
     }
 }
 

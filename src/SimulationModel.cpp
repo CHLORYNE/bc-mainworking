@@ -5236,7 +5236,7 @@ void SimulationModel::update()
         //-----------------------------------------------------------------------------
 
         //kyara: radar guard-zone alarm on its own channel, independent of proxy & its mute
-        sound->setVolumeRadarAlarm(radarCalculation.isGuardAlarmSounding() ? 1.0f : 0.0f);
+        sound->setVolumeRadarAlarm((radarCalculation.isGuardAlarmSounding() || radarCalculation.isCPAAlarmSounding()) ? 1.0f : 0.0f);
         // ---- KYARA WEATHER AUDIO + LIGHTNING --------------------------------------------
         // Storm is DERIVED from the (already-synced) weather + visibility, so primary and
         // secondary agree without any extra network flag.
