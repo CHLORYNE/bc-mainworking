@@ -1,0 +1,55 @@
+# Faits affichés sur la page de chargement (« Le saviez-vous ? »), un au hasard, puis un nouveau toutes les 8 secondes.
+# Une ligne par fait, commençant par son numéro suivi d'un point. Les autres lignes sont ignorées.
+# Enregistrer en UTF-8 (l'ANSI de Windows est aussi accepté).
+
+LE SAVIEZ-VOUS ? — FAITS MARITIMES
+
+1. Le tirant d’eau correspond à la distance verticale entre la ligne de flottaison et le point le plus bas du navire.
+
+2. La profondeur sous quille est la distance verticale entre le point le plus bas du navire et le fond marin.
+
+3. La houle peut se propager sur de très grandes distances depuis la zone où elle a été générée.
+
+4. La hauteur des vagues générées par le vent dépend notamment de sa force, de sa durée et du fetch, c’est-à-dire la distance sur laquelle il souffle.
+
+5. Un courant peut modifier la route fond d’un navire sans changement de cap.
+
+6. Sous l’action du vent, un navire peut dériver latéralement par rapport à sa trajectoire prévue.
+
+7. Le roulis est le mouvement de rotation du navire autour de son axe longitudinal.
+
+8. Le tangage est le mouvement de rotation du navire autour de son axe transversal.
+
+9. Le lacet est le mouvement de rotation du navire autour de son axe vertical.
+
+10. Le déplacement d’un navire correspond à la masse d’eau déplacée par sa carène ; en équilibre, elle est égale à la masse du navire.
+
+11. L’hélice transforme la puissance mécanique transmise par l’arbre en poussée propulsive.
+
+12. La cavitation apparaît lorsque la pression locale dans l’eau devient suffisamment faible pour provoquer la formation de cavités de vapeur.
+
+13. Les remorqueurs portuaires assistent les navires lors des manœuvres d’accostage et d’appareillage.
+
+14. Les aussières permettent d’amarrer un navire et de limiter ses mouvements le long du quai.
+
+15. Le vent, le courant et la houle peuvent augmenter les efforts exercés sur les aussières d’amarrage.
+
+16. La règle 5 du COLREG impose une veille appropriée par la vue, l’ouïe et tous les moyens disponibles adaptés aux circonstances.
+
+17. La vitesse de sécurité doit permettre au navire de prendre des mesures efficaces pour éviter un abordage et de s’arrêter dans une distance adaptée aux circonstances.
+
+18. L’AIS échange des informations telles que l’identité et la position des navires équipés, mais ne remplace pas la veille visuelle ni l’utilisation du radar.
+
+19. Les feux de navigation permettent de reconnaître certaines catégories de navires et leur situation conformément aux règles internationales.
+
+20. Une mauvaise répartition des charges peut compromettre la stabilité et modifier l’assiette du navire.
+
+21. L’assiette d’un navire est caractérisée par la différence entre ses tirants d’eau avant et arrière.
+
+22. Le rayon de giration d’un navire dépend notamment de ses caractéristiques hydrodynamiques, de sa vitesse et de l’action du gouvernail.
+
+23. En marche arrière, l’effet transversal de l’hélice peut provoquer une déviation de la poupe et compliquer la manœuvre.
+
+24. Le propulseur d’étrave facilite les manœuvres latérales, notamment à faible vitesse dans les ports.
+
+25. L’ECDIS permet d’afficher les cartes électroniques de navigation et d’appuyer la planification ainsi que le suivi de la route.
