@@ -435,13 +435,14 @@ void NMEA::updateNMEA()
         Utilities::round(model->getPortEngineRPM())  // idx=2, even (port)
     };
 
-    irr::f32 lat = model->getLat();
-    irr::f32 lon = model->getLong();
+    //What the GPS and the gyro give, with the instructor's failures (drift, loss)
+    irr::f32 lat, lon, cog, sog;
+    model->getGpsFix(lat, lon, cog, sog);
+    sog *= MPS_TO_KTS;
+    const bool gpsValid = model->isGpsValid();
+    const bool gyroValid = model->isGyroValid();
 
-    irr::f32 cog = model->getCOG();
-    irr::f32 sog = model->getSOG()*MPS_TO_KTS;
-
-    irr::f32 hdg = model->getHeading();
+    irr::f32 hdg = model->getGyroHeading();
     irr::f32 rot = model->getRateOfTurn()*RAD_PER_S_IN_DEG_PER_MINUTE;
     irr::f32 pitch = model->getPitch(); // tangage, degrees
     irr::f32 roll = model->getRoll();  // roulis, degrees
@@ -462,18 +463,33 @@ void NMEA::updateNMEA()
     switch (currentMessageType) { // EN 61162-1:2011
         case RMC: // 8.3.69 Recommended minimum navigation information
         {
+            if (!gpsValid) { //no fix: the receiver says so (status V, no data)
+                snprintf(messageBuffer,maxSentenceChars,"$GPRMC,%s%s%s.00,V,,,,,,,%s%s%s,,,N,V",hour,min,sec,year,mon,mday);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPRMC,%s%s%s.00,A,%02u%06.3f,%c,%03u%06.3f,%c,%.1f,%.1f,%s%s%s,,,A,S",hour,min,sec,latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest,sog,cog,year,mon,mday); //FIXME: SOG -> knots, COG->degrees
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GLL: // 8.3.36 Geographic position – Latitude/longitude
         {
+            if (!gpsValid) {
+                snprintf(messageBuffer,maxSentenceChars,"$GPGLL,,,,,%s%s%s.00,V,N",hour,min,sec);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPGLL,%02u%06.3f,%c,%03u%06.3f,%c,%s%s%s.00,A,A",latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest,hour,min,sec);
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GGA: // 8.3.35 Global positioning system (GPS) fix data
         {
+            if (!gpsValid) { //fix quality 0: invalid
+                snprintf(messageBuffer,maxSentenceChars,"$GPGGA,%s%s%s.00,,,,,0,00,,,M,,M,,",hour,min,sec);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPGGA,%s%s%s.00,%02u%06.3f,%c,%03u%06.3f,%c,1,12,0.0,0.0,M,0.0,M,,",hour,min,sec,latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest); //Hardcoded NMEA Quality 8, Satellites 8, HDOP 0.9
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
@@ -551,12 +567,14 @@ void NMEA::updateNMEA()
         }
         case HEHDT: // 8.3.44 Heading true
         {
+            if (!gyroValid) { break; } //a failed gyro sends nothing
             snprintf(messageBuffer,maxSentenceChars,"$HEHDT,%.1f,T",hdg); // T = true north
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GPHDT: // 8.3.44 Heading true
         {
+            if (!gyroValid) { break; }
             snprintf(messageBuffer,maxSentenceChars,"$GPHDT,%.1f,T",hdg); // T = true north
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
@@ -569,6 +587,7 @@ void NMEA::updateNMEA()
         }
         case VTG: // Course over ground and ground speed
         {
+            if (!gpsValid) { break; }
             snprintf(messageBuffer, maxSentenceChars, "$GPVTG,%.1f,T,,M,%.1f,N,%.1f,K,A", cog, sog, sog * 1.852f);
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;

@@ -104,6 +104,8 @@ struct GUIData {
     bool gyroLost = false;
     bool gpsLost = false;
     bool radarFailed = false;
+    std::vector<std::wstring> alertText;  //bridge alert list
+    std::vector<bool> alertAcked;
     irr::f32 depthAlarmLimit = 0;   //m, 0 = off
     bool depthAlarm = false;        //under the limit now
     bool mobOn = false;
@@ -362,7 +364,7 @@ public:
         //Training controls (CONTROLES window): failures (working / failed for each), sound signals,
         //echo sounder alarm, man overboard mark, debrief report
         GUI_ID_FAILURE_KEY_FIRST,
-        GUI_ID_FAILURE_KEY_LAST = GUI_ID_FAILURE_KEY_FIRST + 9,
+        GUI_ID_FAILURE_KEY_LAST = GUI_ID_FAILURE_KEY_FIRST + 14, //failure f to level l: FIRST + 3 * f + l
         GUI_ID_SIGNAL_KEY_FIRST,
         GUI_ID_SIGNAL_KEY_LAST = GUI_ID_SIGNAL_KEY_FIRST + 7,
         GUI_ID_DEPTH_ALARM_KEY_FIRST,
@@ -370,6 +372,10 @@ public:
         GUI_ID_MOB_MARK_KEY,
         GUI_ID_MOB_CLEAR_KEY,
         GUI_ID_DEBRIEF_KEY,
+        GUI_ID_FAILURE_DELAY_KEY_FIRST,
+        GUI_ID_FAILURE_DELAY_KEY_LAST = GUI_ID_FAILURE_DELAY_KEY_FIRST + 4,
+        GUI_ID_REPAIR_ALL_KEY,
+        GUI_ID_FAILURE_REPORTED_KEY,
 
     };
 
@@ -823,6 +829,10 @@ private:
     irr::s32 smallRadarScreenCentreY;
     irr::s32 smallRadarScreenRadius;
     bool guiGyroLost = false, guiGpsLost = false, guiRadarFailed = false, guiDepthAlarm = false, guiMobOn = false;
+    std::vector<std::wstring> guiAlertText;  //bridge alert list
+    std::vector<bool> guiAlertAcked;
+    void drawBridgeAlerts();
+    int trainDelayIndex = 0;                 //failures: now, in 1, 3, 5 min, or at random
     irr::f32 guiDepthAlarmLimit = 0, guiMobBrg = 0, guiMobNm = 0;
     std::vector<ARPAEstimatedState> arpaContactStates;
     std::string guiTime;

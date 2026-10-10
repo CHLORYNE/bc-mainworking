@@ -1109,7 +1109,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 model->setAlarm(false);
                 model->getRadar().acknowledgeCPAAlarm();
-                model->acknowledgeDepthAlarm();
+                model->acknowledgeAlerts();
             }
 
             if (id == GUIMain::GUI_ID_ADD_LINE_BUTTON)
@@ -2475,7 +2475,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonAckAlarm, thisButtonState))
             {
                 model->setAlarm(false);
-                model->acknowledgeDepthAlarm();
+                model->acknowledgeAlerts();
             }
         }
 

@@ -1257,14 +1257,20 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     refreshLightsTab();
 
     //Training controls: native keys, hidden (in a hidden tab), driven by the controls window below
-    irr::gui::IGUIButton* trainFailKey[10] = { 0 };
+    irr::gui::IGUIButton* trainFailKey[15] = { 0 };   //failure f to level l: [3 * f + l]
+    irr::gui::IGUIButton* trainDelayKey[5] = { 0 };
+    irr::gui::IGUIButton* trainRepairKey = 0;
+    irr::gui::IGUIButton* trainReportedKey = 0;
     irr::gui::IGUIButton* trainSignalKey[8] = { 0 };
     irr::gui::IGUIButton* trainDepthKey[5] = { 0 };
     irr::gui::IGUIButton* trainMobKey[2] = { 0 };
     irr::gui::IGUIButton* trainDebriefKey = 0;
     {
         const irr::core::rect<irr::s32> r(0, 0, 10, 10);
-        for (int i = 0; i < 10; i++) { trainFailKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_FAILURE_KEY_FIRST + i, L""); }
+        for (int i = 0; i < 15; i++) { trainFailKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_FAILURE_KEY_FIRST + i, L""); }
+        for (int i = 0; i < 5; i++) { trainDelayKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_FAILURE_DELAY_KEY_FIRST + i, L""); }
+        trainRepairKey = guienv->addButton(r, extraControlsTabRudder, GUI_ID_REPAIR_ALL_KEY, L"");
+        trainReportedKey = guienv->addButton(r, extraControlsTabRudder, GUI_ID_FAILURE_REPORTED_KEY, L"");
         for (int i = 0; i < 8; i++) { trainSignalKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_SIGNAL_KEY_FIRST + i, L""); }
         for (int i = 0; i < 5; i++) { trainDepthKey[i] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_DEPTH_ALARM_KEY_FIRST + i, L""); }
         trainMobKey[0] = guienv->addButton(r, extraControlsTabRudder, GUI_ID_MOB_MARK_KEY, L"");
@@ -1284,35 +1290,76 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //The weather (sea, wind, current, rain, visibility, thunder) is set in the weather window
         //only: the old sliders of the Weather and Wind & Current tabs are not shown any more.
 
-        //Steering failures
+        //Failures: steering, engines, instruments, given now or later
         const int tRudder = cp->addTab(L"Avaries",
-            L"Des pannes \u00E0 donner au stagiaire. Barre : une pompe en panne, l'alarme sonne et la barre tourne deux fois moins vite ; les deux pompes en panne, la barre ne bouge plus. "
-            L"Machine en panne : elle s'arr\u00EAte. Gyro ou GPS en panne : l'affichage se fige ou se vide. Radar en panne : l'\u00E9cran s'\u00E9teint. Chaque panne fait sonner l'alarme et entre dans le bilan.",
+            L"Les pannes \u00E0 faire g\u00E9rer au stagiaire (exercices d'avarie de barre, perte de propulsion, perte de capteur). "
+            L"\u00AB D\u00E9clenchement \u00BB : tout de suite, ou plus tard sans qu'il le voie venir. Une panne fait sonner l'alarme et s'affiche dans la liste d'alertes de la passerelle, "
+            L"sauf les d\u00E9rives (gyro, GPS) : silencieuses, \u00E0 trouver en recoupant les informations. Le bilan garde l'heure de chaque panne, le temps d'acquittement et le moment o\u00F9 le stagiaire l'a signal\u00E9e.",
             [this]() {
                 std::vector<ControlsPanel::Readout> out;
                 if (!this->model) { return out; }
-                const bool p1 = this->model->getRudderPumpState(1), p2 = this->model->getRudderPumpState(2), fu = this->model->getFollowUpRudderWorking();
-                out.push_back({ L"Pompe de barre 1", p1 ? L"En service" : L"En panne", p1 ? 1 : 2 });
-                out.push_back({ L"Pompe de barre 2", p2 ? L"En service" : L"En panne", p2 ? 1 : 2 });
-                out.push_back({ L"Barre asservie", fu ? L"En service" : L"En panne : gouverner en non asservi (NFU)", fu ? 1 : 2 });
-                const wchar_t* failNames[SimulationModel::FAIL_COUNT] = { L"Machine b\u00E2bord", L"Machine tribord", L"Gyrocompas", L"GPS", L"Radar" };
-                std::wstring failedList;
+                SimulationModel* m = this->model;
+                //Steering
+                std::wstring steering;
+                if (!m->getRudderPumpState(1)) { steering += L"pompe 1"; }
+                if (!m->getRudderPumpState(2)) { steering += (steering.empty() ? L"" : L", ") + std::wstring(L"pompe 2"); }
+                if (!m->getFollowUpRudderWorking()) { steering += (steering.empty() ? L"" : L", ") + std::wstring(L"asservie (gouverner en NFU)"); }
+                out.push_back({ L"Barre", steering.empty() ? L"En service" : L"En panne : " + steering, steering.empty() ? 1 : 2 });
+                //Engines and instruments, with the size of the drifts
+                std::wstring failed;
                 for (int f = 0; f < SimulationModel::FAIL_COUNT; f++) {
-                    if (this->model->getFailure((SimulationModel::Failure)f)) { failedList += (failedList.empty() ? L"" : L", ") + std::wstring(failNames[f]); }
+                    const int level = m->getFailureLevel((SimulationModel::Failure)f);
+                    if (level == SimulationModel::FAILURE_NONE) { continue; }
+                    std::wstring item = SimulationModel::failureActionName(f, level);
+                    wchar_t buf[48] = L"";
+                    if (f == SimulationModel::FAIL_GYRO && level == SimulationModel::FAILURE_DEGRADED) { swprintf(buf, 48, L" %+.1f\u00B0", m->getGyroError()); }
+                    if (f == SimulationModel::FAIL_GPS && level == SimulationModel::FAILURE_DEGRADED) { swprintf(buf, 48, L" %.0f m", m->getGpsErrorMetres()); }
+                    failed += (failed.empty() ? L"" : L", ") + item + buf;
                 }
-                out.push_back({ L"Machines et instruments", failedList.empty() ? L"En service" : L"En panne : " + failedList, failedList.empty() ? 1 : 2 });
+                out.push_back({ L"Machines et instruments", failed.empty() ? L"En service" : L"En panne : " + failed, failed.empty() ? 1 : 2 });
+                //Scheduled
+                std::wstring due;
+                const std::vector<SimulationModel::ScheduledFailure>& sch = m->getScheduledFailures();
+                for (size_t i = 0; i < sch.size(); i++) {
+                    const int left = (int)(sch[i].at - m->getFailureClock() + 0.99f);
+                    wchar_t buf[32];
+                    swprintf(buf, 32, L" dans %d:%02d", left / 60, left % 60);
+                    due += (due.empty() ? L"" : L" ; ") + SimulationModel::failureActionName(sch[i].action, sch[i].level) + buf;
+                }
+                out.push_back({ L"Programm\u00E9es", due.empty() ? L"Aucune" : due, 0 });
+                //What the bridge sees
+                const std::vector<SimulationModel::BridgeAlert>& al = m->getBridgeAlerts();
+                int notAcked = 0;
+                for (size_t i = 0; i < al.size(); i++) { if (!al[i].acked) { notAcked++; } }
+                std::wstring alerts = al.empty() ? std::wstring(L"Aucune") : std::to_wstring(al.size()) + (notAcked ? L", dont " + std::to_wstring(notAcked) + L" non acquitt\u00E9e(s)" : std::wstring(L", acquitt\u00E9e(s)"));
+                out.push_back({ L"Alertes passerelle", alerts, notAcked ? 2 : 0 });
                 return out;
             });
-        cp->addSection(tRudder, L"Pompes de barre");
+
+        cp->addSection(tRudder, L"D\u00E9clenchement");
+        if (trainDelayKey[0] && trainDelayKey[4]) {
+            cp->addKeys(tRudder, L"Quand", L"Quand les pannes choisies ensuite se d\u00E9clenchent : tout de suite, dans 1, 3 ou 5 minutes, ou au hasard entre 2 et 10 minutes. "
+                L"La remise en service, elle, est toujours imm\u00E9diate.",
+                { trainDelayKey[0], trainDelayKey[1], trainDelayKey[2], trainDelayKey[3], trainDelayKey[4] },
+                { L"Imm\u00E9diat", L"1 min", L"3 min", L"5 min", L"Au hasard" },
+                [this]() { return this->trainDelayIndex; });
+        }
+        if (trainRepairKey && trainReportedKey) {
+            cp->addKeys(tRudder, L"Exercice", L"\u00AB Signal\u00E9e \u00BB : le stagiaire vient d'annoncer la derni\u00E8re panne (le bilan note le temps qu'il a mis). "
+                L"\u00AB Tout r\u00E9parer \u00BB : tout est remis en service et les pannes programm\u00E9es sont annul\u00E9es.",
+                { trainReportedKey, trainRepairKey }, { L"Signal\u00E9e par le stagiaire", L"Tout r\u00E9parer" });
+        }
+
+        cp->addSection(tRudder, L"Barre");
         if (ecRudderKey[0] && ecRudderKey[1]) {
-            cp->addKeys(tRudder, L"Pompe 1", L"La premi\u00E8re pompe de l'appareil \u00E0 gouverner.", { ecRudderKey[0], ecRudderKey[1] }, workingFailed,
+            cp->addKeys(tRudder, L"Pompe 1", L"La premi\u00E8re pompe de l'appareil \u00E0 gouverner. Une pompe en panne : la barre tourne deux fois moins vite. Les deux : la barre ne bouge plus (barre bloqu\u00E9e).",
+                { ecRudderKey[0], ecRudderKey[1] }, workingFailed,
                 [this]() { return (this->model && this->model->getRudderPumpState(1)) ? 0 : 1; });
         }
         if (ecRudderKey[2] && ecRudderKey[3]) {
             cp->addKeys(tRudder, L"Pompe 2", L"La seconde pompe de l'appareil \u00E0 gouverner.", { ecRudderKey[2], ecRudderKey[3] }, workingFailed,
                 [this]() { return (this->model && this->model->getRudderPumpState(2)) ? 0 : 1; });
         }
-        cp->addSection(tRudder, L"Commande de barre");
         if (ecRudderKey[4] && ecRudderKey[5]) {
             cp->addKeys(tRudder, L"Barre asservie", L"La barre normale (asservie). En panne, le stagiaire doit gouverner en secours avec les boutons NFU (non asservis).",
                 { ecRudderKey[4], ecRudderKey[5] }, workingFailed,
@@ -1321,17 +1368,29 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         {
             const wchar_t* failNames[SimulationModel::FAIL_COUNT] = { L"Machine b\u00E2bord", L"Machine tribord", L"Gyrocompas", L"GPS", L"Radar" };
             const wchar_t* failHelp[SimulationModel::FAIL_COUNT] = {
-                L"La machine b\u00E2bord s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
-                L"La machine tribord s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
-                L"Le cap affich\u00E9 se fige (compas et radar) : le stagiaire doit passer au compas magn\u00E9tique et le signaler.",
-                L"Plus de position GPS : la position affich\u00E9e se fige en rouge, plus de route ni de vitesse fond. Navigation \u00E0 l'estime et au radar.",
+                L"Puissance r\u00E9duite : la machine ne donne plus que la moiti\u00E9 de sa puissance. En panne : elle s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
+                L"Puissance r\u00E9duite : la machine ne donne plus que la moiti\u00E9 de sa puissance. En panne : elle s'arr\u00EAte et ne r\u00E9pond plus au transmetteur.",
+                L"D\u00E9rive : le cap gyro s'\u00E9carte lentement du vrai cap (0,4 \u00E0 0,8\u00B0 par minute), sans alarme ; \u00E0 d\u00E9couvrir en comparant au compas magn\u00E9tique ou sur un alignement. "
+                L"En panne : le cap se fige, alarme \u00AB GYRO : D\u00C9FAUT \u00BB.",
+                L"D\u00E9rive : la position GPS s'\u00E9carte peu \u00E0 peu de la vraie (15 \u00E0 30 m par minute), sans alarme ; \u00E0 d\u00E9couvrir en recoupant au radar ou par rel\u00E8vements. "
+                L"Perte : plus de position, la position affich\u00E9e se fige en rouge, plus de route ni de vitesse fond.",
                 L"L'\u00E9cran radar s'\u00E9teint et ne peut pas \u00EAtre rallum\u00E9 tant que la panne dure. Navigation \u00E0 vue et veille renforc\u00E9e." };
+            const std::vector<std::wstring> engineLevels = { L"En service", L"Puissance r\u00E9duite", L"En panne" };
+            const std::vector<std::wstring> sensorLevels = { L"En service", L"D\u00E9rive", L"En panne" };
+            const std::vector<std::wstring> gpsLevels = { L"En service", L"D\u00E9rive", L"Perte" };
             for (int f = 0; f < SimulationModel::FAIL_COUNT; f++) {
                 if (f == 0) { cp->addSection(tRudder, L"Machines"); }
                 if (f == 2) { cp->addSection(tRudder, L"Instruments"); }
-                if (trainFailKey[2 * f] && trainFailKey[2 * f + 1]) {
-                    cp->addKeys(tRudder, failNames[f], failHelp[f], { trainFailKey[2 * f], trainFailKey[2 * f + 1] }, workingFailed,
-                        [this, f]() { return (this->model && this->model->getFailure((SimulationModel::Failure)f)) ? 1 : 0; });
+                irr::gui::IGUIButton* k0 = trainFailKey[3 * f], * k1 = trainFailKey[3 * f + 1], * k2 = trainFailKey[3 * f + 2];
+                if (!k0 || !k1 || !k2) { continue; }
+                if (f == SimulationModel::FAIL_RADAR) {
+                    cp->addKeys(tRudder, failNames[f], failHelp[f], { k0, k2 }, workingFailed,
+                        [this, f]() { return (this->model && this->model->getFailureLevel((SimulationModel::Failure)f)) ? 1 : 0; });
+                }
+                else {
+                    cp->addKeys(tRudder, failNames[f], failHelp[f], { k0, k1, k2 },
+                        f < 2 ? engineLevels : (f == SimulationModel::FAIL_GPS ? gpsLevels : sensorLevels),
+                        [this, f]() { return this->model ? this->model->getFailureLevel((SimulationModel::Failure)f) : 0; });
                 }
             }
         }
@@ -3165,6 +3224,8 @@ void GUIMain::updateGuiData(GUIData* guiData)
     this->guiRadarActiveVRM = guiData->guiRadarActiveVRM;
     this->guiRadarGuardAlarmMode = guiData->guiRadarGuardAlarmMode;
     guiGyroLost = guiData->gyroLost;
+    guiAlertText = guiData->alertText;
+    guiAlertAcked = guiData->alertAcked;
     guiGpsLost = guiData->gpsLost;
     guiRadarFailed = guiData->radarFailed;
     guiDepthAlarm = guiData->depthAlarm;
@@ -3973,6 +4034,7 @@ void GUIMain::drawGUI()
             }
         }
     }
+    drawBridgeAlerts();
     guienv->drawAll();
 
     //draw the heading line on the radar
@@ -5354,13 +5416,71 @@ bool GUIMain::scopeMouseEvent(const irr::SEvent& event)
     return false;
 }
 
+//The bridge alert list: one line per active alarm, flashing red until acknowledged, then steady amber
+void GUIMain::drawBridgeAlerts()
+{
+    if (guiAlertText.empty()) { return; }
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) { return; }
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::s32 lineH = (irr::s32)font->getDimension(L"A").Height + 6;
+    bool anyNew = false;
+    for (size_t i = 0; i < guiAlertAcked.size(); i++) { if (!guiAlertAcked[i]) { anyNew = true; } }
+    const wchar_t* title = anyNew ? L"ALERTES  -  \u00C0 ACQUITTER (Acknowledge)" : L"ALERTES";
+    irr::s32 w = (irr::s32)font->getDimension(title).Width;
+    for (size_t i = 0; i < guiAlertText.size(); i++) { w = std::max(w, (irr::s32)font->getDimension(guiAlertText[i].c_str()).Width); }
+    w += 28;
+    //Over the bridge view, top left; with the large radar, in the free column left of the scope
+    const irr::s32 x = 12;
+    const irr::s32 y = radarLarge ? (irr::s32)(0.20f * driver->getScreenSize().Height) : 12;
+    const irr::s32 h = lineH * (irr::s32)(guiAlertText.size() + 1) + 8;
+    driver->draw2DRectangle(irr::video::SColor(215, 12, 14, 18), irr::core::rect<irr::s32>(x, y, x + w, y + h));
+    const bool flashOn = ((device->getTimer()->getRealTime() / 500) % 2) == 0;
+    const irr::video::SColor red(255, 255, 70, 60), amber(255, 255, 176, 50), dim(255, 150, 150, 150);
+    driver->draw2DRectangle(anyNew ? red : amber, irr::core::rect<irr::s32>(x, y, x + 4, y + h));
+    font->draw(title, irr::core::rect<irr::s32>(x + 12, y + 4, x + w, y + 4 + lineH), dim);
+    for (size_t i = 0; i < guiAlertText.size(); i++) {
+        const bool acked = i < guiAlertAcked.size() && guiAlertAcked[i];
+        if (!acked && !flashOn) { continue; } //flashing
+        font->draw(guiAlertText[i].c_str(), irr::core::rect<irr::s32>(x + 12, y + 4 + lineH * (irr::s32)(i + 1), x + w, y + 4 + lineH * (irr::s32)(i + 2)), acked ? amber : red);
+    }
+}
+
 bool GUIMain::handleTrainingButton(irr::s32 id)
 {
     if (!model) { return false; }
-    if (id >= GUI_ID_FAILURE_KEY_FIRST && id < GUI_ID_FAILURE_KEY_FIRST + 2 * SimulationModel::FAIL_COUNT) {
+    //Failures: now, or later when a delay is chosen. Back in service is always now.
+    const irr::f32 delays[4] = { 0, 60, 180, 300 };
+    const irr::f32 delay = (trainDelayIndex >= 4) ? 120.0f + 480.0f * (std::rand() / (irr::f32)RAND_MAX) : delays[irr::core::clamp(trainDelayIndex, 0, 3)];
+    if (id >= GUI_ID_FAILURE_KEY_FIRST && id < GUI_ID_FAILURE_KEY_FIRST + 3 * SimulationModel::FAIL_COUNT) {
         const int k = id - GUI_ID_FAILURE_KEY_FIRST;
-        model->setFailure((SimulationModel::Failure)(k / 2), k % 2 == 1);
+        const int f = k / 3, level = k % 3;
+        if (level == SimulationModel::FAILURE_NONE) {
+            model->cancelScheduledFailure(f);
+            model->setFailureLevel((SimulationModel::Failure)f, level);
+        }
+        else if (delay > 0) { model->scheduleFailure(f, level, delay); }
+        else { model->setFailureLevel((SimulationModel::Failure)f, level); }
         return true;
+    }
+    if (id >= GUI_ID_FAILURE_DELAY_KEY_FIRST && id <= GUI_ID_FAILURE_DELAY_KEY_LAST) {
+        trainDelayIndex = id - GUI_ID_FAILURE_DELAY_KEY_FIRST;
+        return true;
+    }
+    if (id == GUI_ID_REPAIR_ALL_KEY) { model->repairAll(); return true; }
+    if (id == GUI_ID_FAILURE_REPORTED_KEY) { model->markFailureReported(); return true; }
+    //Steering keys: a failure with a delay is scheduled here; anything else goes on to the usual handling
+    {
+        int action = -1;
+        bool failing = false;
+        if (id == GUI_ID_RUDDERPUMP_1_FAILED_BUTTON || id == GUI_ID_RUDDERPUMP_1_WORKING_BUTTON) { action = SimulationModel::ACTION_PUMP_1; failing = (id == GUI_ID_RUDDERPUMP_1_FAILED_BUTTON); }
+        if (id == GUI_ID_RUDDERPUMP_2_FAILED_BUTTON || id == GUI_ID_RUDDERPUMP_2_WORKING_BUTTON) { action = SimulationModel::ACTION_PUMP_2; failing = (id == GUI_ID_RUDDERPUMP_2_FAILED_BUTTON); }
+        if (id == GUI_ID_FOLLOWUP_FAILED_BUTTON || id == GUI_ID_FOLLOWUP_WORKING_BUTTON) { action = SimulationModel::ACTION_FOLLOW_UP; failing = (id == GUI_ID_FOLLOWUP_FAILED_BUTTON); }
+        if (action >= 0) {
+            if (failing && delay > 0) { model->scheduleFailure(action, SimulationModel::FAILURE_FAILED, delay); return true; }
+            model->cancelScheduledFailure(action);
+            return false;
+        }
     }
     if (id >= GUI_ID_SIGNAL_KEY_FIRST && id < GUI_ID_SIGNAL_KEY_FIRST + 8) {
         const int k = id - GUI_ID_SIGNAL_KEY_FIRST;
@@ -5386,7 +5506,7 @@ bool GUIMain::handleTrainingButton(irr::s32 id)
             std::cout << "Exercise report written: " << path << std::endl;
             ConsoleWindow::openWithSystem(path);
         } else {
-            lastReportText = L"Impossible d'écrire le bilan";
+            lastReportText = L"Impossible d'\u00E9crire le bilan";
         }
         return true;
     }

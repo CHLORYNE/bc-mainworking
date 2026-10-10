@@ -456,11 +456,45 @@ public:
     //the user folder, Bilans/, at the end of the exercise or when the instructor asks for it.
     ExerciseLog& getExerciseLog() { return exerciseLog; }
 
-    //Failures the instructor can give: the engines stop, the gyro and GPS displays freeze (with
-    //"lost" shown), the radar goes off and cannot be switched on. The general alarm sounds.
+    //Failures the instructor can give, in two grades:
+    // - degraded (FAILURE_DEGRADED): an engine gives half power; the gyro drifts slowly and the GPS
+    //   position wanders off, both without any alarm (the student has to find it by cross-checking);
+    // - failed (FAILURE_FAILED): an engine stops; the gyro and GPS displays freeze ("lost" shown);
+    //   the radar goes off and cannot be switched on.
+    //What the sensors give (displays, NMEA) comes from getGyroHeading() and getGpsFix().
     enum Failure { FAIL_PORT_ENGINE, FAIL_STBD_ENGINE, FAIL_GYRO, FAIL_GPS, FAIL_RADAR, FAIL_COUNT };
-    void setFailure(Failure which, bool failed);
-    bool getFailure(Failure which) const;
+    enum FailureLevel { FAILURE_NONE = 0, FAILURE_DEGRADED = 1, FAILURE_FAILED = 2 };
+    void setFailure(Failure which, bool failed) { setFailureLevel(which, failed ? FAILURE_FAILED : FAILURE_NONE); }
+    bool getFailure(Failure which) const { return getFailureLevel(which) == FAILURE_FAILED; }
+    void setFailureLevel(Failure which, int level);
+    int getFailureLevel(Failure which) const;
+    irr::f32 getGyroError() const { return gyroError; }          //degrees, + = reads high
+    irr::f32 getGpsErrorMetres() const;                           //distance of the GPS position from the true one
+    //Sensor readings, failures included
+    irr::f32 getGyroHeading() const;
+    bool isGyroValid() const { return failureLevel[FAIL_GYRO] < FAILURE_FAILED; }
+    void getGpsFix(irr::f32& lat, irr::f32& lon, irr::f32& cogDeg, irr::f32& sogMps) const;
+    bool isGpsValid() const { return failureLevel[FAIL_GPS] < FAILURE_FAILED; }
+
+    //Failures given later (the student must not see it coming): an action (a Failure, or one of the
+    //steering ones below) to a level, after delaySeconds of exercise time.
+    enum { ACTION_PUMP_1 = 100, ACTION_PUMP_2 = 101, ACTION_FOLLOW_UP = 102 };
+    struct ScheduledFailure { int action; int level; irr::f32 at; };
+    void scheduleFailure(int action, int level, irr::f32 delaySeconds);
+    void cancelScheduledFailure(int action);
+    const std::vector<ScheduledFailure>& getScheduledFailures() const { return scheduledFailures; }
+    irr::f32 getFailureClock() const { return failureClock; }
+    static std::wstring failureActionName(int action, int level);
+    //Everything back in service (failures, steering, what was scheduled)
+    void repairAll();
+    //The instructor notes that the student has reported the last failure: its detection time goes in the debrief
+    void markFailureReported();
+
+    //Bridge alert list (like a central alert panel): one line per active alarm condition, red until
+    //acknowledged. Acknowledge (the console's button) acknowledges them all and silences the alarms.
+    struct BridgeAlert { int id; std::wstring text; irr::f32 since; bool acked; };
+    const std::vector<BridgeAlert>& getBridgeAlerts() const { return bridgeAlerts; }
+    void acknowledgeAlerts();
 
     //Sound signals on the whistle (COLREG rules 34 and 35): count short blasts (1, 2, 3, 5), or
     //count < 0 for prolonged blasts. Fog signals: automatic, every 2 minutes, one prolonged blast
@@ -471,7 +505,6 @@ public:
 
     //Echo sounder alarm (metres under the keel, 0 = off)
     void setDepthAlarm(irr::f32 limitMetres);
-    void acknowledgeDepthAlarm() { depthAlarmAcked = true; } //silences the beeper until the next time it goes shallow
     irr::f32 getDepthAlarm() const { return depthAlarmLimit; }
 
     //Man overboard mark: the position, kept with its bearing and distance shown on the GPS and radar
@@ -928,9 +961,20 @@ private:
     irr::f32 filteredRelBearing;   // low-pass filtered version of nearestRelBearing
     bool aimedAtOtherLatched;      // hysteresis state for the bow-aim cone
     ExerciseLog exerciseLog;
-    bool failures[FAIL_COUNT] = { false, false, false, false, false };
+    int failureLevel[FAIL_COUNT] = { 0, 0, 0, 0, 0 };
     irr::f32 requestedPortEngine = 0, requestedStbdEngine = 0;   //lever positions, kept through an engine failure
     irr::f32 frozenHeading = 0, frozenLat = 0, frozenLong = 0, frozenCog = 0, frozenSog = 0;
+    irr::f32 gyroError = 0, gyroDriftRate = 0;                   //degrees, degrees per second
+    irr::f32 gpsErrorX = 0, gpsErrorZ = 0, gpsDriftX = 0, gpsDriftZ = 0; //metres, metres per second
+    std::vector<ScheduledFailure> scheduledFailures;
+    irr::f32 failureClock = 0;                                    //exercise seconds (stops when paused)
+    irr::f32 lastFailureTime = -1;
+    std::wstring lastFailureName;
+    bool lastFailureReported = true;
+    std::vector<BridgeAlert> bridgeAlerts;
+    void applyFailureAction(int action, int level);
+    void updateFailures(irr::f32 deltaTime);
+    void updateBridgeAlerts();
     std::vector<irr::f32> hornSchedule;     //seconds on, off, on, off...
     size_t hornStep = 0;
     irr::f32 hornStepLeft = 0;

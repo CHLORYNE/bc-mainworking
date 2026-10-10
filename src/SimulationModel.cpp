@@ -1942,9 +1942,11 @@ void SimulationModel::setStbdAzimuthAngle(irr::f32 angle)
 
 void SimulationModel::setPortEngine(irr::f32 port)
 {
-    //Set the engine, (-ve astern, +ve ahead). A failed engine stays stopped whatever the lever says.
+    //Set the engine, (-ve astern, +ve ahead). A failed engine stays stopped whatever the lever says,
+    //one with reduced power gives half.
     requestedPortEngine = port;
-    ownShip.setPortEngine(failures[FAIL_PORT_ENGINE] ? 0.0f : port); //This method limits the range applied
+    ownShip.setPortEngine(failureLevel[FAIL_PORT_ENGINE] == FAILURE_FAILED ? 0.0f :
+        (failureLevel[FAIL_PORT_ENGINE] == FAILURE_DEGRADED ? irr::core::clamp(port, -0.5f, 0.5f) : port)); //This method limits the range applied
 
     //Set engine sound level
     // DEE_NOV22 unless this is a controllable pitch propellor,
@@ -1975,9 +1977,10 @@ void SimulationModel::setPortEngine(irr::f32 port)
 
 void SimulationModel::setStbdEngine(irr::f32 stbd)
 {
-    //Set the engine, (-ve astern, +ve ahead). A failed engine stays stopped whatever the lever says.
+    //Set the engine, (-ve astern, +ve ahead). As setPortEngine.
     requestedStbdEngine = stbd;
-    ownShip.setStbdEngine(failures[FAIL_STBD_ENGINE] ? 0.0f : stbd); //This method limits the range applied
+    ownShip.setStbdEngine(failureLevel[FAIL_STBD_ENGINE] == FAILURE_FAILED ? 0.0f :
+        (failureLevel[FAIL_STBD_ENGINE] == FAILURE_DEGRADED ? irr::core::clamp(stbd, -0.5f, 0.5f) : stbd)); //This method limits the range applied
 
     //Set engine sound level
     // DEE_NOV22 same comment as for port engine
@@ -2560,7 +2563,7 @@ void SimulationModel::setAlarm(bool alarmState)
 
 void SimulationModel::toggleRadarOn()
 {
-    if (failures[FAIL_RADAR] && !radarCalculation.isRadarOn()) { return; } //out of order: it does not come on
+    if (failureLevel[FAIL_RADAR] == FAILURE_FAILED && !radarCalculation.isRadarOn()) { return; } //out of order: it does not come on
     radarCalculation.toggleRadarOn();
 }
 
@@ -5650,15 +5653,16 @@ void SimulationModel::update()
         guiData->depth = ownShip.getDepth();
 
         //Failures: what the instruments show without their sensor
-        guiData->gyroLost = failures[FAIL_GYRO];
-        guiData->gpsLost = failures[FAIL_GPS];
-        guiData->radarFailed = failures[FAIL_RADAR];
-        if (failures[FAIL_GYRO]) { guiData->hdg = frozenHeading; }
-        if (failures[FAIL_GPS]) {
-            guiData->lat = frozenLat;
-            guiData->longitude = frozenLong;
-            guiData->cog = frozenCog;
-            guiData->sog = frozenSog;
+        guiData->gyroLost = !isGyroValid();
+        guiData->gpsLost = !isGpsValid();
+        guiData->radarFailed = failureLevel[FAIL_RADAR] == FAILURE_FAILED;
+        guiData->hdg = getGyroHeading();
+        getGpsFix(guiData->lat, guiData->longitude, guiData->cog, guiData->sog);
+        guiData->alertText.clear();
+        guiData->alertAcked.clear();
+        for (size_t i = 0; i < bridgeAlerts.size(); i++) {
+            guiData->alertText.push_back(bridgeAlerts[i].text);
+            guiData->alertAcked.push_back(bridgeAlerts[i].acked);
         }
         guiData->depthAlarmLimit = depthAlarmLimit;
         guiData->depthAlarm = depthAlarmActive;
@@ -5849,6 +5853,7 @@ void SimulationModel::update()
         //KYARA SLAM ^^^^
 
         updateSoundSignals(deltaTime);
+        updateFailures(deltaTime);
         //Echo sounder alarm: beeps while the depth under the keel is below the limit, until acknowledged
         if (depthAlarmLimit > 0) {
             const irr::f32 depthNow = ownShip.getDepth();
@@ -5866,6 +5871,7 @@ void SimulationModel::update()
         else {
             depthAlarmActive = false;
         }
+        updateBridgeAlerts();
         if (sound) { sound->setVolumeDepthAlarm((depthAlarmActive && !depthAlarmAcked) ? 1.0f : 0.0f); }
         updateExerciseLog();
 
@@ -5875,35 +5881,252 @@ void SimulationModel::update()
         guiMain->updateGuiData(guiData); //Set GUI heading in degrees and speed (in m/s)
     }
 }
-void SimulationModel::setFailure(Failure which, bool failed)
+void SimulationModel::setFailureLevel(Failure which, int level)
 {
-    if (which < 0 || which >= FAIL_COUNT || failures[which] == failed) { return; }
-    failures[which] = failed;
-    static const wchar_t* names[FAIL_COUNT] = { L"machine b\u00E2bord", L"machine tribord", L"gyrocompas", L"GPS", L"radar" };
-    logEvent(failed ? ExerciseLog::EV_FAILURE : ExerciseLog::EV_INSTRUCTOR,
-        failed ? (std::wstring(L"Panne : ") + names[which]) : (std::wstring(L"Remise en service : ") + names[which]));
+    if (which < 0 || which >= FAIL_COUNT) { return; }
+    level = irr::core::clamp(level, (int)FAILURE_NONE, (int)FAILURE_FAILED);
+    if (which == FAIL_RADAR && level == FAILURE_DEGRADED) { level = FAILURE_FAILED; } //the radar works or not
+    if (failureLevel[which] == level) { return; }
+    const int was = failureLevel[which];
+    //What the sensor showed just before it fails: kept frozen
+    if (which == FAIL_GYRO && level == FAILURE_FAILED) { frozenHeading = getGyroHeading(); }
+    if (which == FAIL_GPS && level == FAILURE_FAILED) { getGpsFix(frozenLat, frozenLong, frozenCog, frozenSog); }
+    failureLevel[which] = level;
+
     switch (which) {
-    case FAIL_PORT_ENGINE: ownShip.setPortEngine(failed ? 0.0f : requestedPortEngine); break;
-    case FAIL_STBD_ENGINE: ownShip.setStbdEngine(failed ? 0.0f : requestedStbdEngine); break;
-    case FAIL_GYRO: frozenHeading = ownShip.getHeading(); break;
+    case FAIL_PORT_ENGINE: setPortEngine(requestedPortEngine); break;
+    case FAIL_STBD_ENGINE: setStbdEngine(requestedStbdEngine); break;
+    case FAIL_GYRO:
+        if (level == FAILURE_DEGRADED && gyroDriftRate == 0) {
+            //Slow drift, one way or the other: 0.4 to 0.8 degrees a minute
+            gyroDriftRate = (0.4f + 0.4f * (std::rand() / (irr::f32)RAND_MAX)) / 60.0f * ((std::rand() % 2) ? 1.0f : -1.0f);
+        }
+        if (level == FAILURE_NONE) { gyroError = 0; gyroDriftRate = 0; }
+        break;
     case FAIL_GPS:
-        frozenLat = getLat();
-        frozenLong = getLong();
-        frozenCog = ownShip.getCOG();
-        frozenSog = ownShip.getSOG();
+        if (level == FAILURE_DEGRADED && gpsDriftX == 0 && gpsDriftZ == 0) {
+            //The position walks away at 15 to 30 metres a minute, in any direction
+            const irr::f32 dir = (std::rand() / (irr::f32)RAND_MAX) * 2.0f * irr::core::PI;
+            const irr::f32 speed = (15.0f + 15.0f * (std::rand() / (irr::f32)RAND_MAX)) / 60.0f;
+            gpsDriftX = speed * sin(dir);
+            gpsDriftZ = speed * cos(dir);
+        }
+        if (level == FAILURE_NONE) { gpsErrorX = gpsErrorZ = gpsDriftX = gpsDriftZ = 0; }
         break;
     case FAIL_RADAR:
-        if (failed && radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
-        if (!failed && !radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
+        if (level == FAILURE_FAILED && radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
+        if (level == FAILURE_NONE && !radarCalculation.isRadarOn()) { radarCalculation.toggleRadarOn(); }
         break;
     default: break;
     }
-    if (failed) { setAlarm(true); } //(silenced with "Acquitter")
+
+    const std::wstring name = failureActionName(which, level > 0 ? level : was);
+    if (level > FAILURE_NONE) {
+        logEvent(ExerciseLog::EV_FAILURE, L"Panne : " + name);
+        lastFailureTime = failureClock;
+        lastFailureName = name;
+        lastFailureReported = false;
+    }
+    else {
+        logEvent(ExerciseLog::EV_INSTRUCTOR, L"Remise en service : " + name);
+    }
 }
 
-bool SimulationModel::getFailure(Failure which) const
+int SimulationModel::getFailureLevel(Failure which) const
 {
-    return (which >= 0 && which < FAIL_COUNT) ? failures[which] : false;
+    return (which >= 0 && which < FAIL_COUNT) ? failureLevel[which] : FAILURE_NONE;
+}
+
+std::wstring SimulationModel::failureActionName(int action, int level)
+{
+    switch (action) {
+    case FAIL_PORT_ENGINE: return level == FAILURE_DEGRADED ? L"machine b\u00E2bord (puissance r\u00E9duite)" : L"machine b\u00E2bord";
+    case FAIL_STBD_ENGINE: return level == FAILURE_DEGRADED ? L"machine tribord (puissance r\u00E9duite)" : L"machine tribord";
+    case FAIL_GYRO: return level == FAILURE_DEGRADED ? L"gyrocompas (d\u00E9rive)" : L"gyrocompas";
+    case FAIL_GPS: return level == FAILURE_DEGRADED ? L"GPS (d\u00E9rive de la position)" : L"GPS (perte de position)";
+    case FAIL_RADAR: return L"radar";
+    case ACTION_PUMP_1: return L"pompe de barre 1";
+    case ACTION_PUMP_2: return L"pompe de barre 2";
+    case ACTION_FOLLOW_UP: return L"barre asservie";
+    default: return L"?";
+    }
+}
+
+irr::f32 SimulationModel::getGyroHeading() const
+{
+    if (failureLevel[FAIL_GYRO] == FAILURE_FAILED) { return frozenHeading; }
+    irr::f32 h = std::fmod(ownShip.getHeading() + gyroError, 360.0f);
+    if (h < 0) { h += 360.0f; }
+    return h;
+}
+
+irr::f32 SimulationModel::getGpsErrorMetres() const
+{
+    return std::sqrt(gpsErrorX * gpsErrorX + gpsErrorZ * gpsErrorZ);
+}
+
+void SimulationModel::getGpsFix(irr::f32& lat, irr::f32& lon, irr::f32& cogDeg, irr::f32& sogMps) const
+{
+    if (failureLevel[FAIL_GPS] == FAILURE_FAILED) {
+        lat = frozenLat; lon = frozenLong; cogDeg = frozenCog; sogMps = frozenSog;
+        return;
+    }
+    lat = getLat();
+    lon = getLong();
+    cogDeg = ownShip.getCOG();
+    sogMps = ownShip.getSOG();
+    if (gpsErrorX != 0 || gpsErrorZ != 0 || gpsDriftX != 0 || gpsDriftZ != 0) {
+        //The wandering position, and the course and speed it makes good
+        lat += gpsErrorZ / (M_IN_NM * 60.0f);
+        const irr::f32 cosLat = std::cos(lat * irr::core::DEGTORAD);
+        if (cosLat > 0.01f) { lon += gpsErrorX / (M_IN_NM * 60.0f * cosLat); }
+        const irr::f32 vx = sogMps * std::sin(cogDeg * irr::core::DEGTORAD) + gpsDriftX;
+        const irr::f32 vz = sogMps * std::cos(cogDeg * irr::core::DEGTORAD) + gpsDriftZ;
+        sogMps = std::sqrt(vx * vx + vz * vz);
+        cogDeg = std::atan2(vx, vz) * irr::core::RADTODEG;
+        if (cogDeg < 0) { cogDeg += 360.0f; }
+    }
+}
+
+void SimulationModel::scheduleFailure(int action, int level, irr::f32 delaySeconds)
+{
+    cancelScheduledFailure(action);
+    ScheduledFailure f;
+    f.action = action;
+    f.level = level;
+    f.at = failureClock + std::max(0.0f, delaySeconds);
+    scheduledFailures.push_back(f);
+    logEvent(ExerciseLog::EV_INSTRUCTOR, L"Panne programm\u00E9e dans " + std::to_wstring((int)(delaySeconds + 0.5f)) + L" s : " + failureActionName(action, level));
+}
+
+void SimulationModel::cancelScheduledFailure(int action)
+{
+    for (size_t i = 0; i < scheduledFailures.size(); ) {
+        if (scheduledFailures[i].action == action) { scheduledFailures.erase(scheduledFailures.begin() + i); }
+        else { i++; }
+    }
+}
+
+void SimulationModel::applyFailureAction(int action, int level)
+{
+    if (action >= 0 && action < FAIL_COUNT) { setFailureLevel((Failure)action, level); return; }
+    const bool working = (level == FAILURE_NONE);
+    if (action == ACTION_PUMP_1 || action == ACTION_PUMP_2) {
+        setRudderPumpState(action == ACTION_PUMP_1 ? 1 : 2, working);
+    }
+    else if (action == ACTION_FOLLOW_UP) {
+        setFollowUpRudderWorking(working);
+    }
+    else { return; }
+    if (!working) {
+        lastFailureTime = failureClock;
+        lastFailureName = failureActionName(action, level);
+        lastFailureReported = false;
+    }
+}
+
+void SimulationModel::repairAll()
+{
+    scheduledFailures.clear();
+    for (int f = 0; f < FAIL_COUNT; f++) { setFailureLevel((Failure)f, FAILURE_NONE); }
+    if (!getRudderPumpState(1)) { setRudderPumpState(1, true); }
+    if (!getRudderPumpState(2)) { setRudderPumpState(2, true); }
+    if (!getFollowUpRudderWorking()) { setFollowUpRudderWorking(true); }
+    setAlarm(false);
+    logEvent(ExerciseLog::EV_INSTRUCTOR, L"Tout est remis en service");
+}
+
+void SimulationModel::markFailureReported()
+{
+    if (lastFailureTime < 0) { return; }
+    const int secs = (int)(failureClock - lastFailureTime + 0.5f);
+    wchar_t buf[48];
+    swprintf(buf, 48, L"%d min %02d s", secs / 60, secs % 60);
+    logEvent(ExerciseLog::EV_INFO, std::wstring(lastFailureReported ? L"Avarie signal\u00E9e de nouveau par le stagiaire, " : L"Avarie signal\u00E9e par le stagiaire, ")
+        + buf + L" apr\u00E8s la panne : " + lastFailureName);
+    lastFailureReported = true;
+}
+
+void SimulationModel::updateFailures(irr::f32 deltaTime)
+{
+    failureClock += deltaTime;
+    //Drifts (capped: past that, nobody could miss them)
+    if (failureLevel[FAIL_GYRO] == FAILURE_DEGRADED) {
+        gyroError = irr::core::clamp(gyroError + gyroDriftRate * deltaTime, -25.0f, 25.0f);
+    }
+    if (failureLevel[FAIL_GPS] == FAILURE_DEGRADED && getGpsErrorMetres() < 2.0f * M_IN_NM) {
+        gpsErrorX += gpsDriftX * deltaTime;
+        gpsErrorZ += gpsDriftZ * deltaTime;
+    }
+    //Failures that are due
+    for (size_t i = 0; i < scheduledFailures.size(); ) {
+        if (failureClock >= scheduledFailures[i].at) {
+            const ScheduledFailure f = scheduledFailures[i];
+            scheduledFailures.erase(scheduledFailures.begin() + i);
+            applyFailureAction(f.action, f.level);
+        }
+        else { i++; }
+    }
+}
+
+void SimulationModel::updateBridgeAlerts()
+{
+    //The conditions present now
+    std::vector<std::pair<int, std::wstring> > now;
+    if (!getRudderPumpState(1)) { now.push_back(std::make_pair(0, std::wstring(L"POMPE DE BARRE 1 EN PANNE"))); }
+    if (!getRudderPumpState(2)) { now.push_back(std::make_pair(1, std::wstring(L"POMPE DE BARRE 2 EN PANNE"))); }
+    if (!getFollowUpRudderWorking()) { now.push_back(std::make_pair(2, std::wstring(L"BARRE ASSERVIE EN PANNE"))); }
+    const wchar_t* side[2] = { L"MACHINE B\u00C2BORD", L"MACHINE TRIBORD" };
+    for (int e = 0; e < 2; e++) {
+        const int level = failureLevel[e == 0 ? FAIL_PORT_ENGINE : FAIL_STBD_ENGINE];
+        if (level == FAILURE_FAILED) { now.push_back(std::make_pair(3 + e, std::wstring(side[e]) + L" : ARR\u00CAT")); }
+        if (level == FAILURE_DEGRADED) { now.push_back(std::make_pair(3 + e, std::wstring(side[e]) + L" : PUISSANCE R\u00C9DUITE")); }
+    }
+    //(a drift gives no alarm: it has to be found)
+    if (failureLevel[FAIL_GYRO] == FAILURE_FAILED) { now.push_back(std::make_pair(5, std::wstring(L"GYRO : D\u00C9FAUT"))); }
+    if (failureLevel[FAIL_GPS] == FAILURE_FAILED) { now.push_back(std::make_pair(6, std::wstring(L"GPS : PERTE DE POSITION"))); }
+    if (failureLevel[FAIL_RADAR] == FAILURE_FAILED) { now.push_back(std::make_pair(7, std::wstring(L"RADAR : D\u00C9FAUT"))); }
+    if (depthAlarmActive) {
+        wchar_t buf[48];
+        swprintf(buf, 48, L"SONDEUR : FOND < %.0f m", depthAlarmLimit);
+        now.push_back(std::make_pair(8, std::wstring(buf)));
+    }
+
+    //Gone: cleared
+    for (size_t i = 0; i < bridgeAlerts.size(); ) {
+        bool still = false;
+        for (size_t j = 0; j < now.size(); j++) { if (now[j].first == bridgeAlerts[i].id) { still = true; break; } }
+        if (still) { i++; } else { bridgeAlerts.erase(bridgeAlerts.begin() + i); }
+    }
+    //New, or changed (e.g. reduced power to stopped): unacknowledged, and the alarm sounds
+    for (size_t j = 0; j < now.size(); j++) {
+        BridgeAlert* found = 0;
+        for (size_t i = 0; i < bridgeAlerts.size(); i++) { if (bridgeAlerts[i].id == now[j].first) { found = &bridgeAlerts[i]; break; } }
+        if (found && found->text == now[j].second) { continue; }
+        if (!found) {
+            BridgeAlert a;
+            a.id = now[j].first;
+            bridgeAlerts.push_back(a);
+            found = &bridgeAlerts.back();
+        }
+        found->text = now[j].second;
+        found->since = failureClock;
+        found->acked = false;
+        logEvent(ExerciseLog::EV_ALARM, L"Alerte passerelle : " + now[j].second);
+        if (now[j].first != 8) { setAlarm(true); } //(the echo sounder has its own beeper)
+        else { depthAlarmAcked = false; }
+    }
+}
+
+void SimulationModel::acknowledgeAlerts()
+{
+    depthAlarmAcked = true; //the echo sounder's beeper, until the next time it goes shallow
+    for (size_t i = 0; i < bridgeAlerts.size(); i++) {
+        if (bridgeAlerts[i].acked) { continue; }
+        bridgeAlerts[i].acked = true;
+        const int secs = (int)(failureClock - bridgeAlerts[i].since + 0.5f);
+        logEvent(ExerciseLog::EV_INFO, L"Alerte acquitt\u00E9e en " + std::to_wstring(secs) + L" s : " + bridgeAlerts[i].text);
+    }
 }
 
 void SimulationModel::soundSignal(int count)
