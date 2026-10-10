@@ -51,6 +51,7 @@ private:
     OperatingMode::Mode mode;
 
     void receiveMessage();
+    void instructorCommand(const std::string& command); //from the multiplayer instructor station
 
 };
 

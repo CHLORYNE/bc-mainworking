@@ -5658,6 +5658,7 @@ void SimulationModel::update()
         guiData->radarFailed = failureLevel[FAIL_RADAR] == FAILURE_FAILED;
         guiData->hdg = getGyroHeading();
         getGpsFix(guiData->lat, guiData->longitude, guiData->cog, guiData->sog);
+        guiData->instructorMessage = (failureClock - instructorMessageAt < 30.0f) ? instructorMessage : std::wstring();
         guiData->alertText.clear();
         guiData->alertAcked.clear();
         for (size_t i = 0; i < bridgeAlerts.size(); i++) {
@@ -6023,6 +6024,38 @@ void SimulationModel::applyFailureAction(int action, int level)
         lastFailureName = failureActionName(action, level);
         lastFailureReported = false;
     }
+}
+
+void SimulationModel::instructorFailure(int action, int level, irr::f32 delaySeconds)
+{
+    cancelScheduledFailure(action);
+    if (level > FAILURE_NONE && delaySeconds > 0) { scheduleFailure(action, level, delaySeconds); }
+    else { applyFailureAction(action, level); }
+}
+
+void SimulationModel::showInstructorMessage(const std::wstring& text)
+{
+    instructorMessage = text;
+    instructorMessageAt = failureClock;
+    logEvent(ExerciseLog::EV_INSTRUCTOR, L"Message de l'instructeur : " + text);
+}
+
+//What the instructor station shows of this ship (fields separated by commas, see the hub)
+std::string SimulationModel::instructorStatus()
+{
+    int unacked = 0;
+    irr::f32 oldest = 0;
+    for (size_t i = 0; i < bridgeAlerts.size(); i++) {
+        if (!bridgeAlerts[i].acked) { unacked++; oldest = std::max(oldest, failureClock - bridgeAlerts[i].since); }
+    }
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%d,%d,%d,%.1f,%d,%.1f,%.0f,%d,%d",
+        failureLevel[0], failureLevel[1], failureLevel[2], failureLevel[3], failureLevel[4],
+        getRudderPumpState(1) ? 1 : 0, getRudderPumpState(2) ? 1 : 0, getFollowUpRudderWorking() ? 1 : 0,
+        (int)bridgeAlerts.size(), unacked, oldest,
+        exerciseLog.count(ExerciseLog::EV_COLLISION), exerciseLog.count(ExerciseLog::EV_GROUNDING), exerciseLog.count(ExerciseLog::EV_CONTACT),
+        ownShip.getDepth(), depthAlarmActive ? 1 : 0, gyroError, getGpsErrorMetres(), (int)scheduledFailures.size(), weatherByInstructor ? 1 : 0);
+    return buf;
 }
 
 void SimulationModel::repairAll()

@@ -30,12 +30,14 @@ public:
     bool OnEvent(const irr::SEvent& event);
 
     irr::f32 getAccelerator() const;
+    void setGuiEnvironment(irr::gui::IGUIEnvironment* env) { guienv = env; }
 
 private:
 
     irr::f32 accelerator;
     irr::s32 pauseButtonID;
     irr::s32 runButtonID;
+    irr::gui::IGUIEnvironment* guienv = 0;
 
 };
 

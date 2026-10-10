@@ -225,7 +225,7 @@ irr::f32 WeatherPanel::value(Param p) const
 
 void WeatherPanel::setValue(Param p, irr::f32 v)
 {
-    if (!model) { return; }
+    if (!model || model->getWeatherByInstructor()) { return; } //multiplayer: the instructor has the weather
     switch (p) {
     case P_CLOUD: model->setCloudCover(v / 100.0f); break;
     case P_WIND: model->setWindSpeed(v); break;
@@ -277,6 +277,7 @@ int WeatherPanel::choiceIndex(Param p) const
 
 void WeatherPanel::setChoice(Param p, int index)
 {
+    if (model && model->getWeatherByInstructor() && p != P_TRANSITION) { return; }
     switch (p) {
     case P_SIGWX: if (model) { model->setSignificantWeather(index); } break;
     case P_TRANSITION: transitionIndex = irr::core::clamp(index, 0, 4); break;
@@ -323,7 +324,7 @@ irr::f32 WeatherPanel::transitionSeconds() const
 
 void WeatherPanel::applyPreset(int index)
 {
-    if (!model || index < 0 || index >= (int)presets.size()) { return; }
+    if (!model || index < 0 || index >= (int)presets.size() || model->getWeatherByInstructor()) { return; }
     const Preset& p = presets[index];
     SimulationModel::WeatherState s = model->getWeatherState();
     s.cloud = p.cloud;
@@ -617,7 +618,10 @@ void WeatherPanel::draw()
     fonts.title->drawIn(L"M\u00C9T\u00C9O", irr::core::rect<irr::f32>(tx + 42 * k, header.UpperLeftCorner.Y, tx + 300 * k, header.LowerRightCorner.Y),
         pal.text, HudFont::Left, 1.5f * k);
     std::wstring status;
-    if (model && model->getWeatherFront() != 0) {
+    if (model && model->getWeatherByInstructor()) {
+        status = model->isWeatherChanging() ? L"M\u00E9t\u00E9o pilot\u00E9e par l'instructeur  \u00B7  changement en cours" : L"M\u00E9t\u00E9o pilot\u00E9e par l'instructeur";
+    }
+    else if (model && model->getWeatherFront() != 0) {
         wchar_t text[96];
         swprintf(text, 96, L"Perturbation en cours  \u00B7  %d %%", (int)(model->getWeatherFrontProgress() * 100.0f + 0.5f));
         status = text;

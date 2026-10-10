@@ -3226,6 +3226,7 @@ void GUIMain::updateGuiData(GUIData* guiData)
     guiGyroLost = guiData->gyroLost;
     guiAlertText = guiData->alertText;
     guiAlertAcked = guiData->alertAcked;
+    guiInstructorMessage = guiData->instructorMessage;
     guiGpsLost = guiData->gpsLost;
     guiRadarFailed = guiData->radarFailed;
     guiDepthAlarm = guiData->depthAlarm;
@@ -4035,6 +4036,7 @@ void GUIMain::drawGUI()
         }
     }
     drawBridgeAlerts();
+    drawInstructorMessage();
     guienv->drawAll();
 
     //draw the heading line on the radar
@@ -5444,6 +5446,26 @@ void GUIMain::drawBridgeAlerts()
         if (!acked && !flashOn) { continue; } //flashing
         font->draw(guiAlertText[i].c_str(), irr::core::rect<irr::s32>(x + 12, y + 4 + lineH * (irr::s32)(i + 1), x + w, y + 4 + lineH * (irr::s32)(i + 2)), acked ? amber : red);
     }
+}
+
+//A message from the instructor station (multiplayer): a band at the top centre of the view
+void GUIMain::drawInstructorMessage()
+{
+    if (guiInstructorMessage.empty()) { return; }
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) { return; }
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const std::wstring title = L"MESSAGE DE L'INSTRUCTEUR";
+    const irr::s32 lineH = (irr::s32)font->getDimension(L"A").Height + 8;
+    const irr::s32 w = std::max((irr::s32)font->getDimension(guiInstructorMessage.c_str()).Width, (irr::s32)font->getDimension(title.c_str()).Width) + 40;
+    const irr::s32 cx = (irr::s32)driver->getScreenSize().Width / 2;
+    const irr::core::rect<irr::s32> r(cx - w / 2, 12, cx + w / 2, 12 + 2 * lineH + 12);
+    driver->draw2DRectangle(irr::video::SColor(225, 10, 24, 48), r);
+    driver->draw2DRectangle(irr::video::SColor(255, 64, 156, 240), irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 3));
+    font->draw(title.c_str(), irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + 6, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 6 + lineH),
+        irr::video::SColor(255, 140, 190, 255), true, true);
+    font->draw(guiInstructorMessage.c_str(), irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + 6 + lineH, r.LowerRightCorner.X, r.LowerRightCorner.Y - 4),
+        irr::video::SColor(255, 255, 255, 255), true, true);
 }
 
 bool GUIMain::handleTrainingButton(irr::s32 id)

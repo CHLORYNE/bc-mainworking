@@ -102,6 +102,10 @@
     <ClCompile Include="..\multiplayerHub\ShipPositions.cpp" />
     <ClCompile Include="..\multiplayerHub\StartupEventReceiver.cpp" />
     <ClCompile Include="..\multiplayerHub\main.cpp" />
+    <ClCompile Include="..\multiplayerHub\InstructorStation.cpp" />
+    <ClCompile Include="..\chartView\ChartView.cpp" />
+    <ClCompile Include="..\chartView\ChartDraw.cpp" />
+    <ClCompile Include="..\IncidentConfig.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\GUIPanelDraw.hpp" />
@@ -111,6 +115,10 @@
     <ClInclude Include="..\Lang.hpp" />
     <ClInclude Include="..\Utilities.hpp" />
     <ClInclude Include="..\multiplayerHub\EventReceiver.hpp" />
+    <ClInclude Include="..\multiplayerHub\InstructorStation.hpp" />
+    <ClInclude Include="..\chartView\ChartView.hpp" />
+    <ClInclude Include="..\chartView\ChartDraw.hpp" />
+    <ClInclude Include="..\IncidentConfig.hpp" />
     <ClInclude Include="..\multiplayerHub\LinesData.hpp" />
     <ClInclude Include="..\multiplayerHub\Network.hpp" />
     <ClInclude Include="..\multiplayerHub\ScenarioChoice.hpp" />

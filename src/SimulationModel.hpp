@@ -490,6 +490,15 @@ public:
     //The instructor notes that the student has reported the last failure: its detection time goes in the debrief
     void markFailureReported();
 
+    //Multiplayer instructor station (the hub): failures it gives (now, later, or back in service),
+    //the weather it imposes (the student's weather window is then locked), messages it sends,
+    //and the state reported back to it.
+    void instructorFailure(int action, int level, irr::f32 delaySeconds);
+    void setWeatherByInstructor(bool on) { weatherByInstructor = on; }
+    bool getWeatherByInstructor() const { return weatherByInstructor; }
+    void showInstructorMessage(const std::wstring& text);
+    std::string instructorStatus();
+
     //Bridge alert list (like a central alert panel): one line per active alarm condition, red until
     //acknowledged. Acknowledge (the console's button) acknowledges them all and silences the alarms.
     struct BridgeAlert { int id; std::wstring text; irr::f32 since; bool acked; };
@@ -972,6 +981,9 @@ private:
     std::wstring lastFailureName;
     bool lastFailureReported = true;
     std::vector<BridgeAlert> bridgeAlerts;
+    bool weatherByInstructor = false;
+    std::wstring instructorMessage;
+    irr::f32 instructorMessageAt = -1000;
     void applyFailureAction(int action, int level);
     void updateFailures(irr::f32 deltaTime);
     void updateBridgeAlerts();

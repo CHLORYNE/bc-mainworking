@@ -105,6 +105,7 @@ struct GUIData {
     bool gpsLost = false;
     bool radarFailed = false;
     std::vector<std::wstring> alertText;  //bridge alert list
+    std::wstring instructorMessage;       //from the instructor station, shown for 30 s
     std::vector<bool> alertAcked;
     irr::f32 depthAlarmLimit = 0;   //m, 0 = off
     bool depthAlarm = false;        //under the limit now
@@ -831,7 +832,9 @@ private:
     bool guiGyroLost = false, guiGpsLost = false, guiRadarFailed = false, guiDepthAlarm = false, guiMobOn = false;
     std::vector<std::wstring> guiAlertText;  //bridge alert list
     std::vector<bool> guiAlertAcked;
+    std::wstring guiInstructorMessage;
     void drawBridgeAlerts();
+    void drawInstructorMessage();
     int trainDelayIndex = 0;                 //failures: now, in 1, 3, 5 min, or at random
     irr::f32 guiDepthAlarmLimit = 0, guiMobBrg = 0, guiMobNm = 0;
     std::vector<ARPAEstimatedState> arpaContactStates;

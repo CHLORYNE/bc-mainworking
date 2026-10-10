@@ -565,6 +565,9 @@ void NetworkSecondary::receiveMessage()
 
                     // Mooring/towing lines
                     multiplayerFeedback.append(makeNetworkLinesString(model));
+                    // The state the instructor station shows (failures, alerts, contacts, depth...)
+                    multiplayerFeedback.append("#");
+                    multiplayerFeedback.append(model->instructorStatus());
 
                     //Send back to event.peer
                     ENetPacket* packet = enet_packet_create (multiplayerFeedback.c_str(), strlen (multiplayerFeedback.c_str()) + 1,0/*reliable flag*/);
@@ -677,10 +680,88 @@ void NetworkSecondary::receiveMessage()
             }
 
         }
+        else if (receivedString.substr(0,2).compare("IC") == 0 ) { //From the multiplayer instructor station
+            instructorCommand(receivedString.substr(2));
+        }
 	else if(receivedString.substr(0,2).compare("SD") == 0 )
 	{
 	  device->closeDevice();
 	}
     }
 
+}
+
+//Commands from the multiplayer instructor station (the hub), sent reliably, once:
+// ICW,cloud,windKn,windDir,windVariation,gustKn,visibilityNm,rain,snow,dust,sea,significant,seconds,streamMode,streamDir,streamKn,hour,lock
+//     (streamMode -1: unchanged, 0: the area's tide, 1: imposed; hour < 0: unchanged; lock 1: the student's weather window is locked)
+// ICF,action,level,delaySeconds   a failure (see SimulationModel::instructorFailure)
+// ICR                              everything back in service
+// ICO                              man overboard
+// ICT,text                         a message, each character as 4 hex digits
+// ICL,0|1                          weather window unlocked / locked
+void NetworkSecondary::instructorCommand(const std::string& command)
+{
+    std::vector<std::string> parts = Utilities::split(command, ',');
+    if (parts.empty() || !model) { return; }
+    const std::string kind = parts.at(0);
+    try {
+        if (kind == "W" && parts.size() >= 18) {
+            SimulationModel::WeatherState w;
+            w.cloud = Utilities::lexical_cast<irr::f32>(parts.at(1));
+            w.windKn = Utilities::lexical_cast<irr::f32>(parts.at(2));
+            w.windDir = Utilities::lexical_cast<irr::f32>(parts.at(3));
+            w.windVariation = Utilities::lexical_cast<irr::f32>(parts.at(4));
+            w.gustKn = Utilities::lexical_cast<irr::f32>(parts.at(5));
+            w.visibilityNm = Utilities::lexical_cast<irr::f32>(parts.at(6));
+            w.rain = Utilities::lexical_cast<irr::f32>(parts.at(7));
+            w.snow = Utilities::lexical_cast<irr::f32>(parts.at(8));
+            w.dust = Utilities::lexical_cast<irr::f32>(parts.at(9));
+            w.sea = Utilities::lexical_cast<irr::f32>(parts.at(10));
+            const int significant = Utilities::lexical_cast<int>(parts.at(11));
+            const irr::f32 seconds = Utilities::lexical_cast<irr::f32>(parts.at(12));
+            const int streamMode = Utilities::lexical_cast<int>(parts.at(13));
+            const irr::f32 streamDir = Utilities::lexical_cast<irr::f32>(parts.at(14));
+            const irr::f32 streamKn = Utilities::lexical_cast<irr::f32>(parts.at(15));
+            const irr::f32 hour = Utilities::lexical_cast<irr::f32>(parts.at(16));
+            const bool lock = parts.at(17) == "1";
+            model->setWeatherByInstructor(false); //(so that the setters below are not refused)
+            model->setWeatherState(w, seconds);
+            model->setSignificantWeather(significant);
+            if (streamMode == 0) { model->setStreamOverride(false); }
+            if (streamMode == 1) {
+                model->setStreamOverrideDirection(streamDir);
+                model->setStreamOverrideSpeed(streamKn);
+                model->setStreamOverride(true);
+            }
+            if (hour >= 0) { model->setLightingTimeOfDay(hour); }
+            model->setWeatherByInstructor(lock);
+            wchar_t text[160];
+            swprintf(text, 160, L"M\u00E9t\u00E9o impos\u00E9e par l'instructeur : vent %.0f nd du %03.0f, mer %.1f, visibilit\u00E9 %.1f NM", w.windKn, w.windDir, w.sea, w.visibilityNm);
+            model->logEvent(ExerciseLog::EV_INSTRUCTOR, text);
+        }
+        else if (kind == "F" && parts.size() >= 4) {
+            model->instructorFailure(Utilities::lexical_cast<int>(parts.at(1)), Utilities::lexical_cast<int>(parts.at(2)),
+                Utilities::lexical_cast<irr::f32>(parts.at(3)));
+        }
+        else if (kind == "R") {
+            model->repairAll();
+        }
+        else if (kind == "O") {
+            model->releaseManOverboard();
+        }
+        else if (kind == "T" && parts.size() >= 2) {
+            const std::string hex = command.substr(2); //all after "T," (the text may hold commas)
+            std::wstring text;
+            for (size_t i = 0; i + 4 <= hex.size(); i += 4) {
+                text += (wchar_t)std::stoi(hex.substr(i, 4), 0, 16);
+            }
+            if (!text.empty()) { model->showInstructorMessage(text); }
+        }
+        else if (kind == "L" && parts.size() >= 2) {
+            model->setWeatherByInstructor(parts.at(1) == "1");
+        }
+    }
+    catch (const std::exception&) {
+        //A malformed command is ignored
+    }
 }

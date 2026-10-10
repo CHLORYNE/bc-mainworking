@@ -11,6 +11,10 @@ add_executable(bridgecommand-mh
     ShipPositions.cpp
     StartupEventReceiver.cpp
     EventReceiver.cpp
+    InstructorStation.cpp
+    ../chartView/ChartView.cpp
+    ../chartView/ChartDraw.cpp
+    ../IncidentConfig.cpp
 )
 
 target_link_libraries(bridgecommand-mh
