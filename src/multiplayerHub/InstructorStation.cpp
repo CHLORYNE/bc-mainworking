@@ -36,7 +36,7 @@ InstructorStation::InstructorStation(irr::IrrlichtDevice* device, bool french, c
     bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont), scenarioWeather(scenarioWeather),
     messageBox(0), running(false), accelerator(0), scenarioTime(0), lines(0),
     chart(0), chartLoaded(false), chartFittedShips(0), chartTouched(false), dragging(false), dragMoved(false),
-    selected(-1), weatherPreset(-1), windDirIndex(0), transitionIndex(1), hourIndex(0), delayIndex(0)
+    selected(-1), stationScroll(0), weatherPreset(-1), windDirIndex(0), transitionIndex(1), hourIndex(0), delayIndex(0)
 {
     //The same presets as the simulator's weather window:
     //name, cloud, wind, variation, gusts, visibility, rain, snow, dust, sea, significant
@@ -86,6 +86,7 @@ InstructorStation::InstructorStation(irr::IrrlichtDevice* device, bool french, c
     messageBox->setMax(120);
     if (smallFont) { messageBox->setOverrideFont(smallFont); }
     layout();
+    Environment->setFocus(this); //the mouse wheel goes to the focused element: the chart and the list get it at once
 }
 
 InstructorStation::~InstructorStation()
@@ -100,7 +101,10 @@ void InstructorStation::layout()
     const irr::f32 leftW = 340, rightW = 450;
     clockCard = irr::core::rect<irr::f32>(20, top, 20 + leftW, top + 220);
     weatherCard = irr::core::rect<irr::f32>(20, clockCard.LowerRightCorner.Y + 12, 20 + leftW, bottom);
-    const irr::f32 stationsH = irr::core::clamp(70.0f + 48.0f * (stationCount + 1), 170.0f, 410.0f);
+    //The station list grows with the students, but always leaves the failures panel its room
+    //(with many students its rows become one line, then it scrolls)
+    const irr::f32 maxStationsH = std::max(170.0f, (bottom - top) - 12.0f - 490.0f);
+    const irr::f32 stationsH = irr::core::clamp(70.0f + 48.0f * (stationCount + 1), 170.0f, maxStationsH);
     stationCard = irr::core::rect<irr::f32>(W - 20 - rightW, top, W - 20, top + stationsH);
     failureCard = irr::core::rect<irr::f32>(W - 20 - rightW, stationCard.LowerRightCorner.Y + 12, W - 20, bottom);
     chartCard = irr::core::rect<irr::f32>(20 + leftW + 16, top, W - 20 - rightW - 16, bottom);
@@ -349,8 +353,10 @@ void InstructorStation::drawChart(irr::gui::PanelBatch& b)
             const irr::core::vector2df q = toScreen(s.x + dist * std::sin(a), s.z + dist * std::cos(a));
             if (inside(q)) { b.line(p, q, 1.5f, Ui::alpha(col, 200)); }
         }
-        std::wstring name = std::to_wstring(i + 1) + L"  " + (s.ship.empty() ? s.host : s.ship);
-        label(smallFont, name, irr::core::rect<irr::f32>(p.X + 16, p.Y - 20, p.X + 300, p.Y - 2), col, 0, false);
+        //Many students: the number only (as in the list), the full name for the selected one
+        const bool fullName = stations.size() <= 4 || (int)i == selected;
+        std::wstring name = std::to_wstring(i + 1) + (fullName ? L"  " + (s.ship.empty() ? s.host : s.ship) : std::wstring());
+        label(fullName ? smallFont : textFont, name, irr::core::rect<irr::f32>(p.X + 14, p.Y - 22, p.X + 300, p.Y - 2), col, 0, false);
     }
 
     //Scale bar
@@ -421,7 +427,20 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
 {
     const irr::f32 x0 = stationCard.UpperLeftCorner.X + 16, x1 = stationCard.LowerRightCorner.X - 16, y0 = stationCard.UpperLeftCorner.Y;
     label(textFont, french ? L"Postes des stagiaires" : L"Student stations", irr::core::rect<irr::f32>(x0 + 4, y0 + 10, x1, y0 + 38), Ui::text);
-    label(smallFont, std::to_wstring(stations.size()), irr::core::rect<irr::f32>(x0, y0 + 10, x1 - 4, y0 + 38), Ui::textDim, 2);
+
+    //Two lines per station while they fit, else one; then the list scrolls (mouse wheel)
+    const irr::f32 rowsTop = y0 + 46 + 36, rowsH = stationCard.LowerRightCorner.Y - 6 - rowsTop;
+    const int n = (int)stations.size();
+    const bool compact = n * 48.0f > rowsH;
+    const irr::f32 rowStep = compact ? 30.0f : 48.0f;
+    const int visible = std::max(1, (int)(rowsH / rowStep));
+    stationScroll = irr::core::clamp(stationScroll, 0, std::max(0, n - visible));
+    std::wstring count = std::to_wstring(n);
+    if (n > visible) {
+        count = std::to_wstring(stationScroll + 1) + L"-" + std::to_wstring(std::min(n, stationScroll + visible)) + L" / " + count
+            + (french ? L"   (molette)" : L"   (wheel)");
+    }
+    label(smallFont, count, irr::core::rect<irr::f32>(x0, y0 + 10, x1 - 4, y0 + 38), Ui::textDim, 2);
 
     irr::f32 y = y0 + 46;
     //"All": the target of the failures and messages
@@ -433,17 +452,46 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
         Zone z; z.r = r; z.kind = Z_STATION; z.value = -1; zones.push_back(z);
         y += 36;
     }
-    for (size_t i = 0; i < stations.size(); i++) {
-        const irr::core::rect<irr::f32> r(x0, y, x1, y + 44);
-        if (r.LowerRightCorner.Y > stationCard.LowerRightCorner.Y - 6) { break; }
+    for (size_t i = (size_t)stationScroll; i < stations.size(); i++) {
+        const irr::core::rect<irr::f32> r(x0, y, x1, y + rowStep - 4);
+        if (r.LowerRightCorner.Y > stationCard.LowerRightCorner.Y - 2) { break; }
         const Station& s = stations[i];
         const bool on = (int)i == selected;
         Ui::roundRect(b, r, 8, on ? Ui::alpha(Ui::accent, 90) : irr::video::SColor(255, 16, 30, 52), on ? Ui::alpha(Ui::accent, 70) : irr::video::SColor(255, 14, 27, 47));
-        b.rect(irr::core::rect<irr::f32>(x0, y + 6, x0 + 4, y + 38), stationColour(i));
+        b.rect(irr::core::rect<irr::f32>(x0, y + 5, x0 + 4, y + rowStep - 9), stationColour(i));
         if (s.unacked > 0 && ((device->getTimer()->getRealTime() / 500) % 2 == 0)) {
             Ui::roundRectOutline(b, r, 8, 2.0f, Ui::danger);
         }
         const std::wstring name = std::to_wstring(i + 1) + L"  " + (s.ship.empty() ? s.host : s.ship) + (s.ship.empty() ? L"" : L"   (" + s.host + L")");
+        if (compact) {
+            //One line: the name, and the one thing that matters most for this station
+            std::wstring st;
+            irr::video::SColor stCol = Ui::textDim;
+            int failures = (s.pump1 ? 0 : 1) + (s.pump2 ? 0 : 1) + (s.followUp ? 0 : 1);
+            for (int f = 0; f < 5; f++) { if (s.failure[f]) { failures++; } }
+            wchar_t buf[64];
+            if (s.hasStatus && s.unacked > 0) {
+                swprintf(buf, 64, french ? L"%d alarme(s) %.0f s" : L"%d alarm(s) %.0f s", s.unacked, s.oldestUnacked);
+                st = buf; stCol = Ui::danger;
+            }
+            else if (s.hasStatus && (s.collisions || s.groundings)) {
+                swprintf(buf, 64, french ? L"abordage %d  \u00E9chouement %d" : L"collision %d  grounding %d", s.collisions, s.groundings);
+                st = buf; stCol = Ui::danger;
+            }
+            else if (s.hasStatus && failures) {
+                swprintf(buf, 64, french ? L"%d avarie(s)" : L"%d failure(s)", failures);
+                st = buf; stCol = Ui::warning;
+            }
+            else if (s.reported) {
+                swprintf(buf, 64, L"%.1f nd  %03.0f\u00B0", s.speedKts, s.heading);
+                st = buf;
+            }
+            label(textFont, name, irr::core::rect<irr::f32>(x0 + 12, y, x1 - 150, y + rowStep - 4), Ui::text, 0, true);
+            label(smallFont, st, irr::core::rect<irr::f32>(x1 - 160, y, x1 - 8, y + rowStep - 4), stCol, 2, true);
+            Zone z; z.r = r; z.kind = Z_STATION; z.value = (int)i; zones.push_back(z);
+            y += rowStep;
+            continue;
+        }
         label(textFont, name, irr::core::rect<irr::f32>(x0 + 12, y + 2, x1 - 120, y + 22), Ui::text, 0, true);
         wchar_t mv[48];
         swprintf(mv, 48, L"%.1f nd  %03.0f\u00B0", s.speedKts, s.heading);
@@ -572,6 +620,10 @@ bool InstructorStation::OnEvent(const irr::SEvent& event)
         const bool overChart = chartArea.isPointInside(irr::core::vector2df((irr::f32)m.X, (irr::f32)m.Y));
         switch (m.Event) {
         case irr::EMIE_MOUSE_WHEEL:
+            if (stationCard.isPointInside(irr::core::vector2df((irr::f32)m.X, (irr::f32)m.Y))) {
+                stationScroll -= m.Wheel > 0 ? 1 : -1; //(clamped when the list is drawn)
+                return true;
+            }
             if (overChart && chartLoaded) {
                 chart->zoomAt(mouse, m.Wheel > 0 ? 0.8f : 1.25f);
                 chartTouched = true;
@@ -606,7 +658,11 @@ bool InstructorStation::OnEvent(const irr::SEvent& event)
                 dragging = false;
                 if (!dragMoved) {
                     const int s = stationAt(mouse);
-                    if (s >= 0) { selected = s; }
+                    if (s >= 0) {
+                        selected = s;
+                        if (s < stationScroll) { stationScroll = s; }   //and the list shows it
+                        else if (s > stationScroll + 2) { stationScroll = s - 2; }
+                    }
                 }
                 return true;
             }

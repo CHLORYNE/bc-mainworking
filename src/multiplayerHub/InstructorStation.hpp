@@ -123,6 +123,7 @@ private:
 
     //Instructor choices
     int selected;            //-1: every station
+    int stationScroll;       //first station shown in the list (many students)
     int weatherPreset;       //-1: the scenario's
     int windDirIndex;        //-1: the scenario's; 0..7: N, NE...
     int transitionIndex;
