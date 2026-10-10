@@ -20,6 +20,27 @@
 #include <sys/stat.h>
 #endif
 
+//Time conversions: Visual Studio refuses localtime/gmtime (C4996), so its _s versions are used there
+static void toLocalTime(time_t t, struct tm& out)
+{
+#ifdef _MSC_VER
+    localtime_s(&out, &t);
+#else
+    const struct tm* p = localtime(&t);
+    if (p) { out = *p; } else { out = tm(); }
+#endif
+}
+
+static void toUtcTime(time_t t, struct tm& out)
+{
+#ifdef _MSC_VER
+    gmtime_s(&out, &t);
+#else
+    const struct tm* p = gmtime(&t);
+    if (p) { out = *p; } else { out = tm(); }
+#endif
+}
+
 namespace {
 
 const float TRACK_INTERVAL_S = 10.0f;
@@ -219,8 +240,9 @@ bool ExerciseLog::write(const std::string& folder, std::string& path) const
     //File name: date and time of the end of the exercise, then the exercise
     char stamp[32];
     const time_t now = time(0);
-    const struct tm* lt = localtime(&now);
-    strftime(stamp, sizeof(stamp), "%Y-%m-%d_%Hh%M", lt);
+    struct tm lt;
+    toLocalTime(now, lt);
+    strftime(stamp, sizeof(stamp), "%Y-%m-%d_%Hh%M", &lt);
     const std::string base = folder + "/" + stamp + "_" + safeName(scenarioName);
     path = base + ".html";
 
@@ -276,8 +298,9 @@ bool ExerciseLog::write(const std::string& folder, std::string& path) const
 
     char startText[32];
     const time_t st = (time_t)startTime;
-    const struct tm* gt = gmtime(&st);
-    strftime(startText, sizeof(startText), "%d/%m/%Y %H:%M", gt);
+    struct tm gt;
+    toUtcTime(st, gt);
+    strftime(startText, sizeof(startText), "%d/%m/%Y %H:%M", &gt);
 
     f << "<!doctype html>\n<html lang=\"fr\"><head><meta charset=\"utf-8\">\n"
       << "<title>Bilan - " << html(scenarioName) << "</title>\n"
