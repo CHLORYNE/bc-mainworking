@@ -212,7 +212,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing()) {
+                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
                     //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp (or the ship, in free view)
                     model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
                 }
@@ -235,7 +235,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 return true;
             }
             //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
-            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing()) {
+            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
                 model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
                 return true;
             }
@@ -1377,6 +1377,19 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
     //While sizing a vessel, Up / Down change her length and Page Up / Down lift or sink
     //her; A/D, W/S, Q/E turn and zoom the camera. Taken here so none of them also steers the ship.
     irr::gui::IGUIElement* sizeFocus = device->getGUIEnvironment()->getFocus();
+    //Instructor camera (multiplayer): its own keys - the ship watched, the view. A bridge's keys do
+    //nothing here (Escape still quits).
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSpectator() && event.KeyInput.Key != irr::KEY_ESCAPE) {
+        if (event.KeyInput.PressedDown) {
+            const irr::EKEY_CODE k = event.KeyInput.Key;
+            if (k >= irr::KEY_KEY_1 && k <= irr::KEY_KEY_9) { model->setSpectatorTarget((int)(k - irr::KEY_KEY_1)); }
+            else if (k >= irr::KEY_NUMPAD1 && k <= irr::KEY_NUMPAD9) { model->setSpectatorTarget((int)(k - irr::KEY_NUMPAD1)); }
+            else if (k == irr::KEY_TAB) { model->nextSpectatorTarget(event.KeyInput.Shift ? -1 : 1); }
+            else if (k == irr::KEY_KEY_V) { model->setSpectatorView(model->getSpectatorView() + 1); }
+        }
+        return true;
+    }
+
     if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSizeEditing() &&
         !(sizeFocus && sizeFocus->getType() == irr::gui::EGUIET_EDIT_BOX)) //typing in a box wins
     {

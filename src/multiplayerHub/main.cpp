@@ -39,9 +39,11 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h> // For GetSystemMetrics
+#include <shellapi.h> // For ShellExecuteA (the instructor camera)
 #include <direct.h> //for windows _mkdir
 #else
 #include <sys/stat.h>
+#include <unistd.h> //fork, execl (the instructor camera)
 #endif // _WIN32
 
 
@@ -73,6 +75,29 @@ std::string makeTimeString(uint64_t absoluteTime, uint64_t offsetTime, irr::f32 
     timeString.append(",");
     timeString.append(Utilities::lexical_cast<std::string>(accelerator));
     return timeString;
+}
+
+//Opens the instructor's 3D camera: the simulator in spectator mode, waiting for this hub on port
+static void startInstructorCamera(int port)
+{
+    const std::string portText = std::to_string(port);
+#ifdef _WIN32
+    std::string params = "-spectator " + portText;
+    if (GetSystemMetrics(SM_CMONITORS) >= 2) { params += " -monitor 2"; } //the hub keeps the first screen
+    ShellExecuteA(NULL, NULL, "Simulator-nav.exe", params.c_str(), NULL, SW_SHOW);
+#else
+    const int pid = fork();
+    if (pid != 0) { return; }
+#ifdef __APPLE__
+    execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-spectator", portText.c_str(), (char*)NULL);
+#else
+#ifdef FOR_DEB
+    if (chdir("/usr/bin") != 0) {}
+#endif
+    execl("./Simulator-bc", "Simulator-bc", "-spectator", portText.c_str(), (char*)NULL);
+#endif
+    _exit(EXIT_FAILURE); //only if the simulator could not be started
+#endif
 }
 
 int main()
@@ -232,6 +257,7 @@ int main()
 
     //Get user input for hostnames and scenario name
     std::string hostnames;
+    bool openCamera = false; //the instructor's 3D camera on this PC
     std::string scenarioName;
     //Scenario path - default to user dir if it exists
     std::string scenarioPath = "Scenarios/";
@@ -242,6 +268,7 @@ int main()
     //Find default hostname if set in user directory (hostname-mp.txt)
     if (Utilities::pathExists(userFolder + "/hostname-mh.txt")) {
         hostnames=IniFile::iniFileToString(userFolder + "/hostname-mh.txt","hostname");
+        openCamera = IniFile::iniFileTou32(userFolder + "/hostname-mh.txt", "camera") == 1;
     }
     
     //Fonts in the sizes the screens use.
@@ -259,7 +286,7 @@ int main()
 
     ScenarioChoice scenarioChoice(device,&language,french);
     scenarioChoice.setFonts(titleFont, textFont, smallFont);
-    scenarioChoice.chooseScenario(scenarioName,hostnames,scenarioPath);
+    scenarioChoice.chooseScenario(scenarioName,hostnames,scenarioPath,openCamera);
 
     //Save hostname in user directory (hostname.txt). Check first that the location exists
     if (!Utilities::pathExists(Utilities::getUserDirBase())) {
@@ -285,6 +312,7 @@ int main()
         std::ofstream file (hostnameFile.c_str());
         if (file.is_open()) {
             file << "hostname=" << hostnames << std::endl;
+            file << "camera=" << (openCamera ? 1 : 0) << std::endl;
             file.close();
         }
     }
@@ -292,6 +320,21 @@ int main()
 
     Network network(port);
     network.connectToServer(hostnames);
+
+    //The instructor's 3D camera: the simulator in spectator mode, opened here on this PC (on the
+    //second screen when there is one), and any camera station named in mph.ini (camera_hosts=PC:port,...)
+    Network cameraNetwork(port);
+    if (openCamera) {
+        const int cameraPort = 18320;
+        startInstructorCamera(cameraPort);
+        //(it takes a few seconds to open: each attempt waits up to a second)
+        for (int attempt = 0; attempt < 45 && cameraNetwork.getNumberOfPeers() == 0; attempt++) {
+            cameraNetwork.connectToServer("localhost:" + std::to_string(cameraPort));
+        }
+        if (cameraNetwork.getNumberOfPeers() == 0) { std::cout << "Instructor camera: no answer" << std::endl; }
+    }
+    const std::string cameraHosts = IniFile::iniFileToString(iniFilename, "camera_hosts");
+    if (!cameraHosts.empty()) { cameraNetwork.connectToServer(cameraHosts); }
 
     unsigned int numberOfPeers = network.getNumberOfPeers();
 
@@ -399,6 +442,19 @@ int main()
         }
     }
 
+    //The cameras: every ship of the exercise as another ship; their own ship (hidden) is the first one
+    if (cameraNetwork.getNumberOfPeers() > 0 && !masterScenarioData.otherShipsData.empty()) {
+        ScenarioData cameraData = masterScenarioData;
+        cameraData.ownShipData.ownShipName = cameraData.otherShipsData.at(0).shipName;
+        cameraData.ownShipData.initialLat = cameraData.otherShipsData.at(0).initialLat;
+        cameraData.ownShipData.initialLong = cameraData.otherShipsData.at(0).initialLong;
+        cameraData.ownShipData.initialSpeed = 0;
+        cameraData.ownShipData.initialBearing = 0;
+        for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+            cameraNetwork.sendString(cameraData.serialise(false), true, cam);
+        }
+    }
+
     //What each student's simulator reports of its state, for the instructor station
     std::vector<InstructorStation::Station> peerStatus(numberOfPeers);
 
@@ -426,6 +482,51 @@ int main()
 
         std::string timeString = makeTimeString(absoluteTime,scenarioOffsetTime,scenarioTime,accelerator);
 
+        //One ship's record for the update: PosX,PosZ,Heading,speed (kts),rate of turn,absent marker,MMSI,legs
+        auto shipRecord = [&](unsigned int i) -> std::string {
+            std::string otherShipsString;
+            irr::f32 thisOtherShipX = 0;
+            irr::f32 thisOtherShipZ = 0;
+            irr::f32 thisOtherShipSpeed = 0;
+            irr::f32 thisOtherShipBearing = 0;
+            irr::f32 thisOtherShipRateOfTurn = 0;
+            shipPositionData.getShipPosition(i, scenarioTime, thisOtherShipX, thisOtherShipZ, thisOtherShipSpeed, thisOtherShipBearing, thisOtherShipRateOfTurn);
+            //No student on this ship (or none has reported yet): marked absent, and sent far
+            //away, so that even an older simulator does not show a ship stopped at the map's
+            //origin, on the chart, the radar or the 3D view.
+            const bool absent = !shipPositionData.isReported(i);
+            if (absent) {
+                thisOtherShipX = -1.0e7f;
+                thisOtherShipZ = -1.0e7f;
+                thisOtherShipSpeed = 0;
+                thisOtherShipRateOfTurn = 0;
+            }
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipX));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipZ));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipBearing));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipRateOfTurn));
+            otherShipsString.append(",");
+            otherShipsString.append(absent ? "A,0,0,0" : "0,0,0,0"); //absent marker (was SART), MMSI, number of legs, leg info
+            return otherShipsString;
+        };
+
+        //The instructor's cameras: every ship (they have none of their own), no lines
+        for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+            std::string cameraUpdate = "BC" + timeString + "#0#" + Utilities::lexical_cast<std::string>(numberOfOtherShips + 1) + ",0,0,0#";
+            for (unsigned int i = 0; i < (numberOfOtherShips + 1); i++) {
+                if (i) { cameraUpdate.append("|"); }
+                cameraUpdate.append(shipRecord(i));
+            }
+            cameraUpdate.append("#4#5#6#7#8#9#10##12");
+            cameraNetwork.sendString(cameraUpdate, false, cam);
+        }
+        cameraNetwork.listenForMessages(); //(keeps the connections alive; a camera sends nothing back)
+
         //for each peer
         for(unsigned int thisPeer = 0; thisPeer<numberOfPeers; thisPeer++ ) {
 
@@ -451,44 +552,7 @@ int main()
             std::string otherShipsString;
             for(unsigned int i = 0; i < (numberOfOtherShips+1); i++) {
                 if (i!=thisPeer) {
-                    irr::f32 thisOtherShipX = 0;
-                    irr::f32 thisOtherShipZ = 0;
-                    irr::f32 thisOtherShipSpeed = 0;
-                    irr::f32 thisOtherShipBearing = 0;
-                    irr::f32 thisOtherShipRateOfTurn = 0;
-
-                    shipPositionData.getShipPosition(i,
-                                                     scenarioTime,
-                                                     thisOtherShipX,
-                                                     thisOtherShipZ,
-                                                     thisOtherShipSpeed,
-                                                     thisOtherShipBearing,
-                                                     thisOtherShipRateOfTurn);
-                    //No student on this ship (or none has reported yet): marked absent, and sent far
-                    //away, so that even an older simulator does not show a ship stopped at the map's
-                    //origin, on the chart, the radar or the 3D view.
-                    const bool absent = !shipPositionData.isReported(i);
-                    if (absent) {
-                        thisOtherShipX = -1.0e7f;
-                        thisOtherShipZ = -1.0e7f;
-                        thisOtherShipSpeed = 0;
-                        thisOtherShipRateOfTurn = 0;
-                    }
-
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipX));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipZ));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipBearing));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS));
-                    otherShipsString.append(",");
-
-                    // TODO: Send Rate of turn here
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipRateOfTurn));
-                    otherShipsString.append(",");
-
-                    otherShipsString.append(absent ? "A,0,0,0" : "0,0,0,0"); //absent marker (was SART), MMSI, number of legs, leg info
+                    otherShipsString.append(shipRecord(i));
                     otherShipsString.append("|"); //End of other ship record
                 }
             }
@@ -694,6 +758,12 @@ int main()
             for (unsigned int thisPeer = 0; thisPeer < numberOfPeers; thisPeer++) {
                 if (commands[c].station >= 0 && (unsigned int)commands[c].station != thisPeer) { continue; }
                 network.sendString(commands[c].text, true, thisPeer);
+            }
+            //The weather (and its lock) also to the cameras, so they see what the students see
+            if (commands[c].station < 0 && (commands[c].text.compare(0, 3, "ICW") == 0 || commands[c].text.compare(0, 3, "ICL") == 0)) {
+                for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+                    cameraNetwork.sendString(commands[c].text, true, cam);
+                }
             }
             std::cout << "Instructor: " << commands[c].text << " -> " << (commands[c].station < 0 ? std::string("all") : std::to_string(commands[c].station + 1)) << std::endl;
         }

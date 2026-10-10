@@ -141,6 +141,12 @@ namespace {
             return Ui::toI(r);
         }
         irr::core::rect<irr::s32> startRect() const { return Ui::toI(startArea); }
+        //Left of the start button: the instructor's 3D camera on this PC, yes or no
+        irr::core::rect<irr::s32> cameraRect() const
+        {
+            return Ui::toI(irr::core::rect<irr::f32>(startArea.UpperLeftCorner.X - 20 - 380, startArea.UpperLeftCorner.Y,
+                startArea.UpperLeftCorner.X - 20, startArea.LowerRightCorner.Y));
+        }
 
         void setEmptyList(bool empty) { emptyList = empty; }
         void setScenario(const ScenarioData* data)
@@ -330,12 +336,14 @@ namespace {
     class SetupReceiver : public irr::IEventReceiver
     {
     public:
-        SetupReceiver(irr::s32 listId, irr::s32 startId) : listId(listId), startId(startId), startRequested(false) {}
+        SetupReceiver(irr::s32 listId, irr::s32 startId, irr::s32 cameraId) : listId(listId), startId(startId), cameraId(cameraId),
+            startRequested(false), cameraClicked(false) {}
         virtual bool OnEvent(const irr::SEvent& event)
         {
             if (event.EventType == irr::EET_GUI_EVENT && event.GUIEvent.Caller) {
                 const irr::s32 id = event.GUIEvent.Caller->getID();
                 if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && id == startId) { startRequested = true; }
+                if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && id == cameraId) { cameraClicked = true; }
                 if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_SELECTED_AGAIN && id == listId) { startRequested = true; }
                 if (event.GUIEvent.EventType == irr::gui::EGET_EDITBOX_ENTER) { startRequested = true; }
             }
@@ -344,8 +352,8 @@ namespace {
             }
             return false;
         }
-        irr::s32 listId, startId;
-        bool startRequested;
+        irr::s32 listId, startId, cameraId;
+        bool startRequested, cameraClicked;
     };
 }
 
@@ -357,7 +365,7 @@ ScenarioChoice::ScenarioChoice(irr::IrrlichtDevice* device, Lang* language, bool
     gui = device->getGUIEnvironment();
 }
 
-void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& hostname, std::string scenarioPath)
+void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& hostname, std::string scenarioPath, bool& camera)
 {
 	irr::video::IVideoDriver* driver = device->getVideoDriver();
 
@@ -388,6 +396,15 @@ void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& host
     Ui::Button* startButton = new Ui::Button(gui, panel, GUI_ID_OK_BUTTON, panel->startRect(), texts.launch.c_str(), Ui::Button::Primary);
     startButton->setFont(textFont);
     startButton->drop();
+    //The instructor's 3D camera: a window of the simulator watching the students' ships, opened by the hub
+    auto cameraLabel = [&](bool on) {
+        return french ? std::wstring(on ? L"Cam\u00E9ra 3D instructeur : oui" : L"Cam\u00E9ra 3D instructeur : non")
+                      : std::wstring(on ? L"Instructor 3D camera: on" : L"Instructor 3D camera: off");
+    };
+    Ui::Button* cameraButton = new Ui::Button(gui, panel, GUI_ID_CAMERA_BUTTON, panel->cameraRect(), cameraLabel(camera).c_str(), Ui::Button::Secondary);
+    cameraButton->setFont(textFont);
+    cameraButton->setChecked(camera);
+    cameraButton->drop();
 
     //Add scenarios to list box (without the _mp ending that marks them as multiplayer)
     for (std::vector<std::string>::iterator it = scenarioList.begin(); it != scenarioList.end(); ++it) {
@@ -409,7 +426,7 @@ void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& host
     device->clearSystemMessages();
 
     //Link to our event receiver
-    SetupReceiver receiver(GUI_ID_SCENARIO_LISTBOX, GUI_ID_OK_BUTTON);
+    SetupReceiver receiver(GUI_ID_SCENARIO_LISTBOX, GUI_ID_OK_BUTTON, GUI_ID_CAMERA_BUTTON);
     device->setEventReceiver(&receiver);
 
     irr::s32 shownScenario = -2;
@@ -436,6 +453,12 @@ void ScenarioChoice::chooseScenario(std::string& scenarioName, std::string& host
             panel->setAttention(false);
         }
         startButton->setEnabled(panel->ready());
+        if (receiver.cameraClicked) {
+            receiver.cameraClicked = false;
+            camera = !camera;
+            cameraButton->setChecked(camera);
+            cameraButton->setText(cameraLabel(camera).c_str());
+        }
         if (receiver.startRequested) {
             receiver.startRequested = false;
             if (panel->ready()) { chosen = true; }

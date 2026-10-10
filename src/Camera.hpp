@@ -75,6 +75,10 @@ class Camera
         void orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
         void setOrbitMinPitch(irr::f32 minPitchDeg); //lowest the orbit may go (reset by setOrbit)
         void setOrbitMinHeight(irr::f32 minY);       //lowest world height of the orbiting camera (reset by setOrbit)
+        //Instructor camera: the orbit centre becomes the eye, looking out at yaw/pitch (a view from
+        //another ship's bridge); and set the orbit's angles (yaw from the vessel's bow) and distance.
+        void setOrbitInside(bool inside);
+        void setOrbitAngles(irr::f32 yawDeg, irr::f32 pitchDeg, irr::f32 radiusMetres);
         irr::core::vector3df getOrbitPosition() const;
         void update(irr::f32 deltaTime=0, irr::core::quaternion quat=irr::core::quaternion(0,0,0,1), irr::core::vector3df pos=irr::core::vector3df(0,0,0), irr::core::vector2df lensShift=irr::core::vector2df(0,0), bool vrMode = false);
 
@@ -107,6 +111,7 @@ class Camera
         bool orbiting;
         irr::core::vector3df orbitCentre;
         irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius, orbitMinPitch, orbitMinHeight;
+        bool orbitInside;                //instructor camera: the eye at the centre
         void orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const;
 };
 

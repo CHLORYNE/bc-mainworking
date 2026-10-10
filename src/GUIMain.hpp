@@ -106,6 +106,11 @@ struct GUIData {
     bool radarFailed = false;
     std::vector<std::wstring> alertText;  //bridge alert list
     std::wstring instructorMessage;       //from the instructor station, shown for 30 s
+    bool spectator = false;               //multiplayer instructor camera
+    std::vector<std::wstring> spectatorNames;
+    std::vector<bool> spectatorPresent;
+    int spectatorTarget = 0, spectatorView = 0;
+    irr::f32 spectatorSpeedKts = 0, spectatorHeading = 0;
     std::vector<bool> alertAcked;
     irr::f32 depthAlarmLimit = 0;   //m, 0 = off
     bool depthAlarm = false;        //under the limit now
@@ -833,6 +838,14 @@ private:
     std::vector<std::wstring> guiAlertText;  //bridge alert list
     std::vector<bool> guiAlertAcked;
     std::wstring guiInstructorMessage;
+    bool guiSpectator = false;
+    std::vector<std::wstring> guiSpectatorNames;
+    std::vector<bool> guiSpectatorPresent;
+    int guiSpectatorTarget = 0, guiSpectatorView = 0;
+    irr::f32 guiSpectatorSpeedKts = 0, guiSpectatorHeading = 0;
+    std::vector<irr::gui::IGUIElement*> spectatorHidden; //the bridge's controls, kept hidden for the instructor camera
+    bool spectatorHiddenSet = false;
+    void drawSpectatorOverlay();
     void drawBridgeAlerts();
     void drawInstructorMessage();
     int trainDelayIndex = 0;                 //failures: now, in 1, 3, 5 min, or at random

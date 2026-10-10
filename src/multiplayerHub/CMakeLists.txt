@@ -21,3 +21,7 @@ target_link_libraries(bridgecommand-mh
     enet
     bc-irrlicht
 )
+
+if(WIN32)
+    target_link_libraries(bridgecommand-mh shell32) # ShellExecuteA: the instructor camera
+endif()

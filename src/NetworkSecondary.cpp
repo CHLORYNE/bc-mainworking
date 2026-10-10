@@ -547,7 +547,8 @@ void NetworkSecondary::receiveMessage()
                 //Todo: Think about how to get best synchronisation (and movement between updates, speed etc)
 
                 //If in multiplayer mode, send back a message with our position and heading
-                if (mode==OperatingMode::Multiplayer) {
+                //(not from the instructor camera: it has no ship)
+                if (mode==OperatingMode::Multiplayer && !model->isSpectator()) {
 
                     std::string multiplayerFeedback = "MPF";
                     multiplayerFeedback.append(Utilities::lexical_cast<std::string>(model->getPosX()));

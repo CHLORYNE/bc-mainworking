@@ -100,6 +100,7 @@ public:
         bool secondaryControlBowThruster;
         bool secondaryControlSternThruster;
         bool debugMode;
+        bool spectator = false;   //multiplayer instructor camera: no own ship, follows the students' ships
 
     };
 
@@ -489,6 +490,16 @@ public:
     void repairAll();
     //The instructor notes that the student has reported the last failure: its detection time goes in the debrief
     void markFailureReported();
+
+    //Multiplayer instructor camera (spectator): the own ship is hidden and goes along with the
+    //student's ship being watched; the camera looks from her bridge, from outside, or from above.
+    enum SpectatorView { SPECTATOR_BRIDGE = 0, SPECTATOR_OUTSIDE = 1, SPECTATOR_ABOVE = 2, SPECTATOR_VIEWS = 3 };
+    bool isSpectator() const { return modelParameters.spectator; }
+    void setSpectatorTarget(int ship);           //other ship number (0 = first student)
+    void nextSpectatorTarget(int direction);     //+1 / -1, skipping ships not in the exercise
+    int getSpectatorTarget() const { return spectatorTarget; }
+    void setSpectatorView(int view);
+    int getSpectatorView() const { return spectatorView; }
 
     //Multiplayer instructor station (the hub): failures it gives (now, later, or back in service),
     //the weather it imposes (the student's weather window is then locked), messages it sends,
@@ -982,6 +993,11 @@ private:
     bool lastFailureReported = true;
     std::vector<BridgeAlert> bridgeAlerts;
     bool weatherByInstructor = false;
+    int spectatorTarget = 0;
+    int spectatorView = SPECTATOR_OUTSIDE;
+    bool spectatorViewApplied = false;
+    void updateSpectator();         //the hidden own ship goes along with the ship watched
+    void updateSpectatorCamera();
     std::wstring instructorMessage;
     irr::f32 instructorMessageAt = -1000;
     void applyFailureAction(int action, int level);

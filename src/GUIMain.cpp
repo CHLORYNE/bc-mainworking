@@ -2390,6 +2390,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
 GUIMain::~GUIMain()
 {
+    for (size_t i = 0; i < spectatorHidden.size(); i++) { spectatorHidden[i]->drop(); }
     //Drop scroll bars created with 'new'
     if (portScrollbar) { portScrollbar->drop(); }
     if (stbdScrollbar) { stbdScrollbar->drop(); }
@@ -3227,6 +3228,13 @@ void GUIMain::updateGuiData(GUIData* guiData)
     guiAlertText = guiData->alertText;
     guiAlertAcked = guiData->alertAcked;
     guiInstructorMessage = guiData->instructorMessage;
+    guiSpectator = guiData->spectator;
+    guiSpectatorNames = guiData->spectatorNames;
+    guiSpectatorPresent = guiData->spectatorPresent;
+    guiSpectatorTarget = guiData->spectatorTarget;
+    guiSpectatorView = guiData->spectatorView;
+    guiSpectatorSpeedKts = guiData->spectatorSpeedKts;
+    guiSpectatorHeading = guiData->spectatorHeading;
     guiGpsLost = guiData->gpsLost;
     guiRadarFailed = guiData->radarFailed;
     guiDepthAlarm = guiData->depthAlarm;
@@ -3335,6 +3343,21 @@ void GUIMain::showLogWindow()
 
 void GUIMain::drawGUI()
 {
+    if (guiSpectator) {
+        //The instructor camera: the 3D view, its own overlay, and dialogs (quitting); nothing of a bridge
+        if (!spectatorHiddenSet) {
+            const irr::core::list<irr::gui::IGUIElement*>& children = guienv->getRootGUIElement()->getChildren();
+            for (irr::core::list<irr::gui::IGUIElement*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+                (*it)->grab();
+                spectatorHidden.push_back(*it);
+            }
+            spectatorHiddenSet = true;
+        }
+        for (size_t i = 0; i < spectatorHidden.size(); i++) { spectatorHidden[i]->setVisible(false); }
+        drawSpectatorOverlay();
+        guienv->drawAll();
+        return;
+    }
     //CHANGES paint the engine panels behind the scrollbars -KYARA
     irr::video::IVideoDriver* driver = device->getVideoDriver();
 
@@ -5446,6 +5469,58 @@ void GUIMain::drawBridgeAlerts()
         if (!acked && !flashOn) { continue; } //flashing
         font->draw(guiAlertText[i].c_str(), irr::core::rect<irr::s32>(x + 12, y + 4 + lineH * (irr::s32)(i + 1), x + w, y + 4 + lineH * (irr::s32)(i + 2)), acked ? amber : red);
     }
+}
+
+//Instructor camera (multiplayer): which student's ship is watched and how, and the keys
+void GUIMain::drawSpectatorOverlay()
+{
+    irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
+    if (!font) { return; }
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::core::dimension2du screen = driver->getScreenSize();
+    const irr::s32 lineH = (irr::s32)font->getDimension(L"A").Height + 8;
+    static const wchar_t* views[3] = { L"Passerelle", L"Ext\u00E9rieur", L"Vue de dessus" };
+    const int view = irr::core::clamp(guiSpectatorView, 0, 2);
+
+    //Top left: the ships (the numbers are the instructor station's)
+    const std::wstring title = L"CAM\u00C9RA INSTRUCTEUR  \u00B7  " + std::wstring(views[view]);
+    irr::s32 w = (irr::s32)font->getDimension(title.c_str()).Width;
+    for (size_t i = 0; i < guiSpectatorNames.size(); i++) {
+        w = std::max(w, (irr::s32)font->getDimension((std::to_wstring(i + 1) + L"   " + guiSpectatorNames[i] + L"   00.0 nd  000\u00B0").c_str()).Width);
+    }
+    w += 28;
+    const irr::s32 x = 12, y = 12;
+    const irr::s32 h = lineH * (irr::s32)(guiSpectatorNames.size() + 1) + 10;
+    driver->draw2DRectangle(irr::video::SColor(200, 8, 18, 36), irr::core::rect<irr::s32>(x, y, x + w, y + h));
+    driver->draw2DRectangle(irr::video::SColor(255, 64, 156, 240), irr::core::rect<irr::s32>(x, y, x + 4, y + h));
+    font->draw(title.c_str(), irr::core::rect<irr::s32>(x + 12, y + 5, x + w, y + 5 + lineH), irr::video::SColor(255, 140, 190, 255));
+    for (size_t i = 0; i < guiSpectatorNames.size(); i++) {
+        const bool present = i < guiSpectatorPresent.size() && guiSpectatorPresent[i];
+        const bool watched = (int)i == guiSpectatorTarget;
+        std::wstring line = std::to_wstring(i + 1) + L"   " + guiSpectatorNames[i];
+        if (watched) {
+            wchar_t buf[48];
+            swprintf(buf, 48, L"   %.1f nd  %03.0f\u00B0", guiSpectatorSpeedKts, guiSpectatorHeading);
+            line += buf;
+        }
+        else if (!present) {
+            line += L"   (absent)";
+        }
+        const irr::s32 ly = y + 5 + lineH * (irr::s32)(i + 1);
+        if (watched) { driver->draw2DRectangle(irr::video::SColor(120, 64, 156, 240), irr::core::rect<irr::s32>(x + 6, ly - 2, x + w - 4, ly + lineH - 4)); }
+        font->draw(line.c_str(), irr::core::rect<irr::s32>(x + 12, ly, x + w, ly + lineH),
+            watched ? irr::video::SColor(255, 255, 255, 255) : (present ? irr::video::SColor(255, 190, 205, 225) : irr::video::SColor(255, 110, 120, 135)));
+    }
+
+    //Bottom: the keys
+    const std::wstring keys = (guiSpectatorView == 0)
+        ? L"1-9 ou Tab : navire     V : vue     souris (glisser) : regarder autour"
+        : L"1-9 ou Tab : navire     V : vue     souris (glisser) : tourner autour     molette : distance";
+    const irr::s32 kw = (irr::s32)font->getDimension(keys.c_str()).Width + 30;
+    const irr::core::rect<irr::s32> kr((irr::s32)screen.Width / 2 - kw / 2, (irr::s32)screen.Height - lineH - 18,
+        (irr::s32)screen.Width / 2 + kw / 2, (irr::s32)screen.Height - 8);
+    driver->draw2DRectangle(irr::video::SColor(170, 8, 18, 36), kr);
+    font->draw(keys.c_str(), kr, irr::video::SColor(255, 200, 215, 235), true, true);
 }
 
 //A message from the instructor station (multiplayer): a band at the top centre of the view

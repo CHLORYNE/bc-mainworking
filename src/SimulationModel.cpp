@@ -4879,8 +4879,9 @@ void SimulationModel::update()
         updateTows(deltaTime);
     } {
         IPROF("Update own ship");
-        //update own ship
-        ownShip.update(deltaTime, scenarioTime, tideHeight, weather, lines.getOverallForceLocal(), lines.getOverallTorqueLocal());
+        //update own ship (the instructor camera has none of its own: it goes with the ship watched)
+        if (modelParameters.spectator) { updateSpectator(); }
+        else { ownShip.update(deltaTime, scenarioTime, tideHeight, weather, lines.getOverallForceLocal(), lines.getOverallTorqueLocal()); }
 
         //KYARA ENGINE PITCH: drive engine pitch from actual speed through water, not throttle
         //lever position. Using speed (which only changes gradually, under the ship's own
@@ -5538,6 +5539,8 @@ void SimulationModel::update()
             camera.setOrbitMinHeight(tideHeight + getWaveHeight(eye.X, eye.Z) + 1.5f);
         }
 
+        if (modelParameters.spectator) { updateSpectatorCamera(); }
+
         //update the camera position
         camera.update(deltaTime);
     } {
@@ -5659,6 +5662,23 @@ void SimulationModel::update()
         guiData->hdg = getGyroHeading();
         getGpsFix(guiData->lat, guiData->longitude, guiData->cog, guiData->sog);
         guiData->instructorMessage = (failureClock - instructorMessageAt < 30.0f) ? instructorMessage : std::wstring();
+        //Instructor camera: the ships that can be watched, the one watched, the view
+        guiData->spectator = modelParameters.spectator;
+        guiData->spectatorNames.clear();
+        guiData->spectatorPresent.clear();
+        if (modelParameters.spectator) {
+            for (irr::u32 i = 0; i < getNumberOfOtherShips(); i++) {
+                const std::string name = getOtherShipName(i);
+                guiData->spectatorNames.push_back(std::wstring(name.begin(), name.end()));
+                guiData->spectatorPresent.push_back(!isOtherShipAbsent(i));
+            }
+            guiData->spectatorTarget = spectatorTarget;
+            guiData->spectatorView = spectatorView;
+            if (spectatorTarget >= 0 && spectatorTarget < (int)getNumberOfOtherShips()) {
+                guiData->spectatorSpeedKts = getOtherShipSpeed(spectatorTarget) * MPS_TO_KTS;
+                guiData->spectatorHeading = getOtherShipHeading(spectatorTarget);
+            }
+        }
         guiData->alertText.clear();
         guiData->alertAcked.clear();
         for (size_t i = 0; i < bridgeAlerts.size(); i++) {
@@ -6026,6 +6046,86 @@ void SimulationModel::applyFailureAction(int action, int level)
     }
 }
 
+void SimulationModel::setSpectatorTarget(int ship)
+{
+    if (ship < 0 || ship >= (int)getNumberOfOtherShips() || isOtherShipAbsent(ship)) { return; }
+    spectatorTarget = ship;
+    spectatorViewApplied = false; //distances follow the size of the ship
+}
+
+void SimulationModel::nextSpectatorTarget(int direction)
+{
+    const int n = (int)getNumberOfOtherShips();
+    for (int k = 1; k <= n; k++) {
+        const int candidate = ((spectatorTarget + direction * k) % n + n) % n;
+        if (!isOtherShipAbsent(candidate)) { setSpectatorTarget(candidate); return; }
+    }
+}
+
+void SimulationModel::setSpectatorView(int view)
+{
+    spectatorView = ((view % SPECTATOR_VIEWS) + SPECTATOR_VIEWS) % SPECTATOR_VIEWS;
+    spectatorViewApplied = false;
+}
+
+void SimulationModel::updateSpectator()
+{
+    const int n = (int)getNumberOfOtherShips();
+    if (n <= 0) { return; }
+    //Watching a ship that is not (or no longer) in the exercise: the next one that is
+    if (spectatorTarget >= n || isOtherShipAbsent(spectatorTarget)) { nextSpectatorTarget(1); }
+    if (spectatorTarget >= n || isOtherShipAbsent(spectatorTarget)) { return; }
+    //The own ship, hidden, goes along with her: what is placed round the own ship (lights, swell,
+    //detail) is then round the ship watched
+    const irr::core::vector3df p = otherShips.getPosition(spectatorTarget);
+    irr::scene::ISceneNode* own = ownShip.getSceneNode();
+    if (own) {
+        own->setVisible(false);
+        own->setPosition(irr::core::vector3df(p.X, own->getPosition().Y, p.Z));
+        own->updateAbsolutePosition();
+    }
+    ownShip.setPosition(p.X, p.Z);
+}
+
+void SimulationModel::updateSpectatorCamera()
+{
+    if (spectatorTarget < 0 || spectatorTarget >= (int)getNumberOfOtherShips() || isOtherShipAbsent(spectatorTarget)) { return; }
+    irr::scene::ISceneNode* node = otherShips.getSceneNode(spectatorTarget);
+    if (!node) { return; }
+    const irr::core::aabbox3df box = node->getTransformedBoundingBox();
+    const irr::f32 len = std::max(10.0f, otherShips.getLength(spectatorTarget));
+    const irr::f32 hdg = otherShips.getHeading(spectatorTarget);
+    if (!spectatorViewApplied) {
+        spectatorViewApplied = true;
+        if (spectatorView == SPECTATOR_BRIDGE) {
+            camera.setOrbit(true, 1.0f);
+            camera.setOrbitInside(true);
+            camera.setOrbitAngles(0.0f, -3.0f, 1.0f);     //ahead, a little down
+        }
+        else {
+            camera.setOrbitInside(false);
+            camera.setOrbit(true, 40.0f);
+            camera.setOrbitMinPitch(2.0f);
+            if (spectatorView == SPECTATOR_OUTSIDE) { camera.setOrbitAngles(200.0f, 14.0f, std::max(40.0f, 2.5f * len)); } //astern, a little to port
+            else { camera.setOrbitAngles(180.0f, 80.0f, std::max(150.0f, 6.0f * len)); }                              //from above
+        }
+    }
+    if (spectatorView == SPECTATOR_BRIDGE) {
+        //A little forward of the middle, at about the height of a bridge
+        irr::core::vector3df c = box.getCenter();
+        const irr::f32 a = hdg * irr::core::DEGTORAD;
+        c.X += std::sin(a) * 0.1f * len;
+        c.Z += std::cos(a) * 0.1f * len;
+        c.Y = box.MinEdge.Y + 0.7f * (box.MaxEdge.Y - box.MinEdge.Y);
+        camera.setOrbitCentre(c, hdg);
+    }
+    else {
+        camera.setOrbitCentre(box.getCenter(), hdg);
+        const irr::core::vector3df eye = camera.getOrbitPosition();
+        camera.setOrbitMinHeight(tideHeight + getWaveHeight(eye.X, eye.Z) + 1.5f);
+    }
+}
+
 void SimulationModel::instructorFailure(int action, int level, irr::f32 delaySeconds)
 {
     cancelScheduledFailure(action);
@@ -6260,14 +6360,14 @@ void SimulationModel::logEvent(ExerciseLog::Category category, const std::wstrin
 
 bool SimulationModel::writeExerciseReport(std::string& path)
 {
-    if (modelParameters.mode == OperatingMode::Secondary) { return false; }
+    if (modelParameters.mode == OperatingMode::Secondary || modelParameters.spectator) { return false; }
     return exerciseLog.write(Utilities::getUserDir() + "Bilans", path);
 }
 
 void SimulationModel::updateExerciseLog()
 {
-    //Recorded where the ship is driven: not on a display-only secondary
-    if (modelParameters.mode == OperatingMode::Secondary) { return; }
+    //Recorded where the ship is driven: not on a display-only secondary, nor on the instructor camera
+    if (modelParameters.mode == OperatingMode::Secondary || modelParameters.spectator) { return; }
     if (!exerciseLog.isStarted()) {
         exerciseLog.begin(getScenarioName(), getWorldName(), ownShip.getName(), absoluteTime);
         exerciseStartScenarioTime = scenarioTime;

@@ -1199,6 +1199,20 @@ int main(int argc, char** argv)
         mode = OperatingMode::Secondary;
     }
 
+    //Instructor camera (multiplayer): started by the hub with -spectator PORT. No exercise menu: it
+    //waits for the hub on that port, has no ship of its own and watches the students' ships.
+    bool spectator = false;
+    for (int arg = 1; arg + 1 < argc; arg++) {
+        if (strcmp(argv[arg], "-spectator") == 0) {
+            spectator = true;
+            udpPort = (irr::u32)atoi(argv[arg + 1]);
+        }
+    }
+    if (spectator) {
+        mode = OperatingMode::Multiplayer;
+        hostname = ""; //(no secondary displays of its own)
+    }
+
     if (mode == OperatingMode::Normal) {
         //Several screens seen as one (Surround / Eyefinity): the exercise choice on the middle one only.
         //bc5.ini menu_screens: 0 = from the window's shape, 1 = the whole window, 3 = three screens.
@@ -1209,8 +1223,9 @@ int main(int argc, char** argv)
 
     hostname = Utilities::trim(hostname);
 
-    //Save hostname in user directory (hostname.txt). (The directory was made at start-up.)
-    if (Utilities::pathExists(userFolder)) { //TODO: Should we make this if it doesn't exist?
+    //Save hostname in user directory (hostname.txt). (The directory was made at start-up.) Not from
+    //the instructor camera, which would wipe the station's own setting.
+    if (!spectator && Utilities::pathExists(userFolder)) { //TODO: Should we make this if it doesn't exist?
         std::string hostnameFile = userFolder + "/hostname.txt";
         std::ofstream file(hostnameFile.c_str());
         if (file.is_open()) {
@@ -1450,6 +1465,7 @@ int main(int argc, char** argv)
     SimulationModel::ModelParameters modelParameters;
     // TODO: most of these intermediate variables can probably be removed.
     modelParameters.mode = mode;
+    modelParameters.spectator = spectator;
     modelParameters.vrMode = vr3dMode;
     modelParameters.reflectionMode = reflectionMode;
     modelParameters.viewAngle = viewAngle;
@@ -1566,6 +1582,11 @@ int main(int argc, char** argv)
     if (IniFile::iniFileTou32(iniFilename, "hide_instruments") == 1) {
         guiMain.hide2dInterface();
     }
+    if (spectator) {
+        //The instructor camera: the whole screen is the 3D view, no bridge, no radar
+        guiMain.hide2dInterface();
+        if (model.isRadarOn()) { model.toggleRadarOn(); }
+    }
     if (IniFile::iniFileTou32(iniFilename, "full_radar") == 1) {
         if (!guiMain.isRadarDetached()) { //(already shown full size, in its own window)
             guiMain.setLargeRadar(true);
@@ -1595,7 +1616,7 @@ int main(int argc, char** argv)
         model.setRadarHeadUp();
     }
     loadingScreen.setStage(0.93f, "Sons");
-    if (mode != OperatingMode::Secondary) {
+    if (mode != OperatingMode::Secondary && !spectator) { //(the instructor camera is silent)
         sound.load(model.getOwnShipEngineSound(), model.getOwnShipWaveSound(), model.getOwnShipHornSound(),
             model.getOwnShipAlarmSound(), model.getOwnShipProxyAlarmSound(), model.getOwnShipCollisionSound(),
             model.getOwnShipInsideSound(), model.getOwnShipOutsideSound(), model.getOwnShipSeagullSound(),

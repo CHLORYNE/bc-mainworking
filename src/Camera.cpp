@@ -32,6 +32,7 @@ Camera::Camera()
     orbitRadius = 40.0f;
     orbitMinPitch = -10.0f;
     orbitMinHeight = -1e9f;
+    orbitInside = false;
 }
 
 Camera::~Camera()
@@ -380,6 +381,18 @@ void Camera::setOrbit(bool on, irr::f32 radiusMetres)
     }
 }
 
+void Camera::setOrbitInside(bool inside)
+{
+    orbitInside = inside;
+}
+
+void Camera::setOrbitAngles(irr::f32 yawDeg, irr::f32 pitchDeg, irr::f32 radiusMetres)
+{
+    orbitYaw = yawDeg;
+    orbitPitch = pitchDeg;
+    orbitRadius = radiusMetres;
+}
+
 void Camera::setOrbitMinHeight(irr::f32 minY)
 {
     orbitMinHeight = minY;
@@ -411,6 +424,14 @@ void Camera::setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingD
 
 void Camera::orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor)
 {
+    if (orbitInside) {
+        //Looking round from the bridge: the view follows the drag, and the wheel does nothing
+        orbitYaw -= dYawDeg;
+        while (orbitYaw >= 360.0f) { orbitYaw -= 360.0f; }
+        while (orbitYaw < 0.0f) { orbitYaw += 360.0f; }
+        orbitPitch = irr::core::clamp(orbitPitch + dPitchDeg, -40.0f, 40.0f);
+        return;
+    }
     orbitYaw += dYawDeg;
     while (orbitYaw >= 360.0f) { orbitYaw -= 360.0f; }
     while (orbitYaw < 0.0f) { orbitYaw += 360.0f; }
@@ -427,6 +448,12 @@ void Camera::orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) con
     const irr::f32 yaw = (orbitHeading + orbitYaw) * irr::core::DEGTORAD;
     const irr::f32 pitch = orbitPitch * irr::core::DEGTORAD;
     const irr::core::vector3df dir(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch));
+    if (orbitInside) {
+        //The eye at the centre, looking out (yaw 0 = ahead)
+        pos = orbitCentre;
+        fwd = dir;
+        return;
+    }
     pos = orbitCentre + dir * orbitRadius;
     //Kept above the sea (free view in a storm): raised, still looking at the centre
     if (pos.Y < orbitMinHeight) { pos.Y = orbitMinHeight; }
