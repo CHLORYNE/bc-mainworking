@@ -1568,6 +1568,20 @@ int main(int argc, char** argv)
     if (chdir("/usr/share/Simulator") != 0) {}
 #endif // FOR_DEB
 
+#ifdef _WIN32
+    //Work from the launcher's own folder, however it was started (a shortcut without "Start in",
+    //the taskbar, a search result...): the other programs, media/ and the rest are found from there.
+    {
+        char exePath[MAX_PATH];
+        const DWORD n = GetModuleFileNameA(NULL, exePath, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            const std::string exe(exePath, n);
+            const size_t pos = exe.find_last_of("\\/");
+            if (pos != std::string::npos) { SetCurrentDirectoryA(exe.substr(0, pos).c_str()); }
+        }
+    }
+#endif
+
     //Mac OS:
     //Find starting folder
 #ifdef __APPLE__
