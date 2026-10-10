@@ -47,6 +47,8 @@ void Sound::triggerContact() {}
 void Sound::loadSlamSound(std::string slamFile) {}
 void Sound::loadCpaAlarmSound(std::string cpaAlarmFile) {}
 void Sound::setVolumeCpaAlarm(float vol) {}
+void Sound::loadDepthAlarmSound(std::string depthAlarmFile) {}
+void Sound::setVolumeDepthAlarm(float vol) {}
 void Sound::setVolumeSlam(float vol) {}
 float Sound::getVolumeSlam() const { return 0; }
 void Sound::triggerSlam(float gain, float pitch) {}
@@ -104,6 +106,9 @@ float Sound::slamVolume = 1.0f;
 bool Sound::cpaAlarmSoundLoaded = false;
 float Sound::cpaAlarmVolume = 0.0f;
 bool Sound::cpaAlarmWasOn = false;
+bool Sound::depthAlarmSoundLoaded = false;
+float Sound::depthAlarmVolume = 0.0f;
+bool Sound::depthAlarmWasOn = false;
 volatile bool Sound::slamTriggered = false;
 volatile float Sound::slamGain = 1.0f;
 volatile float Sound::slamPitch = 1.0f;
@@ -153,6 +158,7 @@ Sound::Sound() {
 	soundLoaded = false;
 	slamSoundLoaded = false;
 	cpaAlarmSoundLoaded = false;
+	depthAlarmSoundLoaded = false;
 }
 //UPDATED KYARA COLLISION AND PROXY
 void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::string hornSoundFile,
@@ -743,6 +749,31 @@ void Sound::setVolumeCpaAlarm(float vol) {
 	}
 }
 
+void Sound::loadDepthAlarmSound(std::string depthAlarmFile) {
+	if (!soundLoaded) { return; } //no audio stream at all
+	depthAlarmSoundLoaded = false;
+	data.fileDepthAlarm = 0;
+	if (depthAlarmFile.empty()) { return; }
+	data.infoDepthAlarm.format = 0;
+	data.fileDepthAlarm = sf_open(depthAlarmFile.c_str(), SFM_READ, &data.infoDepthAlarm);
+	if (sf_error(data.fileDepthAlarm) != SF_ERR_NO_ERROR) {
+		std::cerr << "sf_error on depth alarm sound " << depthAlarmFile << ": " << sf_strerror(data.fileDepthAlarm) << std::endl;
+	}
+	else if (data.infoDepthAlarm.channels != data.infoEngine.channels ||
+			 data.infoDepthAlarm.samplerate != data.infoEngine.samplerate) {
+		std::cerr << "Inconsistent format of depth alarm and engine sounds, depth alarm sound not loaded: " << depthAlarmFile << std::endl;
+	}
+	else {
+		depthAlarmSoundLoaded = true;
+	}
+}
+
+void Sound::setVolumeDepthAlarm(float vol) {
+	if (vol >= 0.0f && vol <= 1.0f) {
+		Sound::depthAlarmVolume = vol;
+	}
+}
+
 void Sound::setVolumeSlam(float vol) {
 	if (vol >= 0.0f && vol <= 1.0f) {
 		Sound::slamVolume = vol;
@@ -799,6 +830,7 @@ Sound::~Sound() {
 	//KYARA SLAM
 	if (data.fileSlam) { sf_close(data.fileSlam); }
 	if (data.fileCpaAlarm) { sf_close(data.fileCpaAlarm); }
+	if (data.fileDepthAlarm) { sf_close(data.fileDepthAlarm); }
 	//CAMERA CHANGE SOUND CHANGE
 	if (data.fileInside) { sf_close(data.fileInside); }
 	if (data.fileOutside) { sf_close(data.fileOutside); }

@@ -1385,7 +1385,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 });
             cp->addSection(tNav, L"Sondeur");
             if (trainDepthKey[0] && trainDepthKey[4]) {
-                cp->addKeys(tNav, L"Alarme de sondeur", L"L'alarme sonne quand la profondeur sous la quille passe sous le seuil.",
+                cp->addKeys(tNav, L"Alarme de sondeur", L"Le sondeur bipe d\u00E8s que la profondeur sous la quille passe sous le seuil, jusqu'\u00E0 ce que le stagiaire acquitte l'alarme. Il rebipe au prochain passage sous le seuil.",
                     { trainDepthKey[0], trainDepthKey[1], trainDepthKey[2], trainDepthKey[3], trainDepthKey[4] }, { L"Arr\u00EAt", L"2 m", L"5 m", L"10 m", L"20 m" },
                     [this]() {
                         if (!this->model) { return -1; }

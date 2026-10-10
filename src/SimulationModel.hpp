@@ -364,6 +364,7 @@ public:
     void setScreenSprayMode(int mode);
     std::string getOwnShipRadarAlarmSound() const;
     std::string getOwnShipCpaAlarmSound() const;   //radar CPA/TCPA alarm
+    std::string getOwnShipDepthAlarmSound() const; //echo sounder shallow-water alarm
     void triggerSeagull(); //Plays the seagull one-shot sound (bound to the 'G' key)
     //MUTE ALARM 
     void toggleProxyAlarmMute();
@@ -470,6 +471,7 @@ public:
 
     //Echo sounder alarm (metres under the keel, 0 = off)
     void setDepthAlarm(irr::f32 limitMetres);
+    void acknowledgeDepthAlarm() { depthAlarmAcked = true; } //silences the beeper until the next time it goes shallow
     irr::f32 getDepthAlarm() const { return depthAlarmLimit; }
 
     //Man overboard mark: the position, kept with its bearing and distance shown on the GPS and radar
@@ -936,6 +938,7 @@ private:
     irr::f32 fogSignalTimer = 0;
     irr::f32 depthAlarmLimit = 0;
     bool depthAlarmActive = false;
+    bool depthAlarmAcked = false;
     bool mobMarked = false;
     irr::f32 mobAbsX = 0, mobAbsZ = 0;      //world metres (scene + offset)
     void updateSoundSignals(irr::f32 deltaTime);

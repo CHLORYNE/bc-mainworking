@@ -966,6 +966,15 @@ std::string SimulationModel::getOwnShipProxyAlarmSound() const {
     return getOwnShipAlarmSound(); // last resort: generic alarm
 }
 //------------------END
+//Echo sounder alarm sound: the ship's own depth_alarm.wav, else Sounds/depth_alarm.wav
+std::string SimulationModel::getOwnShipDepthAlarmSound() const {
+    std::string soundPath = ownShip.getBasePath(); soundPath.append("/depth_alarm.wav");
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    soundPath = "Sounds/depth_alarm.wav";
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    return ""; //missing: the channel stays silent
+}
+
 //Radar CPA/TCPA alarm sound: the ship's own cpa_alarm.wav, else Sounds/cpa_alarm.wav
 std::string SimulationModel::getOwnShipCpaAlarmSound() const {
     std::string soundPath = ownShip.getBasePath(); soundPath.append("/cpa_alarm.wav");
@@ -5840,12 +5849,12 @@ void SimulationModel::update()
         //KYARA SLAM ^^^^
 
         updateSoundSignals(deltaTime);
-        //Echo sounder alarm: once when the depth under the keel goes below the limit
+        //Echo sounder alarm: beeps while the depth under the keel is below the limit, until acknowledged
         if (depthAlarmLimit > 0) {
             const irr::f32 depthNow = ownShip.getDepth();
             if (!depthAlarmActive && depthNow < depthAlarmLimit) {
                 depthAlarmActive = true;
-                setAlarm(true);
+                depthAlarmAcked = false;
                 wchar_t buf[80];
                 swprintf(buf, 80, L"Alarme sondeur : %.1f m sous la quille (limite %.0f m)", std::floor(depthNow * 10.0f) / 10.0f, depthAlarmLimit);
                 logEvent(ExerciseLog::EV_ALARM, buf);
@@ -5854,6 +5863,10 @@ void SimulationModel::update()
                 depthAlarmActive = false;
             }
         }
+        else {
+            depthAlarmActive = false;
+        }
+        if (sound) { sound->setVolumeDepthAlarm((depthAlarmActive && !depthAlarmAcked) ? 1.0f : 0.0f); }
         updateExerciseLog();
 
     } {
