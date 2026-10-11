@@ -1323,6 +1323,29 @@ int main(int argc, char** argv)
                 std::cerr << "Radar: screen " << radarMonitor + 1 << " is not connected, or shows the bridge view or the console. Radar kept in the bridge view." << std::endl;
             }
         }
+
+        //Sonar station on a screen of its own: launcher -sonar N (0: none), else bc5.ini sonar_screen=N.
+        //Not on the bridge view's, the console's or the radar's screen.
+        int sonarMonitor = (int)IniFile::iniFileTou32(iniFilename, "sonar_screen") - 1;
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-sonar") == 0) {
+                sonarMonitor = atoi(argv[arg + 1]) - 1;
+            }
+        }
+        if (sonarMonitor >= 0) {
+            cMonitorsVec monitors;
+            const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
+            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
+            if (sonarMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[sonarMonitor] != bridgeMonitor &&
+                sonarMonitor != consoleMonitor && sonarMonitor != radarMonitor) {
+                const RECT& r = monitors.rcMonitors[sonarMonitor];
+                guiMain.setSonarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                std::cout << "Sonar on screen " << sonarMonitor + 1 << std::endl;
+            }
+            else {
+                std::cerr << "Sonar: screen " << sonarMonitor + 1 << " is not connected, or shows the bridge view, the console or the radar." << std::endl;
+            }
+        }
     }
 #endif
 
@@ -1829,6 +1852,8 @@ int main(int argc, char** argv)
         guiMain.renderDetachedConsole();
         //Large radar in its own window (if detached): its input, then its frame.
         guiMain.renderDetachedRadar();
+        //Sonar station in its own window (if open)
+        guiMain.renderSonar();
 
         //KYARA FRAME PACING --------------------------------------------------------------------
       //Removing the 10ms enet block gave the frames back, but that block was also accidentally
@@ -1869,6 +1894,7 @@ int main(int argc, char** argv)
     //Remember where the console window was, and close it while the device is still alive.
     guiMain.shutdownConsoleWindow();
     guiMain.shutdownRadarWindow();
+    guiMain.shutdownSonarWindow();
 
     //Exercise report for the debrief (user folder, Bilans/)
     {

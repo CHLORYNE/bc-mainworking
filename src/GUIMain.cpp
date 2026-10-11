@@ -41,6 +41,7 @@
 #include <fstream>
 #include "IniFile.hpp"
 #include "ConsoleWindow.hpp"
+#include "SonarWindow.hpp"
 
 namespace {
 //Parent of the console's elements while the console is in its own window. It has no parent itself,
@@ -2294,6 +2295,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             weatherPanel->drop();
             weatherPanel->setLightingTimeBox(lightingTimeBox);
         }
+        //The sonar station's key
+        sonarButton = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_SONAR_BUTTON, L"SONAR",
+            L"Sonar 360\u00B0 et sondeur de p\u00EAche, dans une fen\u00EAtre \u00E0 part (second \u00E9cran)");
         //Glow of the lit instruments
         glowScrollbar = guienv->addScrollBar(true, irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_GLOW_SCROLL_BAR);
         glowScrollbar->setMin(0);
@@ -2386,6 +2390,12 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             setRadarDetached(true);
         }
     }
+
+    //Sonar window: on the screen given to it, or open again if it was open last session
+    sonarWindow = new SonarWindow(device, model, consoleInstance);
+    sonarWindow->setFrameRate(IniFile::iniFileTou32(iniFilename, "sonar_window_fps"));
+    if (sonarOnScreen) { sonarWindow->setScreen(sonarScreenArea); }
+    if (!vr3dMode && !(model && model->isSpectator())) { sonarWindow->restore(); }
 }
 
 GUIMain::~GUIMain()
@@ -2806,6 +2816,7 @@ void GUIMain::updateVisibility()
         for (int i = 0; i < PALETTE_KEYS; i++) { if (paletteButton[i]) { paletteButton[i]->setVisible(ownSettings); } }
         if (glowScrollbar) { glowScrollbar->setVisible(ownSettings); }
         if (weatherButton) { weatherButton->setVisible(ownSettings); }
+        if (sonarButton) { sonarButton->setVisible(showDisplayControls); }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -4761,7 +4772,9 @@ const irr::video::SExposedVideoData& GUIMain::getMainVideoData() const
     return noVideoData;   //Irrlicht's WGL manager switches back to the main window by itself
 #else
     if (consoleWindowUsed && consoleWindow) { return consoleWindow->mainVideoData(); }
-    return (radarWindowUsed && radarWindow) ? radarWindow->mainVideoData() : noVideoData;
+    if (radarWindowUsed && radarWindow) { return radarWindow->mainVideoData(); }
+    const irr::video::SExposedVideoData* sonarMain = sonarWindow ? sonarWindow->mainVideoData() : 0;
+    return sonarMain ? *sonarMain : noVideoData;
 #endif
 }
 
@@ -4769,7 +4782,8 @@ irr::u32 GUIMain::mainWindowFPS() const
 {
     //Every endScene() counts as a frame for the driver, the console window's included.
     const irr::s32 fps = device->getVideoDriver()->getFPS();
-    const irr::s32 own = (consoleDetached ? (irr::s32)consoleRenderRate : 0) + (radarDetached ? (irr::s32)radarRenderRate : 0);
+    const irr::s32 own = (consoleDetached ? (irr::s32)consoleRenderRate : 0) + (radarDetached ? (irr::s32)radarRenderRate : 0)
+        + (sonarWindow ? (irr::s32)sonarWindow->renderRate() : 0);
     return (irr::u32)((fps > own) ? fps - own : fps);
 }
 
@@ -5373,6 +5387,24 @@ void GUIMain::renderDetachedRadar()
     driver->draw2DImage(radarTarget, dest, radarSource);
     driver->endScene();
     driver->OnResize(mainSize);
+}
+
+void GUIMain::toggleSonar()
+{
+    if (sonarWindow) { sonarWindow->toggle(); }
+}
+
+void GUIMain::renderSonar()
+{
+    if (sonarWindow) { sonarWindow->render(); }
+}
+
+void GUIMain::shutdownSonarWindow()
+{
+    if (!sonarWindow) { return; }
+    sonarWindow->shutdown();
+    delete sonarWindow;
+    sonarWindow = 0;
 }
 
 void GUIMain::shutdownRadarWindow()
@@ -6112,10 +6144,10 @@ void GUIMain::layoutCommandBar()
     const irr::s32 iconSize = bridge::BridgeSkin::iconSizeFor(irr::core::rect<irr::s32>(0, 0, 10, keyH));
     const irr::s32 spaceW = irr::core::max_(1, (irr::s32)font->getDimension(L" ").Width);
 
-    //Roomy with icons; tighter with icons; tight without them
-    for (int attempt = 0; attempt < 3; attempt++) {
+    //Roomy with icons; tighter with icons; tight without them; tightest (narrow screens)
+    for (int attempt = 0; attempt < 4; attempt++) {
         const bool icons = (attempt < 2);
-        const irr::s32 keyPad = (attempt == 0) ? 22 : 12;
+        const irr::s32 keyPad = (attempt == 0) ? 22 : ((attempt < 3) ? 12 : 8);
         iconSpace = L"";
         for (irr::s32 w = 0; icons && w < iconSize + 6; w += spaceW) { iconSpace += L" "; }
         commandBar->clearMarks();
@@ -6155,7 +6187,7 @@ void GUIMain::layoutCommandBar()
         const irr::s32 capZoomW = textW(L"ZOOM") + 8;
         commandBar->addCaption(irr::core::rect<irr::s32>(x, y0, x + capZoomW, y1), L"ZOOM", true);
         x += capZoomW + 4;
-        const irr::s32 sliderW = (attempt == 0) ? 100 : 80;
+        const irr::s32 sliderW = (attempt == 0) ? 100 : ((attempt < 3) ? 80 : 60);
         if (magnificationScrollbar) {
             const irr::s32 sh2 = irr::core::min_(keyH, 18);
             magnificationScrollbar->setRelativePosition(irr::core::rect<irr::s32>(x, (y0 + y1 - sh2) / 2, x + sliderW, (y0 + y1 + sh2) / 2));
@@ -6182,7 +6214,7 @@ void GUIMain::layoutCommandBar()
         x += capGlowW + 4;
         if (glowScrollbar) {
             //The arrow buttons take a slider's height at each end: wide and slim leaves the knob room to travel
-            const irr::s32 glowW = (attempt == 0) ? 140 : 110;
+            const irr::s32 glowW = (attempt == 0) ? 140 : ((attempt < 3) ? 110 : 80);
             const irr::s32 sh2 = irr::core::min_(keyH, 14);
             glowScrollbar->setRelativePosition(irr::core::rect<irr::s32>(x, (y0 + y1 - sh2) / 2, x + glowW, (y0 + y1 + sh2) / 2));
             x += glowW + 4;
@@ -6198,9 +6230,10 @@ void GUIMain::layoutCommandBar()
         key(pcLogButton, xr, true, L"JOURNAL", 0, bridge::ICON_LOG, bridge::BridgeSkin::KEY_BAR);
         key(showLinesControlsButton, xr, true, L"AMARRES", 0, bridge::ICON_LINES, bridge::BridgeSkin::KEY_BAR);
         key(showExtraControlsButton, xr, true, L"CONTR\u00D4LES", 0, bridge::ICON_CONTROLS, bridge::BridgeSkin::KEY_BAR);
+        key(sonarButton, xr, true, L"SONAR", 0, bridge::ICON_SONAR, bridge::BridgeSkin::KEY_BAR);
         key(weatherButton, xr, true, L"M\u00C9T\u00C9O", 0, bridge::ICON_WEATHER, bridge::BridgeSkin::KEY_BAR);
 
-        if (leftEnd + 8 <= xr || attempt == 2) { break; }
+        if (leftEnd + 8 <= xr || attempt == 3) { break; }
     }
     if (pcLogButton) { pcLogButton->setToolTipText(L"Journal des messages du simulateur"); }
     if (hideInterfaceButton) { hideInterfaceButton->setToolTipText(L"Vue 3D en plein \u00E9cran (cacher la console)"); }

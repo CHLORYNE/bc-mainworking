@@ -35,6 +35,7 @@
 // Forward declarations
 class SimulationModel;
 class ConsoleWindow;
+class SonarWindow;
 
 namespace bridge { class BridgeSkin; class CommandBar; }
 
@@ -349,6 +350,7 @@ public:
         GUI_ID_PALETTE_AUTO,
         GUI_ID_GLOW_SCROLL_BAR,
         GUI_ID_WEATHER_BUTTON,
+        GUI_ID_SONAR_BUTTON,
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
         //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
@@ -421,6 +423,11 @@ public:
     //Call once per frame, after the main window's endScene() (and the console window's): handles the
     //radar window's input and draws it. Restores the driver's screen size before returning.
     void renderDetachedRadar();
+    //Sonar station (360 degree sonar and fish finder) in a window of its own
+    void setSonarScreen(const irr::core::rect<irr::s32>& area) { sonarScreenArea = area; sonarOnScreen = true; }
+    void toggleSonar();
+    void renderSonar();
+    void shutdownSonarWindow();
     //Saves the radar window placement and closes it. Call before the device is dropped.
     void shutdownRadarWindow();
 
@@ -726,6 +733,10 @@ private:
     bool radarPlaceFullScreen = false;
     bool radarOnScreen = false;                            //radar given a screen of its own
     irr::core::rect<irr::s32> radarScreenArea;
+    SonarWindow* sonarWindow = 0;
+    bool sonarOnScreen = false;
+    irr::core::rect<irr::s32> sonarScreenArea;
+    irr::gui::IGUIButton* sonarButton = 0;
     irr::gui::IGUIButton* detachRadarButton = 0;
     irr::gui::IGUIButton* radarFullScreenButton = 0;
     //Large radar tools

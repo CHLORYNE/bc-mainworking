@@ -112,6 +112,8 @@ set(BC_SOURCES
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     ConsoleWindow.cpp
+    Sonar.cpp
+    SonarWindow.cpp
     ExerciseLog.cpp
     BCTerrainSceneNode.cpp
     BCTerrainTriangleSelector.cpp

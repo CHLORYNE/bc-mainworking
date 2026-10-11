@@ -675,6 +675,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
             //Command bar: day / dusk / night / digital / auto colours
             //Command bar: the weather window
+            if (id == GUIMain::GUI_ID_SONAR_BUTTON)
+            {
+                gui->toggleSonar();
+            }
+
             if (id == GUIMain::GUI_ID_WEATHER_BUTTON)
             {
                 gui->toggleWeatherPanel();

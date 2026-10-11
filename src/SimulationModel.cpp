@@ -4684,6 +4684,28 @@ irr::f32 SimulationModel::getTerrainHeight(irr::f32 posX, irr::f32 posZ) const
     return terrain.getHeight(posX, posZ);
 }
 
+irr::core::vector3df SimulationModel::getOwnShipScenePosition() const
+{
+    return ownShip.getPosition();
+}
+
+irr::core::vector3df SimulationModel::getOtherShipScenePosition(int number) const
+{
+    return otherShips.getPosition(number);
+}
+
+irr::f32 SimulationModel::getOwnShipLengthM() const
+{
+    return ownShip.getLength();
+}
+
+std::string SimulationModel::getScenarioFolder() const
+{
+    std::string scenarioPath = "Scenarios/";   // same lookup as main.cpp
+    if (Utilities::pathExists(Utilities::getUserDir() + scenarioPath)) { scenarioPath = Utilities::getUserDir() + scenarioPath; }
+    return scenarioPath + scenarioName + "/";
+}
+
 void SimulationModel::addLine() // Add a line, which will be undefined
 {
     lines.addLine(this);

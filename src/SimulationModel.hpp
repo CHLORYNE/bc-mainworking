@@ -699,6 +699,12 @@ public:
     Terrain* getTerrain();
 
     irr::f32 getTerrainHeight(irr::f32 posX, irr::f32 posZ) const;
+    //Sonar: own ship and other ships in scene coordinates (those of the terrain), sea level, folder
+    irr::core::vector3df getOwnShipScenePosition() const;
+    irr::core::vector3df getOtherShipScenePosition(int number) const;
+    irr::f32 getOwnShipLengthM() const;
+    irr::f32 getTideHeight() const { return tideHeight; }
+    std::string getScenarioFolder() const; //with the final '/'
 
     void addLine(); // Add a line, which will be undefined
 

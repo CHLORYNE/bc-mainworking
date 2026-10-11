@@ -206,7 +206,7 @@ namespace bridge
     //Line icons for the command bar, drawn in a size x size box
     enum Icon {
         ICON_NONE = 0, ICON_INTERFACE, ICON_BINOCULARS, ICON_BEARING, ICON_VIEW, ICON_CONTROLS,
-        ICON_LINES, ICON_LOG, ICON_DETACH, ICON_QUIT, ICON_HIDE, ICON_RADAR, ICON_SUN, ICON_MOON, ICON_WEATHER
+        ICON_LINES, ICON_LOG, ICON_DETACH, ICON_QUIT, ICON_HIDE, ICON_RADAR, ICON_SUN, ICON_MOON, ICON_WEATHER, ICON_SONAR
     };
 
     inline void drawIcon(irr::video::IVideoDriver* d, Icon icon, irr::f32 x, irr::f32 y, irr::f32 s, irr::video::SColor c)
@@ -260,6 +260,12 @@ namespace bridge
             break;
         case ICON_RADAR:
             R(0.5f, 0.5f, 0.4f); R(0.5f, 0.5f, 0.2f); L(0.5f, 0.5f, 0.86f, 0.3f);
+            break;
+        case ICON_SONAR: //a hull, and sound going down from it
+            L(0.15f, 0.22f, 0.85f, 0.22f); L(0.85f, 0.22f, 0.7f, 0.36f); L(0.7f, 0.36f, 0.3f, 0.36f); L(0.3f, 0.36f, 0.15f, 0.22f);
+            ring(d, x + 0.5f * s, y + 0.36f * s, 0.2f * s, c, 130.0f, 230.0f);
+            ring(d, x + 0.5f * s, y + 0.36f * s, 0.36f * s, c, 135.0f, 225.0f);
+            ring(d, x + 0.5f * s, y + 0.36f * s, 0.52f * s, c, 140.0f, 220.0f);
             break;
         case ICON_SUN:
             R(0.5f, 0.5f, 0.18f);
