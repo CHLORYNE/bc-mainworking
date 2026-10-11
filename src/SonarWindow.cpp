@@ -105,6 +105,7 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
     sonar.setSounderGain((int)IniFile::iniFileTou32(placementFile, "GainSounder", 5));
     freqMode = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "FreqMode", 0), 0, 2);
     whiteLine = IniFile::iniFileTou32(placementFile, "WhiteLine", 0) == 1;
+    sonar.setHeaveCompensation(IniFile::iniFileTou32(placementFile, "HeaveCompensation", 1) == 1);
     bgIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Background", 0), 0, BG_COUNT - 1);
     colourIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Colours", 0), 0, COL_COUNT - 1);
     rebuildPalette();
@@ -230,6 +231,7 @@ void SonarWindow::savePlacement(bool isOpenNow)
     f << "GainSounder=" << sonar.sounderGain() << std::endl;
     f << "FreqMode=" << freqMode << std::endl;
     f << "WhiteLine=" << (whiteLine ? 1 : 0) << std::endl;
+    f << "HeaveCompensation=" << (sonar.heaveCompensation() ? 1 : 0) << std::endl;
     f << "Background=" << bgIndex << std::endl;
     f << "Colours=" << colourIndex << std::endl;
 }
@@ -445,6 +447,8 @@ void SonarWindow::act(Action a)
     case A_FREQ50: freqMode = 0; break;
     case A_FREQ200: freqMode = 1; break;
     case A_FREQBOTH: freqMode = 2; break;
+    case A_HEAVE_ON: sonar.setHeaveCompensation(true); break;
+    case A_HEAVE_OFF: sonar.setHeaveCompensation(false); break;
     case A_WHITELINE_ON: whiteLine = true; paletteSerial++; break;
     case A_WHITELINE_OFF: whiteLine = false; paletteSerial++; break;
     case A_BG_PREV: bgIndex = (bgIndex + BG_COUNT - 1) % BG_COUNT; rebuildPalette(); break;
@@ -716,6 +720,7 @@ void SonarWindow::drawPanel()
             y += h + 6 * k;
         }
         twoKeys(L"Ligne blanche", L"OUI", A_WHITELINE_ON, whiteLine, L"NON", A_WHITELINE_OFF, !whiteLine);
+        twoKeys(L"Compens. houle", L"OUI", A_HEAVE_ON, sonar.heaveCompensation(), L"NON", A_HEAVE_OFF, !sonar.heaveCompensation());
         const int sc = sonar.scrollSpeed();
         y = panelRow(y, L"D\u00E9filement", (sc == 1) ? L"rapide" : ((sc == 2) ? L"moyen" : L"lent"), A_SCROLL_SLOWER, A_SCROLL_FASTER);
         y = panelRow(y, L"Anti-parasites", fmt(L"%.0f", sonar.clutter()), A_CLUTTER_DOWN, A_CLUTTER_UP);
@@ -744,7 +749,8 @@ void SonarWindow::drawPanel()
 
     //The ship, at the bottom
     const irr::f32 boxH = 128 * k;
-    const irr::f32 by = irr::core::max_(y, panel.LowerRightCorner.Y - boxH - 16 * k);
+    if (y + boxH + 16 * k > panel.LowerRightCorner.Y) { return; }   //(no room: the settings first)
+    const irr::f32 by = panel.LowerRightCorner.Y - boxH - 16 * k;
     const irr::core::rect<irr::f32> box(x0, by, x1, by + boxH);
     driver->draw2DRectangle(BG, toInt(box));
     driver->draw2DRectangleOutline(toInt(box), CARD_LINE);

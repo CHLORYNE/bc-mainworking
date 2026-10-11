@@ -4694,6 +4694,11 @@ irr::core::vector3df SimulationModel::getOtherShipScenePosition(int number) cons
     return otherShips.getPosition(number);
 }
 
+irr::f32 SimulationModel::getOwnShipHeave() const
+{
+    return ownShip.getHeave();
+}
+
 irr::f32 SimulationModel::getOwnShipLengthM() const
 {
     return ownShip.getLength();

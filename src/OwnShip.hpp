@@ -49,6 +49,7 @@ public:
     void setViewVisibility(irr::u32 view);
     std::string getRadarConfigFile() const;
     irr::f32 getDepth() const;
+    irr::f32 getHeave() const { return waveVerticalDisplacement; } //vertical movement of the hull on the waves
     irr::f32 getAngleCorrection() const;
     bool hasGPS() const;
     //ship certified FF

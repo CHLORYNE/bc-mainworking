@@ -97,6 +97,10 @@ public:
     void setClutter(int c);
     //Depth below the surface under the ship, from the last ping (0: none)
     irr::f32 lastDepth() const { return depthNow; }
+    //Heave compensation (and beam stabilisation for the 360): the transducer's rise and fall on the
+    //waves taken out, as with a motion sensor. Without it the bottom trace waves with the sea.
+    bool heaveCompensation() const { return heaveComp; }
+    void setHeaveCompensation(bool on) { heaveComp = on; }
 
 private:
     struct Fish {
@@ -140,6 +144,10 @@ private:
     irr::f32 tide;
     irr::f32 seaState;            //0..12
     irr::f32 ownHeading, ownSpeed;
+    bool heaveComp;
+    irr::f32 heave;               //the transducer's rise on the waves, metres
+    irr::f32 stillDepth;          //depth under the ship in still water (the bridge echo sounder's)
+    irr::f32 autoRangeTimer;      //how long the bottom has been out of the picture's band
     std::vector<Ship> ships;
     irr::f32 simTime, lastSimTime;
 

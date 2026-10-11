@@ -62,6 +62,7 @@ namespace {
 Sonar::Sonar()
     : model(0), rng(20240917u), loaded(false),
       offX(0), offZ(0), ownX(0), ownZ(0), transducerY(0), tide(0), seaState(0), ownHeading(0), ownSpeed(0),
+      heaveComp(true), heave(0), stillDepth(0), autoRangeTimer(0),
       simTime(0), lastSimTime(-1), lastWakeTime(-1000), fishOn(true), fishDensity(1.0f), fishCheckTime(0),
       beams(BEAMS * BINS, 0), range360(3), tiltDeg(10.0f), gain360v(5), serial360(0),
       txStarted(false), txTime(0), txRange(500.0f), txTilt(10.0f), frontBin(0),
@@ -124,7 +125,9 @@ void Sonar::readWorld()
     offZ = model->getPosZ() - own.Z;
     ownX = model->getPosX();
     ownZ = model->getPosZ();
-    transducerY = own.Y - TRANSDUCER_DEPTH;
+    heave = model->getOwnShipHeave();
+    stillDepth = model->getDepth();
+    transducerY = (heaveComp ? own.Y - heave : own.Y) - TRANSDUCER_DEPTH;
     tide = model->getTideHeight();
     seaState = model->getWeather();
     ownHeading = model->getHeading();
@@ -158,8 +161,8 @@ irr::f32 Sonar::seabedY(irr::f32 ax, irr::f32 az) const
     const irr::f32 terrain = model->getTerrainHeight(ax - offX, az - offZ);
     //Fine relief the terrain grid cannot hold: rougher on rock than on mud
     const irr::f32 hard = hardness(ax, az);
-    const irr::f32 relief = (valueNoise(ax, az, 22.0f, 21u) - 0.5f) * 1.1f + (valueNoise(ax, az, 6.0f, 22u) - 0.5f) * 0.45f;
-    return terrain + relief * (0.35f + hard);
+    const irr::f32 relief = (valueNoise(ax, az, 22.0f, 21u) - 0.5f) * 0.5f + (valueNoise(ax, az, 6.0f, 22u) - 0.5f) * 0.2f;
+    return terrain + relief * (0.35f + hard) / 1.35f;
 }
 
 irr::f32 Sonar::waterDepth(irr::f32 ax, irr::f32 az) const
@@ -501,9 +504,12 @@ void Sonar::computeCell(int b, int i)
 void Sonar::ping()
 {
     const irr::f32 dCentre = transducerY - seabedY(ownX, ownZ);
-    depthNow = (dCentre > 0) ? dCentre + TRANSDUCER_DEPTH : 0.0f;
+    //The reading: depth under the ship as the bridge echo sounder gives it (still water), plus the
+    //heave when it is not compensated
+    depthNow = (dCentre > 0) ? irr::core::max_(0.1f, stillDepth + (heaveComp ? 0.0f : heave)) : 0.0f;
 
-    //Automatic range: the bottom (under the wide cone) in the lower part of the picture
+    //Automatic range: the bottom (under the wide cone) in the lower part of the picture, changed
+    //only once it has stayed out for a moment (not at every wave)
     if (autoRange && dCentre > 0) {
         irr::f32 dMax = dCentre;
         const irr::f32 rho = dCentre * std::tan(22.0f * irr::core::DEGTORAD);
@@ -513,9 +519,16 @@ void Sonar::ping()
         }
         const irr::f32 R = sounderRange();
         if (dMax > 0.92f * R || dMax < 0.35f * R) {
-            int i = 0;
-            while (i < SOUNDER_RANGE_COUNT - 1 && sounderRangeValue(i) < dMax * 1.3f) { i++; }
-            setSounderRangeIndex(i);
+            autoRangeTimer += 2.0f * R / SOUND_SPEED + 0.05f;
+            if (autoRangeTimer > 1.5f || dMax > R) {
+                int i = 0;
+                while (i < SOUNDER_RANGE_COUNT - 1 && sounderRangeValue(i) < dMax * 1.3f) { i++; }
+                setSounderRangeIndex(i);
+                autoRangeTimer = 0;
+            }
+        }
+        else {
+            autoRangeTimer = 0;
         }
     }
     const irr::f32 R = sounderRange();
@@ -578,9 +591,10 @@ void Sonar::computeColumn(int f, irr::f32 R, std::vector<irr::f32>& col, irr::s1
     }
     const irr::f32 hard = hardness(ownX, ownZ);
 
-    //The zero line (the transmission) and the surface: deeper with the sea, more at 50 kHz
-    addBand(0.0f, 0.4f + 0.06f * R / 10.0f, 0.95f, false);
-    const irr::f32 bubbles = (0.3f + seaState * 0.35f + ownSpeed * 0.08f) * (low ? 1.0f : 0.7f);
+    //The zero line (the transmission: a thin line at the top, whatever the range) and the surface
+    //below it: bubbles, deeper with the sea and the speed, more at 50 kHz
+    addBand(0.0f, rowLen * 5.0f, 0.95f, false);
+    const irr::f32 bubbles = irr::core::min_((0.3f + seaState * 0.15f + ownSpeed * 0.03f) * (low ? 1.0f : 0.7f), 2.5f);
     for (int r = 0; r < ROWS; r++) {
         const irr::f32 z = (r + 0.5f) * rowLen;
         if (z > bubbles * 2.5f) { break; }

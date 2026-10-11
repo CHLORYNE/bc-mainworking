@@ -703,6 +703,7 @@ public:
     irr::core::vector3df getOwnShipScenePosition() const;
     irr::core::vector3df getOtherShipScenePosition(int number) const;
     irr::f32 getOwnShipLengthM() const;
+    irr::f32 getOwnShipHeave() const; //metres, + up
     irr::f32 getTideHeight() const { return tideHeight; }
     std::string getScenarioFolder() const; //with the final '/'
 
