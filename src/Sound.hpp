@@ -89,6 +89,9 @@ public:
 	//Echo sounder shallow-water alarm: its own beeper, looping while it sounds
 	void loadDepthAlarmSound(std::string depthAlarmFile);
 	void setVolumeDepthAlarm(float vol);
+	//Equipment failure alarm (the bridge alerts): its own looping tone, silenced by acknowledging
+	void loadFailureAlarmSound(std::string failureAlarmFile);
+	void setVolumeFailureAlarm(float vol);
 
 	void  setVolumeVhf(float vol); float getVolumeVhf() const;
 	void  setVolumeHelo(float vol); float getVolumeHelo() const;
@@ -150,6 +153,7 @@ private:
 		SNDFILE* fileSlam;        SF_INFO infoSlam;
 		SNDFILE* fileCpaAlarm;    SF_INFO infoCpaAlarm;
 		SNDFILE* fileDepthAlarm;  SF_INFO infoDepthAlarm;
+		SNDFILE* fileFailureAlarm; SF_INFO infoFailureAlarm;
 		SF_INFO      infoWave;
 		SF_INFO      infoEngine;
 		SF_INFO      infoHorn;
@@ -242,6 +246,9 @@ private:
 	static bool depthAlarmSoundLoaded;
 	static float depthAlarmVolume;
 	static bool depthAlarmWasOn;             // callback only: restart the pattern when it begins
+	static bool failureAlarmSoundLoaded;
+	static float failureAlarmVolume;
+	static bool failureAlarmWasOn;           // callback only: restart the pattern when it begins
 	static volatile bool slamTriggered;
 	static volatile float slamGain;
 	static volatile float slamPitch;
@@ -315,6 +322,7 @@ private:
 		std::vector<float> slamBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
 		std::vector<float> cpaAlarmBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
 		std::vector<float> depthAlarmBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
+		std::vector<float> failureAlarmBuffer(frameCount * p_data->infoEngine.channels, 0.0f);
 		//ANGLE SOUND CHANGE KYARA 
 		//SOUND OUTSIDE AND INSIDE BOAT KYARA
 		// SOUND OUTSIDE AND INSIDE BOAT KYARA - Corrected buffer size
@@ -558,6 +566,19 @@ private:
 			if (got <= 0) { playDepthAlarm = false; }
 		}
 		depthAlarmWasOn = playDepthAlarm;
+
+		// Failure alarm: same looping model
+		bool playFailureAlarm = failureAlarmSoundLoaded && failureAlarmVolume > 0.0f;
+		if (playFailureAlarm) {
+			if (!failureAlarmWasOn) { sf_seek(p_data->fileFailureAlarm, 0, SEEK_SET); }
+			const sf_count_t wanted = frameCount * p_data->infoEngine.channels;
+			sf_count_t got = sf_read_float(p_data->fileFailureAlarm, failureAlarmBuffer.data(), wanted);
+			if (got < wanted && sf_seek(p_data->fileFailureAlarm, 0, SEEK_SET) != -1) {
+				got += sf_read_float(p_data->fileFailureAlarm, failureAlarmBuffer.data() + got, wanted - got);
+			}
+			if (got <= 0) { playFailureAlarm = false; }
+		}
+		failureAlarmWasOn = playFailureAlarm;
 
 		// Collision: ONE-SHOT. It only plays after triggerCollision() is called, plays
 		// through a single time, then goes silent (no looping). A short collision file
@@ -841,6 +862,9 @@ private:
 			}
 			if (playDepthAlarm) {
 				out[i] += depthAlarmVolume * depthAlarmBuffer[i] * 0.5;
+			}
+			if (playFailureAlarm) {
+				out[i] += failureAlarmVolume * failureAlarmBuffer[i] * 0.5;
 			}
 			if (playCollision) {
 				out[i] += collisionVolume * collisionBuffer[i] * 0.33;

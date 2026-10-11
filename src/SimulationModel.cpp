@@ -975,6 +975,15 @@ std::string SimulationModel::getOwnShipDepthAlarmSound() const {
     return ""; //missing: the channel stays silent
 }
 
+//Equipment failure alarm sound: the ship's own failure_alarm.wav, else Sounds/failure_alarm.wav
+std::string SimulationModel::getOwnShipFailureAlarmSound() const {
+    std::string soundPath = ownShip.getBasePath(); soundPath.append("/failure_alarm.wav");
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    soundPath = "Sounds/failure_alarm.wav";
+    { std::ifstream file(soundPath.c_str()); if (file.good()) return soundPath; }
+    return ""; //missing: the channel stays silent
+}
+
 //Radar CPA/TCPA alarm sound: the ship's own cpa_alarm.wav, else Sounds/cpa_alarm.wav
 std::string SimulationModel::getOwnShipCpaAlarmSound() const {
     std::string soundPath = ownShip.getBasePath(); soundPath.append("/cpa_alarm.wav");
@@ -6246,9 +6255,14 @@ void SimulationModel::updateBridgeAlerts()
         found->since = failureClock;
         found->acked = false;
         logEvent(ExerciseLog::EV_ALARM, L"Alerte passerelle : " + now[j].second);
-        if (now[j].first != 8) { setAlarm(true); } //(the echo sounder has its own beeper)
-        else { depthAlarmAcked = false; }
+        if (now[j].first == 8) { depthAlarmAcked = false; } //(the echo sounder has its own beeper)
     }
+    //The failure alarm sounds while an alert is not acknowledged; a repaired failure takes its alert away
+    bool sounding = false;
+    for (size_t i = 0; i < bridgeAlerts.size(); i++) {
+        if (!bridgeAlerts[i].acked && bridgeAlerts[i].id != 8) { sounding = true; }
+    }
+    if (sound) { sound->setVolumeFailureAlarm(sounding ? 1.0f : 0.0f); }
 }
 
 void SimulationModel::acknowledgeAlerts()

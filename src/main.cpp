@@ -1630,6 +1630,8 @@ int main(int argc, char** argv)
         sound.loadCpaAlarmSound(model.getOwnShipCpaAlarmSound());
         //Echo sounder shallow-water alarm
         sound.loadDepthAlarmSound(model.getOwnShipDepthAlarmSound());
+        //Equipment failure alarm (bridge alerts)
+        sound.loadFailureAlarmSound(model.getOwnShipFailureAlarmSound());
         //KYARA SLAM: water on the wheelhouse glass. bc5.ini screen_spray: 0 off, 1 normal (default),
         //2 test - water after every landing, for checking the effect.
         {

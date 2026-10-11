@@ -49,6 +49,8 @@ void Sound::loadCpaAlarmSound(std::string cpaAlarmFile) {}
 void Sound::setVolumeCpaAlarm(float vol) {}
 void Sound::loadDepthAlarmSound(std::string depthAlarmFile) {}
 void Sound::setVolumeDepthAlarm(float vol) {}
+void Sound::loadFailureAlarmSound(std::string failureAlarmFile) {}
+void Sound::setVolumeFailureAlarm(float vol) {}
 void Sound::setVolumeSlam(float vol) {}
 float Sound::getVolumeSlam() const { return 0; }
 void Sound::triggerSlam(float gain, float pitch) {}
@@ -109,6 +111,9 @@ bool Sound::cpaAlarmWasOn = false;
 bool Sound::depthAlarmSoundLoaded = false;
 float Sound::depthAlarmVolume = 0.0f;
 bool Sound::depthAlarmWasOn = false;
+bool Sound::failureAlarmSoundLoaded = false;
+float Sound::failureAlarmVolume = 0.0f;
+bool Sound::failureAlarmWasOn = false;
 volatile bool Sound::slamTriggered = false;
 volatile float Sound::slamGain = 1.0f;
 volatile float Sound::slamPitch = 1.0f;
@@ -159,6 +164,7 @@ Sound::Sound() {
 	slamSoundLoaded = false;
 	cpaAlarmSoundLoaded = false;
 	depthAlarmSoundLoaded = false;
+	failureAlarmSoundLoaded = false;
 }
 //UPDATED KYARA COLLISION AND PROXY
 void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::string hornSoundFile,
@@ -774,6 +780,31 @@ void Sound::setVolumeDepthAlarm(float vol) {
 	}
 }
 
+void Sound::loadFailureAlarmSound(std::string failureAlarmFile) {
+	if (!soundLoaded) { return; } //no audio stream at all
+	failureAlarmSoundLoaded = false;
+	data.fileFailureAlarm = 0;
+	if (failureAlarmFile.empty()) { return; }
+	data.infoFailureAlarm.format = 0;
+	data.fileFailureAlarm = sf_open(failureAlarmFile.c_str(), SFM_READ, &data.infoFailureAlarm);
+	if (sf_error(data.fileFailureAlarm) != SF_ERR_NO_ERROR) {
+		std::cerr << "sf_error on failure alarm sound " << failureAlarmFile << ": " << sf_strerror(data.fileFailureAlarm) << std::endl;
+	}
+	else if (data.infoFailureAlarm.channels != data.infoEngine.channels ||
+			 data.infoFailureAlarm.samplerate != data.infoEngine.samplerate) {
+		std::cerr << "Inconsistent format of failure alarm and engine sounds, failure alarm sound not loaded: " << failureAlarmFile << std::endl;
+	}
+	else {
+		failureAlarmSoundLoaded = true;
+	}
+}
+
+void Sound::setVolumeFailureAlarm(float vol) {
+	if (vol >= 0.0f && vol <= 1.0f) {
+		Sound::failureAlarmVolume = vol;
+	}
+}
+
 void Sound::setVolumeSlam(float vol) {
 	if (vol >= 0.0f && vol <= 1.0f) {
 		Sound::slamVolume = vol;
@@ -831,6 +862,7 @@ Sound::~Sound() {
 	if (data.fileSlam) { sf_close(data.fileSlam); }
 	if (data.fileCpaAlarm) { sf_close(data.fileCpaAlarm); }
 	if (data.fileDepthAlarm) { sf_close(data.fileDepthAlarm); }
+	if (data.fileFailureAlarm) { sf_close(data.fileFailureAlarm); }
 	//CAMERA CHANGE SOUND CHANGE
 	if (data.fileInside) { sf_close(data.fileInside); }
 	if (data.fileOutside) { sf_close(data.fileOutside); }

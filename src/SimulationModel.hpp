@@ -366,6 +366,7 @@ public:
     std::string getOwnShipRadarAlarmSound() const;
     std::string getOwnShipCpaAlarmSound() const;   //radar CPA/TCPA alarm
     std::string getOwnShipDepthAlarmSound() const; //echo sounder shallow-water alarm
+    std::string getOwnShipFailureAlarmSound() const; //equipment failure alarm (bridge alerts)
     void triggerSeagull(); //Plays the seagull one-shot sound (bound to the 'G' key)
     //MUTE ALARM 
     void toggleProxyAlarmMute();

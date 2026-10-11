@@ -135,6 +135,17 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         //On the large radar's picture: clicks track targets / draw parallel index lines, the wheel
         //changes the range
         if (gui->scopeMouseEvent(event)) { return true; }
+        //A click on the bridge alert list acknowledges the alerts (silences the failure alarm)
+        if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
+        {
+            const irr::core::position2di p(event.MouseInput.X, event.MouseInput.Y);
+            irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+            if (gui->alertBoxHit(p) && rootGUIElement->getElementFromPoint(p) == rootGUIElement)
+            {
+                model->acknowledgeAlerts();
+                return true;
+            }
+        }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
         {
             leftMouseDown = true;
@@ -1068,31 +1079,21 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_RUDDERPUMP_1_WORKING_BUTTON)
             {
                 model->setRudderPumpState(1, true);
-                if (model->getRudderPumpState(2))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_1_FAILED_BUTTON)
             {
                 model->setRudderPumpState(1, false);
-                model->setAlarm(true);
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_2_WORKING_BUTTON)
             {
                 model->setRudderPumpState(2, true);
-                if (model->getRudderPumpState(1))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_2_FAILED_BUTTON)
             {
                 model->setRudderPumpState(2, false);
-                model->setAlarm(true);
             }
 
             if (id == GUIMain::GUI_ID_FOLLOWUP_WORKING_BUTTON)
@@ -2401,10 +2402,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump1On, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump1On, previousButtonState))
             {
                 model->setRudderPumpState(1, true);
-                if (model->getRudderPumpState(2))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
         }
 
@@ -2414,7 +2411,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump1Off, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump1Off, previousButtonState))
             {
                 model->setRudderPumpState(1, false);
-                model->setAlarm(true);
             }
         }
 
@@ -2424,10 +2420,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump2On, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump2On, previousButtonState))
             {
                 model->setRudderPumpState(2, true);
-                if (model->getRudderPumpState(1))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
         }
 
@@ -2437,7 +2429,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump2Off, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump2Off, previousButtonState))
             {
                 model->setRudderPumpState(2, false);
-                model->setAlarm(true);
             }
         }
 
