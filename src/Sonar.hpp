@@ -25,10 +25,15 @@ class SimulationModel;
 //  - objects of the scenario (its sonar.ini: wrecks, lost containers...)
 //  - the sea surface: reverberation that grows with the sea state
 //
-//360 degree search sonar: a beam tilted down by the tilt angle, turned all round the ship, one
-//beam every 2 degrees; each beam gives the echoes along its slant range. The beam reaches the
-//bottom at a range that depends on the depth and the tilt: past it the ground hides the rest.
-//Fish finder: a cone straight down (wide at 50 kHz, narrow at 200 kHz), one column per ping;
+//360 degree search sonar, as an omnidirectional (full circle) scanning sonar works: each
+//transmission sends sound all round the ship at once, in a beam tilted down by the tilt angle
+//(-5 to 90 degrees), and the picture is renewed from the ship outwards as the echoes come back
+//(at the speed of sound: 0.67 s for 500 m); past the front, the last transmission's picture stays.
+//One beam every 2 degrees. The beam reaches the bottom at a range set by the depth and the tilt:
+//the bottom makes a ring, and past it the ground hides the rest.
+//Fish finder (echo sounder): a cone straight down, one column per ping, at 50 kHz (wide cone,
+//deep reach, more noise, the sound goes further into soft ground) and 200 kHz (narrow cone, finer
+//detail, weaker with depth), both worked out at each ping so they can be shown side by side;
 //the bottom, its thickness from the slope under the cone and the hardness, the second echo of a
 //hard bottom, fish (single fish make arches as the boat goes over them), the heave of the boat.
 class Sonar
@@ -45,8 +50,9 @@ public:
     //Echo strength 0..255, [beam * BINS + bin]; beam b is the true bearing 2b+1 degrees, bin i the
     //slant range (i + 0.5) / BINS of the range.
     const std::vector<irr::u8>& picture360() const { return beams; }
-    irr::f32 sweepBearing() const { return (lastBeam + 0.5f) * (360.0f / BEAMS); } //true, degrees
     irr::u32 picture360Serial() const { return serial360; }
+    //How far the current transmission's echoes have come back, 0..1 of the range
+    irr::f32 front360() const { return (irr::f32)frontBin / BINS; }
 
     static const int RANGE_COUNT = 8;
     int rangeIndex360() const { return range360; }
@@ -62,11 +68,13 @@ public:
 
     //--- fish finder ---
     enum { COLS = 512, ROWS = 512 };
+    enum { F50 = 0, F200 = 1 };
     struct Column {
-        irr::u8 echo[ROWS];   //0..255, row r: depth (r + 0.5) / ROWS of the range below the transducer
-        irr::f32 range;       //metres
-        irr::f32 bottom;      //depth below the surface (0: no bottom found in the range)
-        bool rangeChanged;    //first column at a new range
+        irr::u8 echo[2][ROWS];   //[F50 / F200] 0..255, row r: depth (r + 0.5) / ROWS of the range below the transducer
+        irr::s16 bottomRow[2];   //row of the bottom's first edge (-1: none in the range)
+        irr::f32 range;          //metres
+        irr::f32 bottom;         //depth below the surface (0: no bottom found in the range)
+        bool rangeChanged;       //first column at a new range
     };
     //Oldest first: column(0) .. column(columnCount() - 1)
     int columnCount() const { return (int)columnsFilled; }
@@ -82,8 +90,7 @@ public:
     irr::f32 sounderRange() const { return sounderRangeValue(sounderRangeIdx); }
     int sounderGain() const { return gainSounder; }
     void setSounderGain(int g);
-    bool lowFrequency() const { return freq50; }
-    void setLowFrequency(bool on) { freq50 = on; }
+
     int scrollSpeed() const { return scrollDiv; }   //pings per column: 1 (fast), 2 or 4 (slow)
     void setScrollSpeed(int pingsPerColumn);
     int clutter() const { return clutterLevel; }
@@ -116,8 +123,10 @@ private:
     void recordWakes();
     void loadScenarioObjects();
 
-    void computeBeam(int b);
+    void startTransmission();
+    void computeCell(int b, int i);
     void ping();
+    void computeColumn(int f, irr::f32 R, std::vector<irr::f32>& col, irr::s16& bottomRow);
     irr::f32 random01();
 
     SimulationModel* model;
@@ -147,9 +156,15 @@ private:
     int range360;
     irr::f32 tiltDeg;
     int gain360v;
-    irr::f32 beamAccumulator;
-    int lastBeam;
     irr::u32 serial360;
+    //The transmission under way
+    bool txStarted;
+    irr::f32 txTime, txRange, txTilt;
+    int frontBin;
+    std::vector<irr::f32> targetEcho;   //[beam * BINS + bin] fish, hulls, wakes, wrecks
+    std::vector<irr::u8> shadowMask;    //[beam * BINS + bin] 1: behind a wreck
+    int beamBlocked[BEAMS];             //first bin hidden by the ground
+    irr::f32 beamPrevDepth[BEAMS];
 
     //Fish finder
     std::vector<Column> echogram;  //ring
@@ -159,12 +174,11 @@ private:
     bool autoRange;
     int sounderRangeIdx;
     int gainSounder;
-    bool freq50;
     int scrollDiv;
     int clutterLevel;
     irr::f32 pingTimer;
     int pingsInColumn;
-    std::vector<irr::f32> accumulated;  //pings averaged into the column being made
+    std::vector<irr::f32> accumulated[2];  //pings into the column being made, per frequency
     irr::f32 depthNow;
     bool pendingRangeChange;
 

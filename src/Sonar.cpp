@@ -63,11 +63,16 @@ Sonar::Sonar()
     : model(0), rng(20240917u), loaded(false),
       offX(0), offZ(0), ownX(0), ownZ(0), transducerY(0), tide(0), seaState(0), ownHeading(0), ownSpeed(0),
       simTime(0), lastSimTime(-1), lastWakeTime(-1000), fishOn(true), fishDensity(1.0f), fishCheckTime(0),
-      beams(BEAMS * BINS, 0), range360(3), tiltDeg(10.0f), gain360v(5), beamAccumulator(0), lastBeam(0), serial360(0),
+      beams(BEAMS * BINS, 0), range360(3), tiltDeg(10.0f), gain360v(5), serial360(0),
+      txStarted(false), txTime(0), txRange(500.0f), txTilt(10.0f), frontBin(0),
+      targetEcho(BEAMS * BINS, 0.0f), shadowMask(BEAMS * BINS, 0),
       echogram(COLS), head(0), columnsFilled(0), pingSerial(0), autoRange(true), sounderRangeIdx(4), gainSounder(5),
-      freq50(true), scrollDiv(1), clutterLevel(1), pingTimer(0), pingsInColumn(0), accumulated(ROWS, 0.0f),
+      scrollDiv(1), clutterLevel(1), pingTimer(0), pingsInColumn(0),
       depthNow(0), pendingRangeChange(false)
 {
+    accumulated[0].assign(ROWS, 0.0f);
+    accumulated[1].assign(ROWS, 0.0f);
+    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; }
 }
 
 void Sonar::setModel(SimulationModel* m)
@@ -81,8 +86,9 @@ void Sonar::setModel(SimulationModel* m)
 //-------------------------------------------------------------------------------------------------
 irr::f32 Sonar::range360Value(int i) { return RANGES_360[irr::core::clamp(i, 0, RANGE_COUNT - 1)]; }
 irr::f32 Sonar::range360m() const { return range360Value(range360); }
-void Sonar::setRangeIndex360(int i) { range360 = irr::core::clamp(i, 0, RANGE_COUNT - 1); clear360(); }
-void Sonar::setTilt(irr::f32 deg) { tiltDeg = irr::core::clamp(deg, 0.0f, 60.0f); }
+//A new range clears the picture and starts a transmission at once; a new tilt is used from the next one
+void Sonar::setRangeIndex360(int i) { range360 = irr::core::clamp(i, 0, RANGE_COUNT - 1); clear360(); txStarted = false; }
+void Sonar::setTilt(irr::f32 deg) { tiltDeg = irr::core::clamp(deg, -5.0f, 90.0f); }
 void Sonar::setGain360(int g) { gain360v = irr::core::clamp(g, 0, 10); }
 void Sonar::clear360() { std::fill(beams.begin(), beams.end(), (irr::u8)0); serial360++; }
 
@@ -312,17 +318,19 @@ void Sonar::update(irr::f32 dt)
     manageFish(simDt);
     recordWakes();
 
-    //360: a whole turn every period (the longer the range, the longer the sound takes to come back)
-    const irr::f32 period = irr::core::max_(1.2f, 2.0f * range360m() / SOUND_SPEED * 1.5f);
-    beamAccumulator += dt * BEAMS / period;
-    int steps = (int)beamAccumulator;
-    beamAccumulator -= (irr::f32)steps;
-    steps = irr::core::min_(steps, 16);   //a long frame: the turn waits rather than the simulator
-    for (int s = 0; s < steps; s++) {
-        lastBeam = (lastBeam + 1) % BEAMS;
-        computeBeam(lastBeam);
+    //360: the echoes of the transmission come back from the ship outwards; the next one goes when
+    //they are all in (plus the time the sonar takes between two)
+    if (!txStarted) { startTransmission(); }
+    txTime += dt;
+    const irr::f32 echoTime = 2.0f * txRange / SOUND_SPEED;
+    int want = irr::core::min_((int)BINS, (int)(txTime / echoTime * BINS) + 1);
+    want = irr::core::min_(want, frontBin + 24);   //a long frame: the front waits rather than the simulator
+    for (int i = frontBin; i < want; i++) {
+        for (int b = 0; b < BEAMS; b++) { computeCell(b, i); }
     }
-    if (steps > 0) { serial360++; }
+    if (want > frontBin) { serial360++; }
+    frontBin = irr::core::max_(frontBin, want);
+    if (frontBin >= BINS && txTime >= echoTime + 0.25f) { startTransmission(); }
 
     //Fish finder: the next ping when the echo of the last one is back
     const irr::f32 pingInterval = irr::core::max_(0.07f, 2.0f * sounderRange() / SOUND_SPEED + 0.05f);
@@ -335,155 +343,174 @@ void Sonar::update(irr::f32 dt)
 }
 
 //-------------------------------------------------------------------------------------------------
-//360 degree search sonar: one beam
+//360 degree sonar: a transmission
 //-------------------------------------------------------------------------------------------------
-void Sonar::computeBeam(int b)
+void Sonar::startTransmission()
 {
-    const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
-    const irr::f32 sinB = std::sin(bearing * irr::core::DEGTORAD), cosB = std::cos(bearing * irr::core::DEGTORAD);
-    const irr::f32 range = range360m();
-    const irr::f32 binLen = range / BINS;
-    const irr::f32 tau = tiltDeg * irr::core::DEGTORAD;
-    const irr::f32 halfV = 0.5f * VERTICAL_BEAM_360 * irr::core::DEGTORAD;
-    const irr::f32 sinLo = std::sin(tau - halfV), sinHi = std::sin(tau + halfV), cosT = std::cos(tau);
-    const irr::f32 surfaceBelowTransducer = -(tide - transducerY);   //depth of the surface below the transducer (negative)
+    txStarted = true;
+    txTime = 0;
+    frontBin = 0;
+    txRange = range360m();
+    txTilt = tiltDeg;
+    std::fill(targetEcho.begin(), targetEcho.end(), 0.0f);
+    std::fill(shadowMask.begin(), shadowMask.end(), (irr::u8)0);
+    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; }
 
-    irr::f32 s[BINS];
-    int blockedAt = BINS;
-    irr::f32 prevDepth = -1e9f;
-    for (int i = 0; i < BINS; i++) {
-        const irr::f32 r = (i + 0.5f) * binLen;
-        const irr::f32 d = r * cosT;
-        const irr::f32 ax = ownX + d * sinB, az = ownZ + d * cosB;
-        const irr::f32 zlo = r * sinLo, zhi = r * sinHi;
-        const irr::f32 bottom = transducerY - seabedY(ax, az);   //below the transducer
-        irr::f32 v = 0.015f;
-        if (bottom < surfaceBelowTransducer + 0.2f) {
-            //The coast: a hard wall
-            v = 1.0f;
-            blockedAt = i + 1;
-            s[i] = v;
-            break;
-        }
-        if (bottom <= zlo) {
-            //Ground rising into the whole beam
-            v = 0.75f + 0.25f * hardness(ax, az);
-            blockedAt = i + 1;
-            s[i] = v;
-            break;
-        }
-        if (bottom < zhi) {
-            //The bottom in the beam: stronger the more of the beam it takes, and on rising ground
-            const irr::f32 frac = (zhi - bottom) / irr::core::max_(zhi - zlo, 0.01f);
-            v = hardness(ax, az) * (0.3f + 0.6f * frac);
-            if (prevDepth > -1e8f && bottom < prevDepth - 0.05f * binLen) { v *= 1.35f; }
-            v *= 0.8f + 0.4f * random01();
-        }
-        //The scattering layer (plankton, bait fish) where the beam crosses it
-        if (fishOn && bottom > zhi) {
-            const irr::f32 layer = transducerY - (tide - layerDepth(ax, az));
-            if (layer > zlo - 3.0f && layer < zhi + 3.0f) { v += 0.09f * fishDensity * random01(); }
-        }
-        //The sea surface in the beam: reverberation, more with the sea
-        if (zlo < surfaceBelowTransducer + 1.5f) {
-            const irr::f32 surf = (0.04f + seaState / 12.0f * 0.5f) * std::exp(-r / (0.25f * range + 20.0f));
-            v += surf * random01();
-        }
-        prevDepth = bottom;
-        s[i] = v;
-    }
-    for (int i = blockedAt; i < BINS; i++) { s[i] = 0.0f; }   //behind the ground: nothing
-
-    //Targets in the beam: added at their range, if not behind the ground. Returns the last bin it
-    //took (-1: not in the beam).
-    auto addTarget = [&](irr::f32 tx, irr::f32 tz, irr::f32 radius, irr::f32 zTop, irr::f32 zBottom, irr::f32 strength) -> int {
+    //The targets, laid into every beam they are in: round echoes, strongest at their centre
+    struct Target { irr::f32 h, bearing, radius, zTop, zBottom, strength; bool wreck; irr::f32 wreckBottom, wreckHeight; };
+    std::vector<Target> targets;
+    auto add = [&](irr::f32 tx, irr::f32 tz, irr::f32 radius, irr::f32 zTop, irr::f32 zBottom, irr::f32 strength, bool wreck) {
         const irr::f32 dx = tx - ownX, dz = tz - ownZ;
         const irr::f32 h = std::sqrt(dx * dx + dz * dz);
-        if (h > range * 1.05f + radius) { return -1; }
-        const irr::f32 tb = std::atan2(dx, dz) * irr::core::RADTODEG;
-        const irr::f32 diff = angleDiff(tb, bearing) * irr::core::DEGTORAD;
-        const irr::f32 along = h * std::cos(diff), lateral = std::fabs(h * std::sin(diff));
-        if (along < -radius) { return -1; }
-        const irr::f32 halfW = irr::core::max_(along, 0.0f) * std::tan(0.5f * HORIZONTAL_BEAM_360 * irr::core::DEGTORAD) + radius + 1.0f;
-        if (lateral > halfW) { return -1; }
-        //Vertically: the target's depths against the beam's at that range
-        const irr::f32 zMid = 0.5f * (zTop + zBottom);
-        const irr::f32 slant = std::sqrt(along * along + zMid * zMid);
-        const irr::f32 lo = slant * sinLo, hi = slant * sinHi;
-        if (zBottom < lo || zTop > hi) { return -1; }
-        const irr::f32 w = (1.0f - 0.6f * lateral / halfW) * strength;
-        const int i0 = irr::core::max_(0, (int)((slant - radius) / binLen));
-        const int i1 = irr::core::min_(BINS - 1, (int)((slant + radius) / binLen));
-        for (int i = i0; i <= i1 && i < blockedAt; i++) {
-            s[i] += w * (0.7f + 0.6f * random01());
-        }
-        return (i0 < blockedAt) ? irr::core::min_(i1, blockedAt - 1) : -1;
+        if (h > txRange * 1.05f + radius || strength <= 0.0f) { return; }
+        Target t;
+        t.h = h;
+        t.bearing = std::atan2(dx, dz) * irr::core::RADTODEG;
+        t.radius = radius;
+        t.zTop = zTop;
+        t.zBottom = zBottom;
+        t.strength = strength;
+        t.wreck = wreck;
+        t.wreckBottom = zBottom;
+        t.wreckHeight = zBottom - zTop;
+        targets.push_back(t);
     };
     for (size_t k = 0; k < fish.size(); k++) {
         const Fish& f = fish[k];
-        const irr::f32 fy = tide - f.depth;
-        const irr::f32 z = transducerY - fy;
-        addTarget(f.x, f.z, f.school ? f.radius : 0.5f, z - f.thick, z + f.thick, f.school ? 0.75f * f.strength : 0.45f * f.strength);
+        const irr::f32 z = transducerY - (tide - f.depth);
+        add(f.x, f.z, f.school ? f.radius : 0.6f, z - f.thick, z + f.thick, f.school ? 0.8f * f.strength : 0.4f * f.strength, false);
     }
     for (size_t k = 0; k < ships.size(); k++) {
         const Ship& sh = ships[k];
         const irr::f32 top = transducerY - sh.y;
-        addTarget(sh.x, sh.z, 0.5f * sh.length * 0.8f, top, top + sh.draft, 1.0f);
+        add(sh.x, sh.z, 0.4f * sh.length, top, top + sh.draft, 1.0f, false);
     }
     for (size_t k = 0; k < wakes.size(); k++) {
         for (size_t j = 0; j < wakes[k].size(); j++) {
             const WakePoint& p = wakes[k][j];
             const irr::f32 age = simTime - p.t;
             const irr::f32 top = transducerY - tide;
-            addTarget(p.x, p.z, 4.0f + 0.1f * age, top, top + 2.5f, 0.45f * p.strength * (1.0f - age / 90.0f));
+            add(p.x, p.z, 4.0f + 0.1f * age, top, top + 2.5f, 0.45f * p.strength * (1.0f - age / 90.0f), false);
         }
     }
     for (size_t k = 0; k < wrecks.size(); k++) {
         const Wreck& w = wrecks[k];
         const irr::f32 bottom = transducerY - seabedY(w.x, w.z);
-        const int last = addTarget(w.x, w.z, 0.4f * w.length, bottom - w.height, bottom, 1.1f);
-        if (last >= 0) {
-            //Its acoustic shadow on the bottom behind it: longer the lower the beam grazes
-            const irr::f32 shadow = w.height * irr::core::max_(range * 0.1f, 1.0f) / irr::core::max_(bottom, 2.0f);
-            const int n = irr::core::min_((int)(shadow / binLen) + 2, (int)BINS);
-            for (int i = last + 1; i < BINS && i <= last + n; i++) { s[i] *= 0.12f; }
-        }
+        add(w.x, w.z, 0.4f * w.length, bottom - w.height, bottom, 1.1f, true);
     }
 
-    //Gain, and the speckle of the receiver
-    const irr::f32 gain = 0.35f + 0.14f * gain360v;
-    for (int i = 0; i < BINS; i++) {
-        irr::f32 v = s[i] * gain + 0.035f * gain * random01();
-        v = irr::core::clamp(v, 0.0f, 1.0f);
-        beams[b * BINS + i] = (irr::u8)(v * 255.0f);
+    const irr::f32 binLen = txRange / BINS;
+    const irr::f32 tau = txTilt * irr::core::DEGTORAD;
+    const irr::f32 halfV = 0.5f * VERTICAL_BEAM_360 * irr::core::DEGTORAD;
+    const irr::f32 sinLo = std::sin(tau - halfV), sinHi = std::sin(tau + halfV);
+    const irr::f32 tanH = std::tan(0.5f * HORIZONTAL_BEAM_360 * irr::core::DEGTORAD);
+    for (size_t k = 0; k < targets.size(); k++) {
+        const Target& t = targets[k];
+        for (int b = 0; b < BEAMS; b++) {
+            const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
+            const irr::f32 diff = angleDiff(t.bearing, bearing) * irr::core::DEGTORAD;
+            if (std::fabs(diff) > 1.6f) { continue; }
+            const irr::f32 along = t.h * std::cos(diff), lateral = std::fabs(t.h * std::sin(diff));
+            if (along < -t.radius) { continue; }
+            const irr::f32 halfW = irr::core::max_(along, 0.0f) * tanH + t.radius + 0.5f;
+            if (lateral > halfW) { continue; }
+            //Vertically: how much of the target the beam takes at its range
+            const irr::f32 zMid = 0.5f * (t.zTop + t.zBottom);
+            const irr::f32 slant = std::sqrt(along * along + zMid * zMid);
+            const irr::f32 lo = slant * sinLo, hi = slant * sinHi;
+            const irr::f32 overlap = irr::core::min_(hi, t.zBottom) - irr::core::max_(lo, t.zTop);
+            if (overlap <= 0.0f) { continue; }
+            const irr::f32 vfrac = irr::core::min_(1.0f, overlap / irr::core::max_(t.zBottom - t.zTop, 0.5f) + 0.3f);
+            const irr::f32 lw = 1.0f - (lateral / halfW) * (lateral / halfW);
+            const irr::f32 rad = irr::core::max_(t.radius, binLen);
+            const int i0 = irr::core::max_(0, (int)((slant - rad) / binLen));
+            const int i1 = irr::core::min_(BINS - 1, (int)((slant + rad) / binLen));
+            for (int i = i0; i <= i1; i++) {
+                const irr::f32 u = ((i + 0.5f) * binLen - slant) / rad;
+                const irr::f32 rw = irr::core::max_(0.0f, 1.0f - u * u);
+                targetEcho[b * BINS + i] += t.strength * lw * rw * vfrac * (0.8f + 0.4f * random01());
+            }
+            if (t.wreck) {
+                //Its acoustic shadow on the bottom behind it: longer the lower the beam grazes
+                const irr::f32 shadow = t.wreckHeight * slant / irr::core::max_(t.wreckBottom, 2.0f);
+                const int n = irr::core::min_((int)(shadow / binLen) + 2, (int)BINS);
+                for (int i = i1 + 1; i < BINS && i <= i1 + n; i++) { shadowMask[b * BINS + i] = 1; }
+            }
+        }
     }
 }
 
+//One bin of one beam: the seabed (or the coast) in the beam, the water, the surface, the targets
+void Sonar::computeCell(int b, int i)
+{
+    const irr::f32 gain = 0.35f + 0.14f * gain360v;
+    if (i >= beamBlocked[b]) {
+        //Behind the ground: nothing but the receiver's noise
+        beams[b * BINS + i] = (irr::u8)(irr::core::clamp(0.03f * gain * random01(), 0.0f, 1.0f) * 255.0f);
+        return;
+    }
+    const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
+    const irr::f32 binLen = txRange / BINS;
+    const irr::f32 tau = txTilt * irr::core::DEGTORAD;
+    const irr::f32 halfV = 0.5f * VERTICAL_BEAM_360 * irr::core::DEGTORAD;
+    const irr::f32 r = (i + 0.5f) * binLen;
+    const irr::f32 d = r * std::cos(tau);
+    const irr::f32 ax = ownX + d * std::sin(bearing * irr::core::DEGTORAD), az = ownZ + d * std::cos(bearing * irr::core::DEGTORAD);
+    const irr::f32 zlo = r * std::sin(tau - halfV), zhi = r * std::sin(tau + halfV);
+    const irr::f32 surface = -(tide - transducerY);   //the surface, below the transducer (negative)
+    const irr::f32 bottom = transducerY - seabedY(ax, az);
+
+    irr::f32 v = 0.012f;
+    if (bottom < surface + 0.2f) {
+        //The coast: a hard wall, then nothing
+        v = 1.0f;
+        beamBlocked[b] = i + 1;
+    }
+    else if (bottom <= zlo) {
+        //Ground rising into the whole beam
+        v = 0.7f + 0.3f * (0.45f + 0.55f * hardness(ax, az));
+        beamBlocked[b] = i + 1;
+    }
+    else if (bottom < zhi) {
+        //The bottom in the beam: stronger the more of the beam it takes, and on rising ground
+        const irr::f32 frac = (zhi - bottom) / irr::core::max_(zhi - zlo, 0.01f);
+        v = (0.45f + 0.55f * hardness(ax, az)) * (0.35f + 0.6f * frac);
+        if (beamPrevDepth[b] > -1e8f && bottom < beamPrevDepth[b] - 0.05f * binLen) { v *= 1.3f; }
+        v *= 0.88f + 0.24f * random01();
+    }
+    else if (fishOn) {
+        //The scattering layer (plankton, bait fish) where the beam crosses it
+        const irr::f32 layer = transducerY - (tide - layerDepth(ax, az));
+        if (layer > zlo - 3.0f && layer < zhi + 3.0f) { v += 0.08f * fishDensity * random01(); }
+    }
+    beamPrevDepth[b] = bottom;
+    //The sea surface in the beam: reverberation, more with the sea
+    if (zlo < surface + 1.5f) {
+        const irr::f32 surf = (0.05f + seaState / 12.0f * 0.5f) * std::exp(-r / (0.25f * txRange + 20.0f));
+        v += surf * random01();
+    }
+    v += targetEcho[b * BINS + i];
+    if (shadowMask[b * BINS + i]) { v *= 0.12f; }
+    v = v * gain + 0.03f * gain * random01();
+    beams[b * BINS + i] = (irr::u8)(irr::core::clamp(v, 0.0f, 1.0f) * 255.0f);
+}
+
 //-------------------------------------------------------------------------------------------------
-//Fish finder: one ping
+//Fish finder: one ping, at both frequencies
 //-------------------------------------------------------------------------------------------------
 void Sonar::ping()
 {
-    //The cone under the ship, and the bottom it covers
-    const irr::f32 half = (freq50 ? 22.0f : 6.0f) * irr::core::DEGTORAD;
     const irr::f32 dCentre = transducerY - seabedY(ownX, ownZ);
-    irr::f32 dMin = dCentre, dMax = dCentre;
-    const irr::f32 rho = irr::core::max_(dCentre, 0.5f) * std::tan(half);
-    for (int k = 0; k < 8; k++) {
-        const irr::f32 a = k * 45.0f * irr::core::DEGTORAD;
-        for (int ring = 1; ring <= 2; ring++) {
-            const irr::f32 rr = rho * ring * 0.5f;
-            const irr::f32 d = transducerY - seabedY(ownX + rr * std::sin(a), ownZ + rr * std::cos(a));
-            const irr::f32 slant = std::sqrt(d * d + rr * rr);
-            dMin = irr::core::min_(dMin, slant);
-            dMax = irr::core::max_(dMax, d);
-        }
-    }
-    const irr::f32 hard = hardness(ownX, ownZ);
     depthNow = (dCentre > 0) ? dCentre + TRANSDUCER_DEPTH : 0.0f;
 
-    //Automatic range: the bottom in the lower part of the picture
+    //Automatic range: the bottom (under the wide cone) in the lower part of the picture
     if (autoRange && dCentre > 0) {
+        irr::f32 dMax = dCentre;
+        const irr::f32 rho = dCentre * std::tan(22.0f * irr::core::DEGTORAD);
+        for (int k = 0; k < 8; k++) {
+            const irr::f32 a = k * 45.0f * irr::core::DEGTORAD;
+            dMax = irr::core::max_(dMax, transducerY - seabedY(ownX + rho * std::sin(a), ownZ + rho * std::cos(a)));
+        }
         const irr::f32 R = sounderRange();
         if (dMax > 0.92f * R || dMax < 0.35f * R) {
             int i = 0;
@@ -492,9 +519,42 @@ void Sonar::ping()
         }
     }
     const irr::f32 R = sounderRange();
-    const irr::f32 rowLen = R / ROWS;
 
-    std::vector<irr::f32> col(ROWS, 0.0f);
+    std::vector<irr::f32> col(ROWS);
+    irr::s16 bottomRow[2] = { -1, -1 };
+    for (int f = 0; f < 2; f++) {
+        computeColumn(f, R, col, bottomRow[f]);
+        //Into the column being made (several pings per column when scrolling slowly: the strongest)
+        for (int r = 0; r < ROWS; r++) { accumulated[f][r] = (pingsInColumn == 0) ? col[r] : irr::core::max_(accumulated[f][r], col[r]); }
+    }
+    pingsInColumn++;
+    if (pingsInColumn < scrollDiv) { return; }
+    pingsInColumn = 0;
+
+    Column& c = echogram[head];
+    for (int f = 0; f < 2; f++) {
+        for (int r = 0; r < ROWS; r++) { c.echo[f][r] = (irr::u8)(accumulated[f][r] * 255.0f); }
+        c.bottomRow[f] = bottomRow[f];
+    }
+    c.range = R;
+    c.bottom = depthNow;
+    c.rangeChanged = pendingRangeChange;
+    pendingRangeChange = false;
+    head = (head + 1) % COLS;
+    if (columnsFilled < (irr::u32)COLS) { columnsFilled++; }
+    pingSerial++;
+}
+
+void Sonar::computeColumn(int f, irr::f32 R, std::vector<irr::f32>& col, irr::s16& bottomRow)
+{
+    const bool low = (f == F50);
+    //Cone half angle; sound absorbed on the way (much more at 200 kHz); noise (more at 50 kHz)
+    const irr::f32 half = (low ? 22.0f : 6.0f) * irr::core::DEGTORAD;
+    const irr::f32 absorbLength = low ? 1500.0f : 220.0f;
+    const irr::f32 noise = low ? 0.04f : 0.022f;
+    const irr::f32 rowLen = R / ROWS;
+    std::fill(col.begin(), col.end(), 0.0f);
+    auto atten = [&](irr::f32 z) { return std::exp(-irr::core::max_(z, 0.0f) / absorbLength); };
     auto addBand = [&](irr::f32 z0, irr::f32 z1, irr::f32 v, bool speckle) {
         int r0 = (int)(z0 / rowLen), r1 = (int)(z1 / rowLen);
         if (r1 < 0 || r0 >= ROWS) { return; }
@@ -503,37 +563,54 @@ void Sonar::ping()
         for (int r = r0; r <= r1; r++) { col[r] += speckle ? v * (0.6f + 0.8f * random01()) : v; }
     };
 
-    //The transmission and the surface: the band at the top, deeper with the sea
-    addBand(0.0f, 0.5f + 0.08f * R / 10.0f, 0.9f, false);
-    const irr::f32 bubbles = 0.3f + seaState * 0.35f + ownSpeed * 0.08f;
+    //The cone under the ship, and the bottom it covers
+    const irr::f32 dCentre = transducerY - seabedY(ownX, ownZ);
+    irr::f32 dMin = dCentre, dMax = dCentre;
+    const irr::f32 rho = irr::core::max_(dCentre, 0.5f) * std::tan(half);
+    for (int k = 0; k < 8; k++) {
+        const irr::f32 a = (k * 45.0f + (low ? 0.0f : 22.5f)) * irr::core::DEGTORAD;
+        for (int ring = 1; ring <= 2; ring++) {
+            const irr::f32 rr = rho * ring * 0.5f;
+            const irr::f32 d = transducerY - seabedY(ownX + rr * std::sin(a), ownZ + rr * std::cos(a));
+            dMin = irr::core::min_(dMin, std::sqrt(d * d + rr * rr));
+            dMax = irr::core::max_(dMax, d);
+        }
+    }
+    const irr::f32 hard = hardness(ownX, ownZ);
+
+    //The zero line (the transmission) and the surface: deeper with the sea, more at 50 kHz
+    addBand(0.0f, 0.4f + 0.06f * R / 10.0f, 0.95f, false);
+    const irr::f32 bubbles = (0.3f + seaState * 0.35f + ownSpeed * 0.08f) * (low ? 1.0f : 0.7f);
     for (int r = 0; r < ROWS; r++) {
         const irr::f32 z = (r + 0.5f) * rowLen;
         if (z > bubbles * 2.5f) { break; }
-        col[r] += 0.45f * std::exp(-z / irr::core::max_(bubbles, 0.1f)) * random01();
+        col[r] += (low ? 0.45f : 0.35f) * std::exp(-z / irr::core::max_(bubbles, 0.1f)) * random01();
     }
 
     //Fish: schools as blobs, single fish at their slant range (arches as the boat goes over them)
     for (size_t k = 0; k < fish.size(); k++) {
-        const Fish& f = fish[k];
-        const irr::f32 dx = f.x - ownX, dz = f.z - ownZ;
+        const Fish& fi = fish[k];
+        const irr::f32 dx = fi.x - ownX, dz = fi.z - ownZ;
         const irr::f32 h = std::sqrt(dx * dx + dz * dz);
-        const irr::f32 z = transducerY - (tide - f.depth);
+        const irr::f32 z = transducerY - (tide - fi.depth);
         if (z <= 0.3f) { continue; }
-        const irr::f32 off = irr::core::max_(0.0f, h - f.radius);
+        const irr::f32 off = irr::core::max_(0.0f, h - fi.radius);
         const irr::f32 angle = std::atan2(off, z);
         if (angle > half) { continue; }
-        const irr::f32 w = 1.0f - 0.7f * angle / half;
+        const irr::f32 w = (1.0f - 0.7f * angle / half) * atten(z);
         const irr::f32 slant = std::sqrt(off * off + z * z);
-        if (f.school) {
-            const irr::f32 thick = f.thick * irr::core::clamp(1.0f - (off / irr::core::max_(z * std::tan(half), 1.0f)) * 0.5f, 0.3f, 1.0f);
-            addBand(slant - thick, slant + thick, 0.8f * f.strength * w, true);
+        if (fi.school) {
+            const irr::f32 thick = fi.thick * irr::core::clamp(1.0f - (off / irr::core::max_(z * std::tan(half), 1.0f)) * 0.5f, 0.3f, 1.0f);
+            addBand(slant - thick, slant + thick, 0.8f * fi.strength * w, true);
         }
         else {
-            addBand(slant - 0.25f, slant + 0.25f, 0.9f * f.strength * w, false);
+            //(a fish reflects more at 200 kHz, and shows a finer mark)
+            const irr::f32 t = low ? 0.25f : 0.15f;
+            addBand(slant - t, slant + t, (low ? 0.85f : 1.0f) * fi.strength * w, false);
         }
     }
 
-    //The scattering layer: a faint grainy band in mid-water
+    //The scattering layer: a faint grainy band in mid-water (clearer at 200 kHz)
     if (fishOn && dCentre > 4.0f) {
         const irr::f32 layer = transducerY - (tide - layerDepth(ownX, ownZ));
         const irr::f32 thick = 1.5f + 2.5f * valueNoise(ownX, ownZ, 300.0f, 41u);
@@ -541,7 +618,7 @@ void Sonar::ping()
         r0 = irr::core::max_(r0, 0);
         r1 = irr::core::min_(r1, ROWS - 1);
         for (int r = r0; r <= r1; r++) {
-            if (random01() < 0.4f) { col[r] += 0.28f * fishDensity * random01(); }
+            if (random01() < 0.4f) { col[r] += (low ? 0.24f : 0.32f) * fishDensity * atten(layer) * random01(); }
         }
     }
 
@@ -552,8 +629,10 @@ void Sonar::ping()
         const irr::f32 h = std::sqrt(dx * dx + dz * dz);
         if (h > 0.5f * wr.length + rho) { continue; }
         const irr::f32 bottom = transducerY - seabedY(wr.x, wr.z);
-        const irr::f32 top = bottom - wr.height * (1.0f - irr::core::clamp(h / (0.5f * wr.length + rho), 0.0f, 1.0f) * 0.6f);
-        addBand(top, bottom, 1.0f, true);
+        //(an uneven outline: masts, superstructure, broken parts)
+        const irr::f32 rough = 0.55f + 0.45f * valueNoise(ownX, ownZ, 3.0f, 51u);
+        const irr::f32 top = bottom - wr.height * rough * (1.0f - irr::core::clamp(h / (0.5f * wr.length + rho), 0.0f, 1.0f) * 0.6f);
+        addBand(top, bottom, 1.0f * atten(top), true);
     }
 
     //Wakes crossed: bubbles deep under the surface
@@ -569,44 +648,36 @@ void Sonar::ping()
     }
 
     //The bottom: its first edge strong, the slope under the cone widens it, the hardness sets the
-    //tail (soft mud lets the sound in); a hard bottom sends a second echo at twice the depth
+    //tail (soft mud lets the sound in, more at 50 kHz); a hard bottom sends a second echo at twice
+    //the depth
     if (dCentre > 0) {
-        const irr::f32 tail = (0.3f + (1.0f - hard) * 0.9f + (freq50 ? 0.8f : 0.2f)) * irr::core::max_(1.0f, R / 25.0f);
-        addBand(dMin, dMin + irr::core::max_(rowLen * 2.0f, 0.15f), 1.25f, false);
-        addBand(dMin, dMax, 0.85f + 0.3f * hard, true);
+        const irr::f32 a = atten(dCentre);
+        const irr::f32 tail = (0.3f + (1.0f - hard) * 0.9f + (low ? 0.8f : 0.2f)) * irr::core::max_(1.0f, R / 25.0f);
+        addBand(dMin, dMin + irr::core::max_(rowLen * 2.0f, 0.15f), 1.25f * a + 0.2f, false);
+        addBand(dMin, dMax, (0.85f + 0.3f * hard) * a, true);
         const int r0 = (int)(dMax / rowLen);
         const int n = irr::core::max_(1, (int)(tail / rowLen));
         for (int r = r0; r < ROWS && r < r0 + n * 3; r++) {
             const irr::f32 t = (irr::f32)(r - r0) / n;
-            col[r] += (0.75f * hard + 0.25f) * std::exp(-t) * (0.7f + 0.6f * random01());
+            col[r] += (0.75f * hard + 0.25f) * a * std::exp(-t) * (0.7f + 0.6f * random01());
         }
         if (hard > 0.55f && gainSounder >= 5) {
-            addBand(2.0f * dCentre, 2.0f * dCentre + irr::core::max_(rowLen * 2.0f, 0.3f), 0.25f + 0.3f * (hard - 0.55f) + 0.04f * (gainSounder - 5), true);
+            addBand(2.0f * dCentre, 2.0f * dCentre + irr::core::max_(rowLen * 2.0f, 0.3f),
+                (0.25f + 0.3f * (hard - 0.55f) + 0.04f * (gainSounder - 5)) * a * a, true);
         }
+        const int br = (int)(dMin / rowLen);
+        bottomRow = (br >= 0 && br < ROWS) ? (irr::s16)br : (irr::s16)-1;
+    }
+    else {
+        bottomRow = -1;
     }
 
-    //The receiver: speckle, the own engine at speed, gain, clutter
+    //The receiver: speckle, the own engine at speed (more on the low frequency), gain, clutter
     const irr::f32 gain = 0.35f + 0.13f * gainSounder;
-    const irr::f32 engineNoise = (ownSpeed > 3.0f && random01() < 0.1f) ? 0.07f * (ownSpeed / 8.0f) : 0.0f;
+    const irr::f32 engineNoise = (ownSpeed > 3.0f && random01() < 0.1f) ? (low ? 0.07f : 0.04f) * (ownSpeed / 8.0f) : 0.0f;
     for (int r = 0; r < ROWS; r++) {
-        irr::f32 v = col[r] * gain + (0.03f + engineNoise) * gain * random01();
+        irr::f32 v = col[r] * gain + (noise + engineNoise) * gain * random01();
         v -= 0.035f * clutterLevel;
         col[r] = irr::core::clamp(v, 0.0f, 1.0f);
     }
-
-    //Into the column being made (several pings per column when scrolling slowly: the strongest)
-    for (int r = 0; r < ROWS; r++) { accumulated[r] = (pingsInColumn == 0) ? col[r] : irr::core::max_(accumulated[r], col[r]); }
-    pingsInColumn++;
-    if (pingsInColumn < scrollDiv) { return; }
-    pingsInColumn = 0;
-
-    Column& c = echogram[head];
-    for (int r = 0; r < ROWS; r++) { c.echo[r] = (irr::u8)(accumulated[r] * 255.0f); }
-    c.range = R;
-    c.bottom = depthNow;
-    c.rangeChanged = pendingRangeChange;
-    pendingRangeChange = false;
-    head = (head + 1) % COLS;
-    if (columnsFilled < (irr::u32)COLS) { columnsFilled++; }
-    pingSerial++;
 }

@@ -51,7 +51,7 @@ private:
         A_NONE = 0, A_MODE_360, A_MODE_SOUNDER, A_MODE_BOTH, A_FULLSCREEN, A_CLOSE,
         A_RANGE_DOWN, A_RANGE_UP, A_TILT_DOWN, A_TILT_UP, A_GAIN360_DOWN, A_GAIN360_UP, A_NORTH_UP, A_HEAD_UP, A_CLEAR_MARKER,
         A_SRANGE_DOWN, A_SRANGE_UP, A_SAUTO, A_SGAIN_DOWN, A_SGAIN_UP, A_FREQ50, A_FREQ200, A_SCROLL_SLOWER, A_SCROLL_FASTER,
-        A_CLUTTER_DOWN, A_CLUTTER_UP
+        A_CLUTTER_DOWN, A_CLUTTER_UP, A_FREQBOTH, A_WHITELINE_ON, A_WHITELINE_OFF, A_BG_PREV, A_BG_NEXT, A_COL_PREV, A_COL_NEXT
     };
     struct Button {
         irr::core::rect<irr::f32> r;
@@ -72,7 +72,7 @@ private:
     void setMarkerAt(irr::core::position2di p);
 
     void updateTexture360();
-    void updateTextureEcho();
+    void updateTextureEcho(int f);
     void draw(irr::u32 w, irr::u32 h);
     void drawHeader();
     void drawPanel();
@@ -81,7 +81,13 @@ private:
     void addButton(const irr::core::rect<irr::f32>& r, Action a, const std::wstring& label, bool selected = false);
     void addHeaderButtons();
     void drawButtons();
-    irr::f32 panelRow(irr::f32 y, const std::wstring& label, const std::wstring& value, Action down, Action up);
+    irr::f32 panelRow(irr::f32 y, const std::wstring& label, const std::wstring& value, Action down, Action up,
+        const wchar_t* downLabel = L"-", const wchar_t* upLabel = L"+");
+    //Colours: background and echo palette chosen, in steps as a real sonar shows them
+    void rebuildPalette();
+    bool brightBackground() const { return bgIndex == 2; }
+    irr::video::SColor overlayColour(irr::u32 alpha) const;
+    void drawEchogram(int f, const irr::core::rect<irr::f32>& r);
     void line(irr::f32 x0, irr::f32 y0, irr::f32 x1, irr::f32 y1, irr::video::SColor c);
     void circle(irr::f32 cx, irr::f32 cy, irr::f32 r, irr::video::SColor c, int segments = 120);
     irr::video::ITexture* makeTexture(const char* name);
@@ -126,8 +132,14 @@ private:
     //Pictures
     enum { TEX = 512 };
     irr::video::ITexture* tex360;
-    irr::video::ITexture* texEcho;
-    irr::u32 serial360Drawn, serialEchoDrawn;
+    irr::video::ITexture* texEcho[2];
+    irr::u32 serial360Drawn, serialEchoDrawn[2];
+    irr::u32 paletteSerial, palette360Drawn, paletteEchoDrawn[2];
+    int freqMode;             //0: 50 kHz, 1: 200 kHz, 2: both side by side
+    bool whiteLine;           //the bottom's first edge in white (fish close to the bottom stand out)
+    int bgIndex;              //background: dark blue, black, white, light blue
+    int colourIndex;          //echoes: 16 colours, 8 colours, amber, grey
+    int colourLevels;
     irr::f32 headingDrawn;
     irr::u32 lastTex360Ms;
     std::vector<irr::u16> lutAngle;   //tenths of a degree clockwise from the top, 0xFFFF outside the disc

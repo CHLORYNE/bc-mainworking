@@ -32,7 +32,6 @@ namespace {
     const irr::video::SColor RING(150, 150, 190, 220);
     const irr::video::SColor SWEEP(220, 120, 255, 170);
     const irr::video::SColor MARK(255, 255, 230, 90);
-    const irr::video::SColor PICTURE_BG(255, 4, 10, 40);
 
     std::wstring fmt(const wchar_t* format, double v)
     {
@@ -47,26 +46,22 @@ namespace {
             : ((m >= 1000.0f) ? fmt(L"%.1f km", m / 1000.0f) : fmt(L"%.0f m", m));
     }
 
-    //Fish finder colours, weak to strong: dark blue, light blue, green, yellow, orange, red, brown
-    void buildPalette(std::vector<irr::u32>& p)
+    //Backgrounds, as sonars offer them for day and night
+    const int BG_COUNT = 4;
+    const wchar_t* BG_NAMES[BG_COUNT] = { L"Bleu nuit", L"Noir", L"Blanc", L"Bleu clair" };
+    const int BG_RGB[BG_COUNT][3] = { { 4, 10, 40 }, { 0, 0, 0 }, { 244, 246, 248 }, { 60, 110, 168 } };
+    //Echo palettes: weak to strong
+    const int COL_COUNT = 4;
+    const wchar_t* COL_NAMES[COL_COUNT] = { L"16 couleurs", L"8 couleurs", L"Ambre", L"Gris" };
+    //The usual sonar colours, weakest (dark blue) to strongest (red-brown): 15 steps above the background
+    const int CLASSIC[15][3] = {
+        { 10, 40, 150 }, { 20, 70, 210 }, { 40, 120, 240 }, { 60, 170, 250 }, { 40, 210, 230 }, { 40, 200, 160 },
+        { 60, 200, 80 }, { 130, 220, 40 }, { 210, 230, 30 }, { 250, 210, 20 }, { 250, 160, 20 }, { 245, 110, 20 },
+        { 235, 55, 25 }, { 200, 20, 30 }, { 140, 20, 50 }
+    };
+    inline irr::u32 argb(int r, int g, int b)
     {
-        struct Stop { int v; int r, g, b; };
-        const Stop stops[] = {
-            { 0, 4, 10, 40 }, { 30, 10, 28, 110 }, { 60, 20, 90, 200 }, { 90, 30, 170, 225 }, { 115, 30, 200, 150 },
-            { 140, 60, 215, 60 }, { 165, 190, 225, 40 }, { 190, 250, 205, 25 }, { 210, 250, 140, 15 },
-            { 230, 235, 50, 25 }, { 245, 170, 20, 30 }, { 255, 120, 25, 60 }
-        };
-        const int n = sizeof(stops) / sizeof(stops[0]);
-        p.resize(256);
-        for (int v = 0; v < 256; v++) {
-            int i = 0;
-            while (i < n - 2 && v > stops[i + 1].v) { i++; }
-            const Stop& a = stops[i];
-            const Stop& b = stops[i + 1];
-            const irr::f32 t = (b.v == a.v) ? 0.0f : irr::core::clamp((irr::f32)(v - a.v) / (b.v - a.v), 0.0f, 1.0f);
-            const int r = (int)(a.r + (b.r - a.r) * t), g = (int)(a.g + (b.g - a.g) * t), bl = (int)(a.b + (b.b - a.b) * t);
-            p[v] = 0xFF000000u | ((irr::u32)r << 16) | ((irr::u32)g << 8) | (irr::u32)bl;
-        }
+        return 0xFF000000u | ((irr::u32)irr::core::clamp(r, 0, 255) << 16) | ((irr::u32)irr::core::clamp(g, 0, 255) << 8) | (irr::u32)irr::core::clamp(b, 0, 255);
     }
 
     irr::core::rect<irr::s32> toInt(const irr::core::rect<irr::f32>& r)
@@ -90,11 +85,12 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
       placeX(160), placeY(120), placeW(0), placeH(0), placeFullScreen(false), onScreen(false),
       mode(MODE_BOTH), headUp(true), markerOn(false), markerBearing(0), markerRange(0), mouseInside(false),
       lastRealMs(0), lastRenderMs(0), frameMs(33), fullScreenRequest(false), renderCount(0), rateStartMs(0), rate(0), k(1.0f), radius360(0),
-      tex360(0), texEcho(0), serial360Drawn(0xFFFFFFFF), serialEchoDrawn(0xFFFFFFFF), headingDrawn(-1000.0f), lastTex360Ms(0),
+      tex360(0), serial360Drawn(0xFFFFFFFF), paletteSerial(0), palette360Drawn(0xFFFFFFFF),
+      freqMode(0), whiteLine(false), bgIndex(0), colourIndex(0), colourLevels(16), headingDrawn(-1000.0f), lastTex360Ms(0),
       fontScale(0), fontTitle(0), fontText(0), fontSmall(0), fontBig(0)
 {
     sonar.setModel(model);
-    buildPalette(palette);
+    for (int f = 0; f < 2; f++) { texEcho[f] = 0; serialEchoDrawn[f] = 0xFFFFFFFF; paletteEchoDrawn[f] = 0xFFFFFFFF; }
     placementFile = Utilities::getUserDir() + ((instance > 1) ? "sonarWindow-" + std::to_string(instance) + ".ini" : std::string("sonarWindow.ini"));
     placeX = IniFile::iniFileTos32(placementFile, "X", placeX);
     placeY = IniFile::iniFileTos32(placementFile, "Y", placeY);
@@ -107,7 +103,11 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
     sonar.setTilt(IniFile::iniFileTof32(placementFile, "Tilt", 10.0f));
     sonar.setGain360((int)IniFile::iniFileTou32(placementFile, "Gain360", 5));
     sonar.setSounderGain((int)IniFile::iniFileTou32(placementFile, "GainSounder", 5));
-    sonar.setLowFrequency(IniFile::iniFileTou32(placementFile, "Frequency", 50) == 50);
+    freqMode = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "FreqMode", 0), 0, 2);
+    whiteLine = IniFile::iniFileTou32(placementFile, "WhiteLine", 0) == 1;
+    bgIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Background", 0), 0, BG_COUNT - 1);
+    colourIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Colours", 0), 0, COL_COUNT - 1);
+    rebuildPalette();
 
     //For every pixel of the 360 picture: its angle and its range bin
     lutAngle.resize(TEX * TEX);
@@ -142,7 +142,7 @@ void SonarWindow::shutdown()
     }
     freeFonts();
     if (tex360) { driver->removeTexture(tex360); tex360 = 0; }
-    if (texEcho) { driver->removeTexture(texEcho); texEcho = 0; }
+    for (int f = 0; f < 2; f++) { if (texEcho[f]) { driver->removeTexture(texEcho[f]); texEcho[f] = 0; } }
 }
 
 void SonarWindow::setScreen(const irr::core::rect<irr::s32>& area)
@@ -228,7 +228,10 @@ void SonarWindow::savePlacement(bool isOpenNow)
     f << "Tilt=" << sonar.tilt() << std::endl;
     f << "Gain360=" << sonar.gain360() << std::endl;
     f << "GainSounder=" << sonar.sounderGain() << std::endl;
-    f << "Frequency=" << (sonar.lowFrequency() ? 50 : 200) << std::endl;
+    f << "FreqMode=" << freqMode << std::endl;
+    f << "WhiteLine=" << (whiteLine ? 1 : 0) << std::endl;
+    f << "Background=" << bgIndex << std::endl;
+    f << "Colours=" << colourIndex << std::endl;
 }
 
 void SonarWindow::loadFonts(irr::f32 scale)
@@ -439,8 +442,15 @@ void SonarWindow::act(Action a)
     case A_SAUTO: sonar.setSounderAuto(!sonar.sounderAuto()); break;
     case A_SGAIN_DOWN: sonar.setSounderGain(sonar.sounderGain() - 1); break;
     case A_SGAIN_UP: sonar.setSounderGain(sonar.sounderGain() + 1); break;
-    case A_FREQ50: sonar.setLowFrequency(true); break;
-    case A_FREQ200: sonar.setLowFrequency(false); break;
+    case A_FREQ50: freqMode = 0; break;
+    case A_FREQ200: freqMode = 1; break;
+    case A_FREQBOTH: freqMode = 2; break;
+    case A_WHITELINE_ON: whiteLine = true; paletteSerial++; break;
+    case A_WHITELINE_OFF: whiteLine = false; paletteSerial++; break;
+    case A_BG_PREV: bgIndex = (bgIndex + BG_COUNT - 1) % BG_COUNT; rebuildPalette(); break;
+    case A_BG_NEXT: bgIndex = (bgIndex + 1) % BG_COUNT; rebuildPalette(); break;
+    case A_COL_PREV: colourIndex = (colourIndex + COL_COUNT - 1) % COL_COUNT; rebuildPalette(); break;
+    case A_COL_NEXT: colourIndex = (colourIndex + 1) % COL_COUNT; rebuildPalette(); break;
     case A_SCROLL_SLOWER: sonar.setScrollSpeed(sonar.scrollSpeed() * 2); break;
     case A_SCROLL_FASTER: sonar.setScrollSpeed(sonar.scrollSpeed() / 2); break;
     case A_CLUTTER_DOWN: sonar.setClutter(sonar.clutter() - 1); break;
@@ -468,13 +478,14 @@ void SonarWindow::updateTexture360()
 {
     const irr::f32 heading = model->getHeading();
     const irr::u32 now = device->getTimer()->getRealTime();
-    if (sonar.picture360Serial() == serial360Drawn && (!headUp || std::fabs(heading - headingDrawn) < 0.2f)) { return; }
+    if (sonar.picture360Serial() == serial360Drawn && paletteSerial == palette360Drawn && (!headUp || std::fabs(heading - headingDrawn) < 0.2f)) { return; }
     if (tex360 && now - lastTex360Ms < 60) { return; }   //(at most about 15 a second)
     if (!tex360) { tex360 = makeTexture("SonarPicture360"); if (!tex360) { return; } }
     irr::u8* out = (irr::u8*)tex360->lock(irr::video::ETLM_WRITE_ONLY);
     if (!out) { return; }
     lastTex360Ms = now;
     serial360Drawn = sonar.picture360Serial();
+    palette360Drawn = paletteSerial;
     headingDrawn = heading;
     const irr::u32 pitch = tex360->getPitch();
     const std::vector<irr::u8>& pic = sonar.picture360();
@@ -494,17 +505,21 @@ void SonarWindow::updateTexture360()
     tex360->unlock();
 }
 
-void SonarWindow::updateTextureEcho()
+void SonarWindow::updateTextureEcho(int f)
 {
-    if (texEcho && sonar.echogramSerial() == serialEchoDrawn) { return; }
-    if (!texEcho) { texEcho = makeTexture("SonarEchogram"); if (!texEcho) { return; } }
-    irr::u8* out = (irr::u8*)texEcho->lock(irr::video::ETLM_WRITE_ONLY);
+    irr::video::ITexture*& tex = texEcho[f];
+    if (tex && sonar.echogramSerial() == serialEchoDrawn[f] && paletteSerial == paletteEchoDrawn[f]) { return; }
+    if (!tex) { tex = makeTexture(f == 0 ? "SonarEchogram50" : "SonarEchogram200"); if (!tex) { return; } }
+    irr::u8* out = (irr::u8*)tex->lock(irr::video::ETLM_WRITE_ONLY);
     if (!out) { return; }
-    serialEchoDrawn = sonar.echogramSerial();
-    const irr::u32 pitch = texEcho->getPitch();
+    serialEchoDrawn[f] = sonar.echogramSerial();
+    paletteEchoDrawn[f] = paletteSerial;
+    const irr::u32 pitch = tex->getPitch();
     const int n = sonar.columnCount();
     const int firstX = TEX - n;   //newest on the right
     const irr::u32 empty = palette[0];
+    const irr::u32 white = brightBackground() ? 0xFF202020u : 0xFFFFFFFFu;
+    const int whiteRows = irr::core::max_(2, (int)(Sonar::ROWS * 0.006f));
     for (int y = 0; y < TEX; y++) {
         irr::u32* row = (irr::u32*)(out + (size_t)y * pitch);
         for (int x = 0; x < firstX; x++) { row[x] = empty; }
@@ -512,13 +527,49 @@ void SonarWindow::updateTextureEcho()
     for (int i = 0; i < n; i++) {
         const Sonar::Column& c = sonar.column(i);
         const int x = firstX + i;
+        const int wl0 = whiteLine ? c.bottomRow[f] : -1;
         for (int y = 0; y < TEX; y++) {
             irr::u32* row = (irr::u32*)(out + (size_t)y * pitch);
-            //A change of range: a dotted line down the column
-            row[x] = (c.rangeChanged && (y % 6) < 3) ? 0xFFB0B8C8u : palette[c.echo[y]];
+            if (c.rangeChanged && (y % 6) < 3) { row[x] = 0xFFB0B8C8u; continue; } //a change of range: a dotted line
+            if (wl0 >= 0 && y >= wl0 && y < wl0 + whiteRows) { row[x] = white; continue; }
+            row[x] = palette[c.echo[f][y]];
         }
     }
-    texEcho->unlock();
+    tex->unlock();
+}
+
+void SonarWindow::rebuildPalette()
+{
+    colourLevels = (colourIndex == 1) ? 8 : 16;
+    const int* bg = BG_RGB[bgIndex];
+    const bool bright = brightBackground();
+    palette.resize(256);
+    for (int v = 0; v < 256; v++) {
+        const int level = v * colourLevels / 256;
+        if (level == 0) { palette[v] = argb(bg[0], bg[1], bg[2]); continue; }   //below the first step: the background
+        const irr::f32 t = (colourLevels > 2) ? (irr::f32)(level - 1) / (colourLevels - 2) : 1.0f;
+        int r, g, b;
+        if (colourIndex <= 1) {
+            const int* c = CLASSIC[irr::core::clamp((int)(t * 14.0f + 0.5f), 0, 14)];
+            r = c[0]; g = c[1]; b = c[2];
+        }
+        else if (colourIndex == 2) {   //amber: dim to bright (dark brown on a white background)
+            const int lo[3] = { bright ? 240 : 90, bright ? 200 : 45, bright ? 120 : 0 };
+            const int hi[3] = { bright ? 120 : 255, bright ? 50 : 210, bright ? 0 : 90 };
+            r = (int)(lo[0] + (hi[0] - lo[0]) * t); g = (int)(lo[1] + (hi[1] - lo[1]) * t); b = (int)(lo[2] + (hi[2] - lo[2]) * t);
+        }
+        else {                         //grey: light on dark, dark on white
+            const int lo = bright ? 200 : 70, hi = bright ? 0 : 255;
+            r = g = b = (int)(lo + (hi - lo) * t);
+        }
+        palette[v] = argb(r, g, b);
+    }
+    paletteSerial++;
+}
+
+irr::video::SColor SonarWindow::overlayColour(irr::u32 alpha) const
+{
+    return brightBackground() ? irr::video::SColor(alpha, 30, 50, 80) : irr::video::SColor(alpha, 170, 200, 230);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -558,19 +609,20 @@ void SonarWindow::drawButtons()
     }
 }
 
-irr::f32 SonarWindow::panelRow(irr::f32 y, const std::wstring& label, const std::wstring& value, Action down, Action up)
+irr::f32 SonarWindow::panelRow(irr::f32 y, const std::wstring& label, const std::wstring& value, Action down, Action up,
+    const wchar_t* downLabel, const wchar_t* upLabel)
 {
     const irr::f32 x0 = panel.UpperLeftCorner.X + 16 * k, x1 = panel.LowerRightCorner.X - 16 * k;
-    const irr::f32 h = 34 * k;
-    const irr::f32 keyW = 34 * k;
+    const irr::f32 h = 32 * k;
+    const irr::f32 keyW = 32 * k;
     const irr::f32 labelW = (x1 - x0) * 0.42f;
     fontText->drawIn(label, irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + h), DIM, HudFont::Left);
     const irr::f32 vx0 = x0 + labelW;
-    addButton(irr::core::rect<irr::f32>(vx0, y, vx0 + keyW, y + h), down, L"-");
-    addButton(irr::core::rect<irr::f32>(x1 - keyW, y, x1, y + h), up, L"+");
+    addButton(irr::core::rect<irr::f32>(vx0, y, vx0 + keyW, y + h), down, downLabel);
+    addButton(irr::core::rect<irr::f32>(x1 - keyW, y, x1, y + h), up, upLabel);
     driver->draw2DRectangle(BG, toInt(irr::core::rect<irr::f32>(vx0 + keyW + 3 * k, y, x1 - keyW - 3 * k, y + h)));
     fontText->drawIn(value, irr::core::rect<irr::f32>(vx0 + keyW, y, x1 - keyW, y + h), TEXT, HudFont::Centre);
-    return y + h + 8 * k;
+    return y + h + 6 * k;
 }
 
 void SonarWindow::draw(irr::u32 w, irr::u32 h)
@@ -580,7 +632,11 @@ void SonarWindow::draw(irr::u32 w, irr::u32 h)
     buttons.clear();
     addHeaderButtons();
     if (area360.getWidth() > 0) { updateTexture360(); draw360(); }
-    if (areaEcho.getWidth() > 0) { updateTextureEcho(); drawSounder(); }
+    if (areaEcho.getWidth() > 0) {
+        if (freqMode != 1) { updateTextureEcho(0); }
+        if (freqMode != 0) { updateTextureEcho(1); }
+        drawSounder();
+    }
     drawPanel();
     drawHeader();
     drawButtons();
@@ -615,13 +671,13 @@ void SonarWindow::drawPanel()
         y += 10 * k;
     };
     auto twoKeys = [&](const std::wstring& label, const std::wstring& a, Action aa, bool aOn, const std::wstring& b, Action ba, bool bOn) {
-        const irr::f32 h = 34 * k;
+        const irr::f32 h = 32 * k;
         const irr::f32 labelW = (x1 - x0) * 0.42f;
         fontText->drawIn(label, irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + h), DIM, HudFont::Left);
         const irr::f32 kx = x0 + labelW, kw = (x1 - kx - 4 * k) / 2;
         addButton(irr::core::rect<irr::f32>(kx, y, kx + kw, y + h), aa, a, aOn);
         addButton(irr::core::rect<irr::f32>(kx + kw + 4 * k, y, x1, y + h), ba, b, bOn);
-        y += h + 8 * k;
+        y += h + 6 * k;
     };
 
     if (mode != MODE_SOUNDER) {
@@ -631,9 +687,9 @@ void SonarWindow::drawPanel()
         y = panelRow(y, L"Gain", fmt(L"%.0f", sonar.gain360()), A_GAIN360_DOWN, A_GAIN360_UP);
         twoKeys(L"Orientation", L"NORD", A_NORTH_UP, !headUp, L"CAP", A_HEAD_UP, headUp);
         if (markerOn) {
-            const irr::f32 h = 34 * k;
+            const irr::f32 h = 32 * k;
             addButton(irr::core::rect<irr::f32>(x0, y, x1, y + h), A_CLEAR_MARKER, L"EFFACER LE MARQUEUR");
-            y += h + 8 * k;
+            y += h + 6 * k;
         }
         y += 8 * k;
     }
@@ -642,27 +698,48 @@ void SonarWindow::drawPanel()
         const std::wstring scale = (sonar.sounderAuto() ? L"AUTO " : L"") + metres(sonar.sounderRange());
         y = panelRow(y, L"\u00C9chelle", scale, A_SRANGE_DOWN, A_SRANGE_UP);
         {
-            const irr::f32 h = 34 * k;
+            const irr::f32 h = 32 * k;
             const irr::f32 labelW = (x1 - x0) * 0.42f;
             addButton(irr::core::rect<irr::f32>(x0 + labelW, y, x1, y + h), A_SAUTO, L"\u00C9CHELLE AUTOMATIQUE", sonar.sounderAuto());
-            y += h + 8 * k;
+            y += h + 6 * k;
         }
         y = panelRow(y, L"Gain", fmt(L"%.0f", sonar.sounderGain()), A_SGAIN_DOWN, A_SGAIN_UP);
-        twoKeys(L"Fr\u00E9quence", L"50 kHz", A_FREQ50, sonar.lowFrequency(), L"200 kHz", A_FREQ200, !sonar.lowFrequency());
+        {
+            //Low, high, or both side by side
+            const irr::f32 h = 32 * k;
+            const irr::f32 labelW = (x1 - x0) * 0.42f;
+            fontText->drawIn(L"Fr\u00E9quence", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + h), DIM, HudFont::Left);
+            const irr::f32 kx = x0 + labelW, kw = (x1 - kx - 8 * k) / 3;
+            addButton(irr::core::rect<irr::f32>(kx, y, kx + kw, y + h), A_FREQ50, L"50", freqMode == 0);
+            addButton(irr::core::rect<irr::f32>(kx + kw + 4 * k, y, kx + 2 * kw + 4 * k, y + h), A_FREQ200, L"200", freqMode == 1);
+            addButton(irr::core::rect<irr::f32>(kx + 2 * kw + 8 * k, y, x1, y + h), A_FREQBOTH, L"LES 2", freqMode == 2);
+            y += h + 6 * k;
+        }
+        twoKeys(L"Ligne blanche", L"OUI", A_WHITELINE_ON, whiteLine, L"NON", A_WHITELINE_OFF, !whiteLine);
         const int sc = sonar.scrollSpeed();
         y = panelRow(y, L"D\u00E9filement", (sc == 1) ? L"rapide" : ((sc == 2) ? L"moyen" : L"lent"), A_SCROLL_SLOWER, A_SCROLL_FASTER);
         y = panelRow(y, L"Anti-parasites", fmt(L"%.0f", sonar.clutter()), A_CLUTTER_DOWN, A_CLUTTER_UP);
-        //Colours, weak to strong
-        const irr::f32 bh = 10 * k;
-        fontSmall->drawIn(L"faible", irr::core::rect<irr::f32>(x0, y, x0 + 60 * k, y + bh * 2), DIM, HudFont::Left);
-        fontSmall->drawIn(L"fort", irr::core::rect<irr::f32>(x1 - 60 * k, y, x1, y + bh * 2), DIM, HudFont::Right);
-        y += bh * 2 + 2 * k;
+        y += 8 * k;
+    }
+
+    //The colours, for both pictures: background, echo palette, and its steps weak to strong
+    section(L"AFFICHAGE");
+    y = panelRow(y, L"Fond", BG_NAMES[bgIndex], A_BG_PREV, A_BG_NEXT, L"<", L">");
+    y = panelRow(y, L"Couleurs", COL_NAMES[colourIndex], A_COL_PREV, A_COL_NEXT, L"<", L">");
+    {
+        const irr::f32 bh = 12 * k;
+        fontSmall->drawIn(L"faible", irr::core::rect<irr::f32>(x0, y, x0 + 60 * k, y + 18 * k), DIM, HudFont::Left);
+        fontSmall->drawIn(L"fort", irr::core::rect<irr::f32>(x1 - 60 * k, y, x1, y + 18 * k), DIM, HudFont::Right);
+        y += 18 * k;
         const irr::f32 lw = x1 - x0;
-        for (int i = 0; i < 64; i++) {
-            const irr::u32 c = palette[i * 4 + 2];
-            driver->draw2DRectangle(irr::video::SColor(c), toInt(irr::core::rect<irr::f32>(x0 + lw * i / 64.0f, y, x0 + lw * (i + 1) / 64.0f + 1, y + bh)));
+        const int steps = colourLevels;   //the background, then each step
+        for (int i = 0; i < steps; i++) {
+            const irr::u32 c = palette[(i * 256 + 128) / steps];
+            const irr::core::rect<irr::f32> sw(x0 + lw * i / steps, y, x0 + lw * (i + 1) / steps - 1, y + bh);
+            driver->draw2DRectangle(irr::video::SColor(c), toInt(sw));
         }
-        y += bh + 14 * k;
+        driver->draw2DRectangleOutline(toInt(irr::core::rect<irr::f32>(x0, y, x1, y + bh)), CARD_LINE);
+        y += bh + 12 * k;
     }
 
     //The ship, at the bottom
@@ -701,9 +778,9 @@ void SonarWindow::draw360()
     const irr::f32 range = sonar.range360m();
     for (int i = 1; i <= 4; i++) {
         const irr::f32 r = R * i / 4.0f;
-        circle(cx, cy, r, (i == 4) ? irr::video::SColor(220, 170, 200, 230) : RING, 144);
+        circle(cx, cy, r, (i == 4) ? irr::video::SColor(220, 170, 200, 230) : overlayColour(150), 144);
         const irr::f32 a = 135.0f * irr::core::DEGTORAD;
-        fontSmall->draw(metres(range * i / 4.0f), cx + r * std::sin(a) + 4 * k, cy - r * std::cos(a) + 2 * k, irr::video::SColor(200, 190, 210, 230));
+        fontSmall->draw(metres(range * i / 4.0f), cx + r * std::sin(a) + 4 * k, cy - r * std::cos(a) + 2 * k, overlayColour(220));
     }
     //Bearing scale (true bearings)
     for (int b = 0; b < 360; b += 5) {
@@ -716,22 +793,22 @@ void SonarWindow::draw360()
             fontSmall->drawIn(fmt(L"%03.0f", b), box, (b == 0) ? ACCENT : irr::video::SColor(220, 190, 210, 230), HudFont::Centre);
         }
     }
-    //The sweep, the ship's head (dashed), the ship
+    //The ship's head (dashed) and the ship. (No sweep: each transmission renews the whole circle,
+    //from the ship outwards.)
     {
-        const irr::f32 a = (sonar.sweepBearing() - rot) * irr::core::DEGTORAD;
-        line(cx, cy, cx + R * std::sin(a), cy - R * std::cos(a), SWEEP);
+        const irr::video::SColor shipCol = brightBackground() ? irr::video::SColor(255, 0, 0, 0) : irr::video::SColor(255, 255, 255, 255);
         const irr::f32 h = (heading - rot) * irr::core::DEGTORAD;
         for (int i = 0; i < 20; i += 2) {
             const irr::f32 r0 = R * i / 20.0f, r1 = R * (i + 1) / 20.0f;
-            line(cx + r0 * std::sin(h), cy - r0 * std::cos(h), cx + r1 * std::sin(h), cy - r1 * std::cos(h), irr::video::SColor(230, 255, 255, 255));
+            line(cx + r0 * std::sin(h), cy - r0 * std::cos(h), cx + r1 * std::sin(h), cy - r1 * std::cos(h), shipCol);
         }
         const irr::f32 s = 9 * k;
         const irr::core::vector2df tip(cx + s * std::sin(h), cy - s * std::cos(h));
         const irr::core::vector2df l(cx + s * 0.7f * std::sin(h + 2.5f), cy - s * 0.7f * std::cos(h + 2.5f));
         const irr::core::vector2df r(cx + s * 0.7f * std::sin(h - 2.5f), cy - s * 0.7f * std::cos(h - 2.5f));
-        line(tip.X, tip.Y, l.X, l.Y, irr::video::SColor(255, 255, 255, 255));
-        line(l.X, l.Y, r.X, r.Y, irr::video::SColor(255, 255, 255, 255));
-        line(r.X, r.Y, tip.X, tip.Y, irr::video::SColor(255, 255, 255, 255));
+        line(tip.X, tip.Y, l.X, l.Y, shipCol);
+        line(l.X, l.Y, r.X, r.Y, shipCol);
+        line(r.X, r.Y, tip.X, tip.Y, shipCol);
     }
     //The marker: bearing, slant range, horizontal distance and estimated depth
     if (markerOn) {
@@ -776,48 +853,69 @@ void SonarWindow::draw360()
     }
 }
 
+//One frequency's echogram, newest on the right, with the white line if chosen
+void SonarWindow::drawEchogram(int f, const irr::core::rect<irr::f32>& r)
+{
+    if (texEcho[f]) {
+        driver->getMaterial2D().TextureLayer[0].BilinearFilter = true;
+        driver->enableMaterial2D(true);
+        driver->draw2DImage(texEcho[f], toInt(r), irr::core::rect<irr::s32>(0, 0, TEX, TEX));
+        driver->enableMaterial2D(false);
+    }
+    driver->draw2DRectangleOutline(toInt(r), CARD_LINE);
+    //Which frequency, at the bottom left of its picture
+    const std::wstring name = (f == Sonar::F50) ? L"50 kHz" : L"200 kHz";
+    const irr::f32 tw = fontSmall->width(name) + 14 * k;
+    const irr::core::rect<irr::f32> box(r.UpperLeftCorner.X + 6 * k, r.LowerRightCorner.Y - 26 * k, r.UpperLeftCorner.X + 6 * k + tw, r.LowerRightCorner.Y - 6 * k);
+    driver->draw2DRectangle(irr::video::SColor(170, 4, 10, 30), toInt(box));
+    fontSmall->drawIn(name, box, TEXT, HudFont::Centre);
+}
+
 void SonarWindow::drawSounder()
 {
     driver->draw2DRectangle(CARD, toInt(areaEcho));
     const irr::f32 R = sonar.sounderRange();
 
-    //Top line: depth and settings
+    //Top line: settings
     {
         const irr::f32 ty = areaEcho.UpperLeftCorner.Y + 6 * k;
-        std::wstring info = sonar.lowFrequency() ? L"50 kHz" : L"200 kHz";
+        std::wstring info = (freqMode == 0) ? L"50 kHz" : ((freqMode == 1) ? L"200 kHz" : L"50 + 200 kHz");
         info += fmt(L"    GAIN %.0f", sonar.sounderGain());
         info += L"    \u00C9CHELLE " + std::wstring(sonar.sounderAuto() ? L"AUTO " : L"") + metres(R);
+        if (whiteLine) { info += L"    LIGNE BLANCHE"; }
         fontSmall->draw(info, areaEcho.UpperLeftCorner.X + 8 * k, ty + 4 * k, TEXT);
     }
 
-    //The echogram, newest on the right
-    if (texEcho) {
-        driver->getMaterial2D().TextureLayer[0].BilinearFilter = true;
-        driver->enableMaterial2D(true);
-        driver->draw2DImage(texEcho, toInt(picEcho), irr::core::rect<irr::s32>(0, 0, TEX, TEX));
-        driver->enableMaterial2D(false);
+    //The echogram: one frequency, or both side by side (low on the left)
+    const int shown = (freqMode == 2) ? Sonar::F200 : freqMode;   //(the A-scope's)
+    if (freqMode == 2) {
+        const irr::f32 mid = picEcho.getCenter().X;
+        drawEchogram(Sonar::F50, irr::core::rect<irr::f32>(picEcho.UpperLeftCorner.X, picEcho.UpperLeftCorner.Y, mid - 3 * k, picEcho.LowerRightCorner.Y));
+        drawEchogram(Sonar::F200, irr::core::rect<irr::f32>(mid + 3 * k, picEcho.UpperLeftCorner.Y, picEcho.LowerRightCorner.X, picEcho.LowerRightCorner.Y));
     }
-    driver->draw2DRectangleOutline(toInt(picEcho), CARD_LINE);
+    else {
+        drawEchogram(freqMode, picEcho);
+    }
 
     //Depth scale
     const irr::f32 top = picEcho.UpperLeftCorner.Y, hgt = picEcho.getHeight();
     const irr::f32 step = niceStep(R, 6);
     for (irr::f32 d = 0; d <= R + 0.01f; d += step) {
         const irr::f32 y = top + hgt * d / R;
-        line(picEcho.LowerRightCorner.X - 8 * k, y, picEcho.LowerRightCorner.X, y, RING);
+        line(picEcho.LowerRightCorner.X - 8 * k, y, picEcho.LowerRightCorner.X, y, overlayColour(200));
         line(scaleEcho.UpperLeftCorner.X, y, scaleEcho.UpperLeftCorner.X + 8 * k, y, RING);
         const irr::core::rect<irr::f32> box(scaleEcho.UpperLeftCorner.X + 10 * k, y - 9 * k, scaleEcho.LowerRightCorner.X, y + 9 * k);
         fontSmall->drawIn(fmt(step < 1.0f ? L"%.1f" : L"%.0f", d), box, TEXT, HudFont::Left);
     }
 
     //A-scope: the last column as a trace
-    driver->draw2DRectangle(PICTURE_BG, toInt(ascopeEcho));
+    driver->draw2DRectangle(irr::video::SColor(palette[0]), toInt(ascopeEcho));
     if (sonar.columnCount() > 0) {
         const Sonar::Column& c = sonar.column(sonar.columnCount() - 1);
         const irr::f32 aw = ascopeEcho.getWidth();
         for (int r = 0; r < Sonar::ROWS; r += 2) {
-            const irr::u8 v = irr::core::max_(c.echo[r], c.echo[r + 1]);
-            if (v < 8) { continue; }
+            const irr::u8 v = irr::core::max_(c.echo[shown][r], c.echo[shown][r + 1]);
+            if (v < 256 / colourLevels) { continue; }
             const irr::f32 y0 = top + hgt * r / Sonar::ROWS, y1 = top + hgt * (r + 2) / Sonar::ROWS;
             const irr::f32 len = aw * v / 255.0f;
             driver->draw2DRectangle(irr::video::SColor(palette[v]), toInt(irr::core::rect<irr::f32>(ascopeEcho.UpperLeftCorner.X, y0, ascopeEcho.UpperLeftCorner.X + len, irr::core::max_(y1, y0 + 1))));
