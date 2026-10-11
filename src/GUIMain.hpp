@@ -486,7 +486,6 @@ public:
     void hideBearings();
     void setLargeRadar(bool radarState);
     bool getLargeRadar() const;
-    bool alertBoxHit(irr::core::position2di p) const; //on the bridge alert list (a click acknowledges)
     void setARPAComboboxes(irr::s32 arpaState);
     void setARPAList(int arpaSelected);
     irr::u32 getRadarPixelRadius() const;
@@ -848,7 +847,6 @@ private:
     bool spectatorHiddenSet = false;
     void drawSpectatorOverlay();
     void drawBridgeAlerts();
-    irr::core::rect<irr::s32> alertBoxRect; //where the alert list was last drawn (a click there acknowledges)
     void drawInstructorMessage();
     int trainDelayIndex = 0;                 //failures: now, in 1, 3, 5 min, or at random
     irr::f32 guiDepthAlarmLimit = 0, guiMobBrg = 0, guiMobNm = 0;

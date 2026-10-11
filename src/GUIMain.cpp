@@ -5442,14 +5442,8 @@ bool GUIMain::scopeMouseEvent(const irr::SEvent& event)
 }
 
 //The bridge alert list: one line per active alarm, flashing red until acknowledged, then steady amber
-bool GUIMain::alertBoxHit(irr::core::position2di p) const
-{
-    return !guiAlertText.empty() && alertBoxRect.isPointInside(p);
-}
-
 void GUIMain::drawBridgeAlerts()
 {
-    alertBoxRect = irr::core::rect<irr::s32>(0, 0, 0, 0);
     if (guiAlertText.empty()) { return; }
     irr::gui::IGUIFont* font = guienv->getSkin()->getFont();
     if (!font) { return; }
@@ -5457,7 +5451,7 @@ void GUIMain::drawBridgeAlerts()
     const irr::s32 lineH = (irr::s32)font->getDimension(L"A").Height + 6;
     bool anyNew = false;
     for (size_t i = 0; i < guiAlertAcked.size(); i++) { if (!guiAlertAcked[i]) { anyNew = true; } }
-    const wchar_t* title = anyNew ? L"ALERTES  -  CLIQUER ICI POUR ACQUITTER" : L"ALERTES  (acquitt\u00E9es)";
+    const wchar_t* title = anyNew ? L"ALERTES  -  \u00C0 ACQUITTER" : L"ALERTES  (acquitt\u00E9es)";
     irr::s32 w = (irr::s32)font->getDimension(title).Width;
     for (size_t i = 0; i < guiAlertText.size(); i++) { w = std::max(w, (irr::s32)font->getDimension(guiAlertText[i].c_str()).Width); }
     w += 28;
@@ -5465,8 +5459,7 @@ void GUIMain::drawBridgeAlerts()
     const irr::s32 x = 12;
     const irr::s32 y = radarLarge ? (irr::s32)(0.20f * driver->getScreenSize().Height) : 12;
     const irr::s32 h = lineH * (irr::s32)(guiAlertText.size() + 1) + 8;
-    alertBoxRect = irr::core::rect<irr::s32>(x, y, x + w, y + h);
-    driver->draw2DRectangle(irr::video::SColor(215, 12, 14, 18), alertBoxRect);
+    driver->draw2DRectangle(irr::video::SColor(215, 12, 14, 18), irr::core::rect<irr::s32>(x, y, x + w, y + h));
     const bool flashOn = ((device->getTimer()->getRealTime() / 500) % 2) == 0;
     const irr::video::SColor red(255, 255, 70, 60), amber(255, 255, 176, 50), dim(255, 150, 150, 150);
     driver->draw2DRectangle(anyNew ? red : amber, irr::core::rect<irr::s32>(x, y, x + 4, y + h));

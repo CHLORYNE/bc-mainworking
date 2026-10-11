@@ -135,17 +135,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         //On the large radar's picture: clicks track targets / draw parallel index lines, the wheel
         //changes the range
         if (gui->scopeMouseEvent(event)) { return true; }
-        //A click on the bridge alert list acknowledges the alerts (silences the failure alarm)
-        if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
-        {
-            const irr::core::position2di p(event.MouseInput.X, event.MouseInput.Y);
-            irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
-            if (gui->alertBoxHit(p) && rootGUIElement->getElementFromPoint(p) == rootGUIElement)
-            {
-                model->acknowledgeAlerts();
-                return true;
-            }
-        }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
         {
             leftMouseDown = true;
