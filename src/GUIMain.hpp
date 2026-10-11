@@ -709,6 +709,7 @@ private:
     std::vector<irr::gui::IGUIElement*> radarPassHidden;   //hidden for the radar pass, shown again after
     bool inRadarPass = false;
     bool radarPassShowInterface = true;                    //the main screen's, during a radar pass
+    bool radarPassRootHidden = false;                      //the main screen's interface was hidden altogether (F)
     irr::core::rect<irr::s32> radarSource;                 //part of the layout shown in the window
     irr::f32 radarScale = 1.0f;                            //window pixels per layout pixel
     irr::core::position2di radarOrigin;                    //window position of radarSource's corner

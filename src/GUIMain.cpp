@@ -2781,8 +2781,8 @@ void GUIMain::updateVisibility()
     const bool consoleShown = instrumentsEnabled && showInterface;
     if (instrumentPanel) { instrumentPanel->setVisible(showPrimary && showInterface); }
 
-    // Apply to the heading indicator
-    if (headingIndicator) { headingIndicator->setVisible(showPrimary && !consoleShown); }
+    //The heading tape is not shown (the console's compass and the radar give the heading)
+    if (headingIndicator) { headingIndicator->setVisible(false); }
     if (portText) { portText->setVisible(showPrimary); }
     if (stbdText) { stbdText->setVisible(showPrimary && !singleEngine); }
     if (dataDisplay) { dataDisplay->setVisible(showPrimary && !consoleShown); }
@@ -5174,6 +5174,9 @@ void GUIMain::enterRadarPass()
     radarPassShowInterface = showInterface;
     showInterface = false;
     updateVisibility();
+    //The bridge screen's interface may be hidden altogether (F): the radar window keeps its controls
+    radarPassRootHidden = !guienv->getRootGUIElement()->isVisible();
+    if (radarPassRootHidden) { guienv->getRootGUIElement()->setVisible(true); }
     //Only the radar in that window: anything else open on the main screen is hidden for the pass.
     const irr::core::list<irr::gui::IGUIElement*>& children = guienv->getRootGUIElement()->getChildren();
     radarPassHidden.clear();
@@ -5193,6 +5196,8 @@ void GUIMain::exitRadarPass()
         radarPassHidden[i]->drop();
     }
     radarPassHidden.clear();
+    if (radarPassRootHidden) { guienv->getRootGUIElement()->setVisible(false); }
+    radarPassRootHidden = false;
     inRadarPass = false;
     radarLarge = false;
     showInterface = radarPassShowInterface;
