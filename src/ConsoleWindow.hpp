@@ -79,6 +79,7 @@ private:
 #ifdef _WIN32
     void* hwnd;
     void* hdc;
+    unsigned long lastZCheck = 0;   //GetTickCount() of the last look at the stacking order
 #else
     void* display;          //this window's own X connection
     unsigned long window;

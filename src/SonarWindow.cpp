@@ -123,7 +123,7 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
             irr::f32 a = std::atan2(dx, -dy) * irr::core::RADTODEG;
             if (a < 0) { a += 360.0f; }
             lutAngle[i] = (irr::u16)irr::core::clamp((int)(a * 10.0f), 0, 3599);
-            lutBin[i] = (irr::u16)irr::core::clamp((int)(r * Sonar::BINS), 0, Sonar::BINS - 1);
+            lutBin[i] = (irr::u32)irr::core::clamp((int)(r * Sonar::BINS * 256.0f) - 128, 0, (Sonar::BINS - 1) * 256);
         }
     }
 }
@@ -495,6 +495,8 @@ void SonarWindow::updateTexture360()
     const std::vector<irr::u8>& pic = sonar.picture360();
     const int rot = headUp ? ((int)(heading * 10.0f) % 3600 + 3600) % 3600 : 0;
     const irr::u32 outside = 0xFF000000u | ((irr::u32)CARD.getRed() << 16) | ((irr::u32)CARD.getGreen() << 8) | CARD.getBlue();
+    //Each pixel blended from the two nearest beams and the two nearest range steps, as a sonar's
+    //picture is drawn (no stair steps between beams)
     const int perBeam = 3600 / Sonar::BEAMS;
     for (int y = 0; y < TEX; y++) {
         irr::u32* row = (irr::u32*)(out + (size_t)y * pitch);
@@ -502,8 +504,18 @@ void SonarWindow::updateTexture360()
         for (int x = 0; x < TEX; x++) {
             const irr::u16 a = lutAngle[base + x];
             if (a == 0xFFFF) { row[x] = outside; continue; }
-            const int beam = ((a + rot) % 3600) / perBeam;
-            row[x] = palette[pic[(size_t)beam * Sonar::BINS + lutBin[base + x]]];
+            const int posA = ((a + rot) % 3600) * 256 / perBeam - 128 + Sonar::BEAMS * 256;   //beam centres at x.5
+            const int b0 = (posA >> 8) % Sonar::BEAMS, b1 = (b0 + 1) % Sonar::BEAMS;
+            const int fa = posA & 255;
+            const irr::u32 rb = lutBin[base + x];
+            const int i0 = (int)(rb >> 8), i1 = irr::core::min_(i0 + 1, Sonar::BINS - 1);
+            const int fb = (int)(rb & 255);
+            const irr::u8* p0 = &pic[(size_t)b0 * Sonar::BINS];
+            const irr::u8* p1 = &pic[(size_t)b1 * Sonar::BINS];
+            const int v0 = p0[i0] * (256 - fb) + p0[i1] * fb;
+            const int v1 = p1[i0] * (256 - fb) + p1[i1] * fb;
+            const int v = (v0 * (256 - fa) + v1 * fa) >> 16;
+            row[x] = palette[irr::core::clamp(v, 0, 255)];
         }
     }
     tex360->unlock();

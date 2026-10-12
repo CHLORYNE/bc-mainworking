@@ -73,7 +73,7 @@ Sonar::Sonar()
 {
     accumulated[0].assign(ROWS, 0.0f);
     accumulated[1].assign(ROWS, 0.0f);
-    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; }
+    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; beamTail[b] = 0.0f; }
 }
 
 void Sonar::setModel(SimulationModel* m)
@@ -357,7 +357,7 @@ void Sonar::startTransmission()
     txTilt = tiltDeg;
     std::fill(targetEcho.begin(), targetEcho.end(), 0.0f);
     std::fill(shadowMask.begin(), shadowMask.end(), (irr::u8)0);
-    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; }
+    for (int b = 0; b < BEAMS; b++) { beamBlocked[b] = BINS; beamPrevDepth[b] = -1e9f; beamTail[b] = 0.0f; }
 
     //The targets, laid into every beam they are in: round echoes, strongest at their centre
     struct Target { irr::f32 h, bearing, radius, zTop, zBottom, strength; bool wreck; irr::f32 wreckBottom, wreckHeight; };
@@ -448,8 +448,12 @@ void Sonar::computeCell(int b, int i)
 {
     const irr::f32 gain = 0.35f + 0.14f * gain360v;
     if (i >= beamBlocked[b]) {
-        //Behind the ground: nothing but the receiver's noise
-        beams[b * BINS + i] = (irr::u8)(irr::core::clamp(0.03f * gain * random01(), 0.0f, 1.0f) * 255.0f);
+        //Behind the ground: the bottom echo fades out over some metres (the beam's soft edges, the
+        //length of the pulse), then only the receiver's noise
+        const irr::f32 tailBins = irr::core::max_(3.0f, BINS * 0.05f);
+        const irr::f32 fade = beamTail[b] * std::exp(-(irr::f32)(i - beamBlocked[b] + 1) / tailBins);
+        const irr::f32 v = fade * (0.8f + 0.4f * random01()) * gain + 0.03f * gain * random01();
+        beams[b * BINS + i] = (irr::u8)(irr::core::clamp(v, 0.0f, 1.0f) * 255.0f);
         return;
     }
     const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
@@ -468,16 +472,18 @@ void Sonar::computeCell(int b, int i)
         //The coast: a hard wall, then nothing
         v = 1.0f;
         beamBlocked[b] = i + 1;
+        beamTail[b] = 0.5f;
     }
     else if (bottom <= zlo) {
         //Ground rising into the whole beam
-        v = 0.7f + 0.3f * (0.45f + 0.55f * hardness(ax, az));
+        v = 0.85f * (0.6f + 0.3f * (0.45f + 0.55f * hardness(ax, az)));
         beamBlocked[b] = i + 1;
+        beamTail[b] = 0.7f * v;
     }
     else if (bottom < zhi) {
         //The bottom in the beam: stronger the more of the beam it takes, and on rising ground
         const irr::f32 frac = (zhi - bottom) / irr::core::max_(zhi - zlo, 0.01f);
-        v = (0.45f + 0.55f * hardness(ax, az)) * (0.35f + 0.6f * frac);
+        v = 0.85f * (0.45f + 0.55f * hardness(ax, az)) * (0.35f + 0.6f * frac);
         if (beamPrevDepth[b] > -1e8f && bottom < beamPrevDepth[b] - 0.05f * binLen) { v *= 1.3f; }
         v *= 0.88f + 0.24f * random01();
     }

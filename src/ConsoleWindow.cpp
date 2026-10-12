@@ -230,6 +230,22 @@ void ConsoleWindow::keepAboveSimulator()
     if (simulatorInFront != onTop) {
         SetWindowPos(window, simulatorInFront ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        lastZCheck = GetTickCount();
+        return;
+    }
+    //Already topmost, but a click on the simulator can still bring it over this window (a full
+    //screen or topmost simulator window): a few times a second, look whether it is above, and if
+    //so put this window back in front of it.
+    if (!simulatorInFront) { return; }
+    const DWORD now = GetTickCount();
+    if (now - lastZCheck < 250) { return; }
+    lastZCheck = now;
+    bool mainAbove = false;
+    for (HWND w = GetWindow(window, GW_HWNDPREV); w; w = GetWindow(w, GW_HWNDPREV)) {
+        if (w == mainWindow) { mainAbove = true; break; }
+    }
+    if (mainAbove) {
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
 }
 

@@ -144,7 +144,7 @@ private:
     irr::f32 headingDrawn;
     irr::u32 lastTex360Ms;
     std::vector<irr::u16> lutAngle;   //tenths of a degree clockwise from the top, 0xFFFF outside the disc
-    std::vector<irr::u16> lutBin;
+    std::vector<irr::u32> lutBin;     //range in 1/256 of a bin (for blending between bins)
     std::vector<irr::u32> palette;    //echo strength to colour (A8R8G8B8)
 
     //Fonts

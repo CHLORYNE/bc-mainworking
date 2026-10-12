@@ -173,6 +173,7 @@ private:
     std::vector<irr::u8> shadowMask;    //[beam * BINS + bin] 1: behind a wreck
     int beamBlocked[BEAMS];             //first bin hidden by the ground
     irr::f32 beamPrevDepth[BEAMS];
+    irr::f32 beamTail[BEAMS];           //echo where the ground took the whole beam: it fades out behind
 
     //Fish finder
     std::vector<Column> echogram;  //ring
