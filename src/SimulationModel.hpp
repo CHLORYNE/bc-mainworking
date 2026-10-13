@@ -311,6 +311,9 @@ public:
     bool isLightEditing() const;
     int getLightEditVessel() const;
     void lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+    //The point of the edited vessel's model under a ray from the view, in the coordinates of her
+    //node (where her lamps are), a little off the surface towards the viewer. false: missed her.
+    bool lightEditPick(const irr::core::line3df& worldRay, irr::core::vector3df& modelPos);
     //Size (ScaleFactor) and waterline (YCorrection) of a vessel, changed live and
     //written back to her boat.ini. -1 = own ship. Other ships using the same boat.ini are the
     //same model, so they all change together.

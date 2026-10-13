@@ -11,6 +11,7 @@
 #include "IniFile.hpp"
 #include "Utilities.hpp"
 #include "launcher/HudText.hpp"
+#include "SonarHelp.hpp"
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -322,6 +323,7 @@ void SonarWindow::layout(irr::u32 w, irr::u32 h)
     const irr::f32 m = 14 * k;
     const irr::core::rect<irr::f32> display(m, header.LowerRightCorner.Y + m, panel.UpperLeftCorner.X - m, H - m);
     const irr::f32 dw = display.getWidth(), dh = display.getHeight();
+    helpArea = display;
     area360 = irr::core::rect<irr::f32>(0, 0, 0, 0);
     areaEcho = irr::core::rect<irr::f32>(0, 0, 0, 0);
     if (mode == MODE_360) {
@@ -376,6 +378,12 @@ void SonarWindow::addHeaderButtons()
         const std::wstring t = window && window->isFullScreen() ? L"FEN\u00CATRE" : L"PLEIN \u00C9CRAN";
         const irr::f32 bw = fontText->width(L"PLEIN \u00C9CRAN") + 34 * k;
         addButton(irr::core::rect<irr::f32>(xr - bw, ky, xr, ky + kh), A_FULLSCREEN, t);
+        xr -= bw + 6 * k;
+    }
+    {
+        const std::wstring t = L"AIDE";
+        const irr::f32 bw = fontText->width(t) + 34 * k;
+        addButton(irr::core::rect<irr::f32>(xr - bw, ky, xr, ky + kh), A_HELP, t, helpOpen);
     }
 }
 
@@ -397,8 +405,8 @@ void SonarWindow::handleInput()
         mouse = irr::core::position2di(e.MouseInput.X, e.MouseInput.Y);
         mouseInside = true;
         const irr::core::vector2df p((irr::f32)mouse.X, (irr::f32)mouse.Y);
-        const bool on360 = area360.getWidth() > 0 && (p - centre360).getLength() <= radius360;
-        const bool onEcho = areaEcho.getWidth() > 0 && picEcho.isPointInside(p);
+        const bool on360 = !helpOpen && area360.getWidth() > 0 && (p - centre360).getLength() <= radius360;
+        const bool onEcho = !helpOpen && areaEcho.getWidth() > 0 && picEcho.isPointInside(p);
         switch (e.MouseInput.Event) {
         case irr::EMIE_LMOUSE_PRESSED_DOWN: {
             bool done = false;
@@ -413,7 +421,11 @@ void SonarWindow::handleInput()
             if (on360) { markerOn = false; }
             break;
         case irr::EMIE_MOUSE_WHEEL:
-            if (on360) { act(e.MouseInput.Wheel > 0 ? A_RANGE_DOWN : A_RANGE_UP); }
+            if (helpOpen && helpArea.isPointInside(p)) {
+                helpScroll = irr::core::clamp(helpScroll - e.MouseInput.Wheel * 60.0f * k, 0.0f,
+                    irr::core::max_(0.0f, helpContentH - helpText.getHeight()));
+            }
+            else if (on360) { act(e.MouseInput.Wheel > 0 ? A_RANGE_DOWN : A_RANGE_UP); }
             else if (onEcho) { act(e.MouseInput.Wheel > 0 ? A_SRANGE_DOWN : A_SRANGE_UP); }
             break;
         default:
@@ -447,6 +459,10 @@ void SonarWindow::act(Action a)
     case A_FREQ50: freqMode = 0; break;
     case A_FREQ200: freqMode = 1; break;
     case A_FREQBOTH: freqMode = 2; break;
+    case A_HELP: helpOpen = !helpOpen; helpScroll = 0.0f; break;
+    case A_HELP_TAB0: helpTab = 0; helpScroll = 0.0f; break;
+    case A_HELP_TAB1: helpTab = 1; helpScroll = 0.0f; break;
+    case A_HELP_TAB2: helpTab = 2; helpScroll = 0.0f; break;
     case A_HEAVE_ON: sonar.setHeaveCompensation(true); break;
     case A_HEAVE_OFF: sonar.setHeaveCompensation(false); break;
     case A_WHITELINE_ON: whiteLine = true; paletteSerial++; break;
@@ -647,8 +663,9 @@ void SonarWindow::draw(irr::u32 w, irr::u32 h)
     //The keys are made as they are drawn; the mouse finds them until the next frame
     buttons.clear();
     addHeaderButtons();
-    if (area360.getWidth() > 0) { updateTexture360(); draw360(); }
-    if (areaEcho.getWidth() > 0) {
+    if (helpOpen) { drawHelp(); }
+    else if (area360.getWidth() > 0) { updateTexture360(); draw360(); }
+    if (!helpOpen && areaEcho.getWidth() > 0) {
         if (freqMode != 1) { updateTextureEcho(0); }
         if (freqMode != 0) { updateTextureEcho(1); }
         drawSounder();
@@ -656,6 +673,75 @@ void SonarWindow::draw(irr::u32 w, irr::u32 h)
     drawPanel();
     drawHeader();
     drawButtons();
+}
+
+//The guide: tabs, then the text of the tab, scrolled with the wheel
+void SonarWindow::drawHelp()
+{
+    driver->draw2DRectangle(CARD, toInt(helpArea));
+    driver->draw2DRectangleOutline(toInt(helpArea), CARD_LINE);
+    const irr::f32 x0 = helpArea.UpperLeftCorner.X + 20 * k, x1 = helpArea.LowerRightCorner.X - 20 * k;
+    irr::f32 y = helpArea.UpperLeftCorner.Y + 14 * k;
+    fontTitle->drawIn(L"AIDE", irr::core::rect<irr::f32>(x0, y, x0 + 90 * k, y + 36 * k), TEXT, HudFont::Left, 1.2f * k);
+    irr::f32 tx = x0 + 100 * k;
+    const Action tabs[3] = { A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2 };
+    for (int t = 0; t < sonarhelp::TAB_COUNT; t++) {
+        const std::wstring name = sonarhelp::tabName(t);
+        const irr::f32 bw = fontText->width(name) + 34 * k;
+        addButton(irr::core::rect<irr::f32>(tx, y, tx + bw, y + 36 * k), tabs[t], name, helpTab == t);
+        tx += bw + 6 * k;
+    }
+    {
+        const std::wstring t = L"FERMER L'AIDE";
+        const irr::f32 bw = fontText->width(t) + 34 * k;
+        addButton(irr::core::rect<irr::f32>(x1 - bw, y, x1, y + 36 * k), A_HELP, t);
+    }
+    y += 50 * k;
+    line(x0, y, x1, y, CARD_LINE);
+    y += 12 * k;
+
+    //The text, in a column that stays readable on a wide screen
+    const irr::f32 colW = irr::core::min_(x1 - x0 - 16 * k, 980 * k);
+    helpText = irr::core::rect<irr::f32>(x0, y, x0 + colW, helpArea.LowerRightCorner.Y - 14 * k);
+    const irr::core::rect<irr::s32> clip = toInt(helpText);
+    const irr::f32 lh = fontText->lineHeight() * 1.18f;
+    const irr::f32 indent = 22 * k;
+    irr::f32 cy = helpText.UpperLeftCorner.Y - helpScroll;
+    const std::vector<sonarhelp::Line> lines = sonarhelp::content(helpTab);
+    for (size_t i = 0; i < lines.size(); i++) {
+        const sonarhelp::Line& L = lines[i];
+        if (L.kind == 0) {
+            if (i > 0) { cy += 10 * k; }
+            if (cy + lh > helpText.UpperLeftCorner.Y && cy < helpText.LowerRightCorner.Y) {
+                fontText->draw(L.text, helpText.UpperLeftCorner.X, cy, ACCENT, 0.6f * k, &clip);
+            }
+            cy += lh + 4 * k;
+            continue;
+        }
+        const irr::f32 left = helpText.UpperLeftCorner.X + ((L.kind == 2) ? indent : 0.0f);
+        const std::vector<std::wstring> wrapped = fontText->wrap(L.text, colW - (left - helpText.UpperLeftCorner.X));
+        for (size_t w = 0; w < wrapped.size(); w++) {
+            if (cy + lh > helpText.UpperLeftCorner.Y && cy < helpText.LowerRightCorner.Y) {
+                if (L.kind == 2 && w == 0) { fontText->draw(L"\u2022", helpText.UpperLeftCorner.X + 6 * k, cy, ACCENT, 0, &clip); }
+                fontText->draw(wrapped[w], left, cy, TEXT, 0, &clip);
+            }
+            cy += lh;
+        }
+        cy += 6 * k;
+    }
+    helpContentH = cy + helpScroll - helpText.UpperLeftCorner.Y;
+    helpScroll = irr::core::clamp(helpScroll, 0.0f, irr::core::max_(0.0f, helpContentH - helpText.getHeight()));
+
+    //Where the view is in the text
+    if (helpContentH > helpText.getHeight()) {
+        const irr::f32 bx = helpArea.LowerRightCorner.X - 10 * k;
+        const irr::f32 th = helpText.getHeight();
+        const irr::f32 barH = irr::core::max_(30 * k, th * th / helpContentH);
+        const irr::f32 barY = helpText.UpperLeftCorner.Y + (th - barH) * helpScroll / (helpContentH - th);
+        driver->draw2DRectangle(CARD_LINE, toInt(irr::core::rect<irr::f32>(bx, helpText.UpperLeftCorner.Y, bx + 4 * k, helpText.LowerRightCorner.Y)));
+        driver->draw2DRectangle(ACCENT, toInt(irr::core::rect<irr::f32>(bx, barY, bx + 4 * k, barY + barH)));
+        fontSmall->drawIn(L"molette : faire d\u00E9filer", irr::core::rect<irr::f32>(x1 - 200 * k, helpArea.LowerRightCorner.Y - 14 * k, x1, helpArea.LowerRightCorner.Y), DIM, HudFont::Right);
+    }
 }
 
 void SonarWindow::drawHeader()

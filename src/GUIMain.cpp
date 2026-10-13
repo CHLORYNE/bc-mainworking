@@ -5842,6 +5842,26 @@ void GUIMain::drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radiu
 //=================================================================================================
 //KYARA FEUX EDIT - the "Placement des feux" window
 //=================================================================================================
+namespace {
+    //What a click on the vessel adds, and the colours of a free light
+    struct LampType { const wchar_t* name; ShipLights::Role role; };
+    const LampType LAMP_TYPES[] = {
+        { L"Feu libre (couleur au choix)", ShipLights::ROLE_CUSTOM },
+        { L"Feu de t\u00EAte de m\u00E2t", ShipLights::ROLE_MASTHEAD },
+        { L"Feu de c\u00F4t\u00E9 b\u00E2bord (rouge)", ShipLights::ROLE_PORT },
+        { L"Feu de c\u00F4t\u00E9 tribord (vert)", ShipLights::ROLE_STARBOARD },
+        { L"Feu de poupe", ShipLights::ROLE_STERN },
+        { L"Feu de mouillage", ShipLights::ROLE_ANCHOR },
+        { L"Feu de pont (projecteur)", ShipLights::ROLE_DECK },
+    };
+    const int LAMP_TYPE_COUNT = sizeof(LAMP_TYPES) / sizeof(LAMP_TYPES[0]);
+    const wchar_t* LAMP_COLOUR_NAMES[6] = { L"Blanc", L"Rouge", L"Vert", L"Jaune", L"Orange", L"Bleu" };
+    const irr::video::SColor LAMP_COLOURS[6] = {
+        irr::video::SColor(255, 255, 250, 235), irr::video::SColor(255, 255, 40, 25), irr::video::SColor(255, 30, 255, 60),
+        irr::video::SColor(255, 255, 220, 40), irr::video::SColor(255, 255, 140, 20), irr::video::SColor(255, 60, 120, 255)
+    };
+}
+
 void GUIMain::openLightEditor(int vessel)
 {
     closeLightEditor();
@@ -5862,7 +5882,7 @@ void GUIMain::openLightEditor(int vessel)
     const irr::s32 listH = rowH * 7;
     const irr::s32 readH = fh * 5;
     const irr::s32 helpH = fh * 9;
-    const irr::s32 h = 2 * fh + listH + readH + 6 * (rowH + pad) + fh * 3 + helpH + 3 * pad;
+    const irr::s32 h = 2 * fh + listH + readH + 9 * (rowH + pad) + fh * 3 + helpH + 3 * pad;
     const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
     const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
     const irr::s32 x = sw - w - fh;
@@ -5892,6 +5912,42 @@ void GUIMain::openLightEditor(int vessel)
     lightEditReadout = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + readH),
         true, true, lightEditWindow);
     cy += readH + pad;
+
+    //A click on the vessel in the view: moves the selected lamp there, or adds a new one there
+    {
+        const irr::s32 labelW = fh * 7;
+        irr::gui::IGUIStaticText* t = guienv->addStaticText(L"Clic sur le navire :", irr::core::rect<irr::s32>(pad, cy, pad + labelW, cy + rowH),
+            false, false, lightEditWindow);
+        t->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        const irr::s32 kx = pad + labelW, kw = (w - pad - kx - pad / 2) / 2;
+        lightEditMoveKey = guienv->addButton(irr::core::rect<irr::s32>(kx, cy, kx + kw, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_CLICK_MOVE, L"D\u00E9placer le feu", L"Un clic sur le navire y place le feu s\u00E9lectionn\u00E9 dans la liste");
+        lightEditAddKey = guienv->addButton(irr::core::rect<irr::s32>(kx + kw + pad / 2, cy, w - pad, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_CLICK_ADD, L"Ajouter un feu", L"Un clic sur le navire y cr\u00E9e un nouveau feu, du type et de la couleur choisis");
+        lightEditMoveKey->setIsPushButton(true);
+        lightEditAddKey->setIsPushButton(true);
+        cy += rowH + pad;
+        t = guienv->addStaticText(L"Type du feu ajout\u00E9 :", irr::core::rect<irr::s32>(pad, cy, pad + labelW, cy + rowH),
+            false, false, lightEditWindow);
+        t->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        lightEditTypeKey = guienv->addButton(irr::core::rect<irr::s32>(kx, cy, w - pad, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_TYPE, L"", L"Changer le type du prochain feu ajout\u00E9 (les feux de navigation ont la couleur que le r\u00E8glement leur impose)");
+        cy += rowH + pad;
+        t = guienv->addStaticText(L"Couleur (feu libre) :", irr::core::rect<irr::s32>(pad, cy, pad + labelW, cy + rowH),
+            false, false, lightEditWindow);
+        t->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        const irr::s32 showW = rowH;
+        const irr::s32 cw = (w - pad - kx - showW - pad) / 6;
+        for (int c = 0; c < 6; c++) {
+            lightEditColourKeys[c] = guienv->addButton(irr::core::rect<irr::s32>(kx + c * cw, cy, kx + (c + 1) * cw - 2, cy + rowH), lightEditWindow,
+                GUI_ID_LEDIT_COLOUR_0 + c, LAMP_COLOUR_NAMES[c], L"Couleur du feu libre ajout\u00E9 (et du feu libre s\u00E9lectionn\u00E9)");
+            lightEditColourKeys[c]->setIsPushButton(true);
+        }
+        lightEditColourShow = guienv->addStaticText(L"", irr::core::rect<irr::s32>(w - pad - showW, cy, w - pad, cy + rowH),
+            true, false, lightEditWindow);
+        lightEditColourShow->setDrawBackground(true);
+        cy += rowH + pad;
+    }
 
     lightEditMirror = guienv->addCheckBox(lights->getMirror(),
         irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH), lightEditWindow, GUI_ID_LEDIT_MIRROR,
@@ -5931,6 +5987,7 @@ void GUIMain::openLightEditor(int vessel)
     cy += fh * 3 + pad;
 
     guienv->addStaticText(
+        L"Clic sur le navire : placer le feu s\u00E9lectionn\u00E9, ou en ajouter un\n"
         L"Fl\u00E8ches : vers l'avant / l'arri\u00E8re, vers b\u00E2bord / tribord\n"
         L"Pg.Pr\u00E9c / Pg.Suiv : monter / descendre\n"
         L"Pas : 25 cm - Maj : 5 cm - Ctrl : 1 m\n"
@@ -5953,6 +6010,11 @@ void GUIMain::closeLightEditor()
     lightEditMirror = 0;
     lightEditSpacingText = 0;
     lightEditStatus = 0;
+    lightEditMoveKey = 0;
+    lightEditAddKey = 0;
+    lightEditTypeKey = 0;
+    for (int c = 0; c < 6; c++) { lightEditColourKeys[c] = 0; }
+    lightEditColourShow = 0;
 }
 
 void GUIMain::refreshLightEditor()
@@ -5982,6 +6044,53 @@ void GUIMain::refreshLightEditor()
         std::swprintf(buf, 96, L"Espacement des feux de signal : %.1f m", lights->getSignalSpacingMetres());
         lightEditSpacingText->setText(buf);
     }
+    //The click keys show the choices
+    if (lightEditMoveKey) { lightEditMoveKey->setPressed(!lightEditClickAdd); }
+    if (lightEditAddKey) { lightEditAddKey->setPressed(lightEditClickAdd); }
+    if (lightEditTypeKey) { lightEditTypeKey->setText(LAMP_TYPES[lightEditNewType].name); }
+    for (int c = 0; c < 6; c++) { if (lightEditColourKeys[c]) { lightEditColourKeys[c]->setPressed(c == lightEditColour); } }
+    if (lightEditColourShow) { lightEditColourShow->setBackgroundColor(LAMP_COLOURS[lightEditColour]); }
+}
+
+void GUIMain::lightEditorAction(irr::s32 id)
+{
+    if (!model || !model->isLightEditing()) { return; }
+    ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+    if (id == GUI_ID_LEDIT_CLICK_MOVE) { lightEditClickAdd = false; }
+    else if (id == GUI_ID_LEDIT_CLICK_ADD) { lightEditClickAdd = true; }
+    else if (id == GUI_ID_LEDIT_TYPE) { lightEditNewType = (lightEditNewType + 1) % LAMP_TYPE_COUNT; }
+    else if (id >= GUI_ID_LEDIT_COLOUR_0 && id < GUI_ID_LEDIT_COLOUR_END) {
+        lightEditColour = id - GUI_ID_LEDIT_COLOUR_0;
+        //A free light selected in the list takes the colour at once
+        if (lights && lights->setSelectedColour(LAMP_COLOURS[lightEditColour])) {
+            setLightEditorStatus(std::wstring(L"Couleur du feu : ") + LAMP_COLOUR_NAMES[lightEditColour] + L" (non enregistr\u00E9).", false);
+        }
+    }
+    refreshLightEditor();
+}
+
+void GUIMain::lightEditorClick(const irr::core::line3df& worldRay)
+{
+    if (!model || !model->isLightEditing()) { return; }
+    ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+    if (!lights) { return; }
+    irr::core::vector3df p;
+    if (!model->lightEditPick(worldRay, p)) {
+        setLightEditorStatus(L"Cliquez sur le navire lui-m\u00EAme (coque, m\u00E2t, superstructure).", true);
+        return;
+    }
+    if (lightEditClickAdd) {
+        const LampType& t = LAMP_TYPES[lightEditNewType];
+        if (lights->addLampAt(p, t.role, LAMP_COLOURS[lightEditColour])) {
+            std::wstring what = t.name;
+            if (t.role == ShipLights::ROLE_CUSTOM) { what = std::wstring(L"Feu libre ") + LAMP_COLOUR_NAMES[lightEditColour]; }
+            setLightEditorStatus(what + L" ajout\u00E9 ici (non enregistr\u00E9). Fl\u00E8ches et Pg.Pr\u00E9c / Pg.Suiv pour l'ajuster.", false);
+        }
+    }
+    else if (lights->placeSelectedAt(p)) {
+        setLightEditorStatus(L"Feu plac\u00E9 \u00E0 cet endroit (non enregistr\u00E9).", false);
+    }
+    refreshLightEditor();
 }
 
 void GUIMain::setLightEditorStatus(const std::wstring& text, bool isError)

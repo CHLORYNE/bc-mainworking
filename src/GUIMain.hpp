@@ -322,6 +322,11 @@ public:
         GUI_ID_LEDIT_CLOSE,
         GUI_ID_LEDIT_ROLE,
         GUI_ID_LEDIT_DELETE,
+        GUI_ID_LEDIT_CLICK_MOVE,
+        GUI_ID_LEDIT_CLICK_ADD,
+        GUI_ID_LEDIT_TYPE,
+        GUI_ID_LEDIT_COLOUR_0,
+        GUI_ID_LEDIT_COLOUR_END = GUI_ID_LEDIT_COLOUR_0 + 6,
         //The "Taille et flottaison" window
         GUI_ID_SIZE_EDIT_BUTTON,
         GUI_ID_SEDIT_LENGTH_BOX,
@@ -453,6 +458,9 @@ public:
     void openLightEditor(int vessel);
     void closeLightEditor();
     void refreshLightEditor();
+    //Click placement in the light editor: its keys, and a click on the vessel in the view
+    void lightEditorAction(irr::s32 id);
+    void lightEditorClick(const irr::core::line3df& worldRay);
     void setLightEditorStatus(const std::wstring& text, bool isError);
     //The "Taille et flottaison" window
     void openSizeEditor(int vessel);
@@ -912,6 +920,14 @@ private:
     irr::gui::IGUIStaticText* lightEditSpacingText = 0;
     irr::gui::IGUIStaticText* lightEditStatus = 0;
     int lightEditRevision = -1;
+    bool lightEditClickAdd = false;          //a click on the vessel adds a lamp (else moves the selected one)
+    int lightEditNewType = 0;                //what a click adds (see openLightEditor)
+    int lightEditColour = 0;                 //the colour of a free light
+    irr::gui::IGUIButton* lightEditMoveKey = 0;
+    irr::gui::IGUIButton* lightEditAddKey = 0;
+    irr::gui::IGUIButton* lightEditTypeKey = 0;
+    irr::gui::IGUIButton* lightEditColourKeys[6] = { 0, 0, 0, 0, 0, 0 };
+    irr::gui::IGUIStaticText* lightEditColourShow = 0;
     //Size and waterline window
     irr::gui::IGUIWindow* sizeEditWindow = 0;
     irr::gui::IGUIComboBox* sizeVesselBox = 0;

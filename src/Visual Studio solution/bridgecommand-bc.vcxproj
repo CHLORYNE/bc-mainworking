@@ -209,6 +209,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\ConsoleWindow.hpp" />
     <ClInclude Include="..\Sonar.hpp" />
     <ClInclude Include="..\SonarWindow.hpp" />
+    <ClInclude Include="..\SonarHelp.hpp" />
     <ClInclude Include="..\ExerciseLog.hpp" />
     <ClInclude Include="..\GUIRectangle.hpp" />
     <ClInclude Include="..\HeadingIndicator.h" />

@@ -68,7 +68,9 @@ public:
         ROLE_SIGNAL,        // all-round light in the vertical signal line (created by us)
         ROLE_DECK,          // working / deck light (not a navigation light)
         ROLE_ACCOMMODATION, // interior spill
-        ROLE_SEARCHLIGHT
+        ROLE_SEARCHLIGHT,
+        ROLE_CUSTOM         // a light of any colour put where the instructor wants it (all-round,
+                            // lit at night unless all lights are out)
     };
 
     ShipLights();
@@ -152,6 +154,14 @@ public:
     void cycleSelectedRole(int direction);     //fix a role the loader guessed wrong; recolours it
     bool deleteSelected();                     //drop a junk lamp (not the signal stack)
     int getEditRevision() const;               //changes whenever the list's labels change
+    //Click placement, positions in the ship node's own coordinates (where the lamps live):
+    //the selected lamp (or the signal stack, by its lowest lamp) moved to a point of the model,
+    //or a new lamp made there and selected. colour is used for a free light (ROLE_CUSTOM).
+    bool placeSelectedAt(const irr::core::vector3df& modelPos);
+    bool addLampAt(const irr::core::vector3df& modelPos, Role role, irr::video::SColor colour);
+    bool setSelectedColour(irr::video::SColor colour); //free lights only (the others' colour is set by the rules)
+    Role getSelectedRole() const;
+    irr::scene::ISceneNode* getShipNode() const { return shipNodeStored; }
 
     //The ship was resized live (ScaleFactor / YCorrection). The lamps ride on the
     //ship's node, so they follow by themselves; this keeps the metre-based rules and the 2 m
@@ -233,6 +243,8 @@ private:
     irr::core::vector3df boxCentre() const;
     irr::core::vector3df modelPoint(irr::f32 foreFrac, irr::f32 stbdFrac, irr::f32 upMetres) const;
     void ensureStandardSet();
+    void mirrorSidelight(int li);   //the other sidelight, symmetric about the centreline
+    void moveLamp(int li, const irr::core::vector3df& p); //the fitting and the light it casts
     void restackSignals();
     static const char* roleIniName(Role r);
 };

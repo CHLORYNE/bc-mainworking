@@ -1135,6 +1135,80 @@ ShipLights* SimulationModel::getShipLights(int vessel) {
     return otherShips.getLights(vessel);
 }
 
+namespace {
+    //Nearest hit of a ray on the meshes of a node and its children, in world coordinates
+    void pickMeshes(irr::scene::ISceneNode* node, const irr::core::line3df& worldRay, bool& found,
+        irr::core::vector3df& best, irr::f32& bestDistSq)
+    {
+        if (!node || !node->isVisible()) { return; }
+        irr::scene::IMesh* mesh = 0;
+        if (node->getType() == irr::scene::ESNT_ANIMATED_MESH) {
+            irr::scene::IAnimatedMesh* am = ((irr::scene::IAnimatedMeshSceneNode*)node)->getMesh();
+            mesh = am ? am->getMesh(0) : 0;
+        }
+        else if (node->getType() == irr::scene::ESNT_MESH) {
+            mesh = ((irr::scene::IMeshSceneNode*)node)->getMesh();
+        }
+        irr::core::matrix4 toModel;
+        if (mesh && node->getAbsoluteTransformation().getInverse(toModel)) {
+            irr::core::line3df ray;
+            toModel.transformVect(ray.start, worldRay.start);
+            toModel.transformVect(ray.end, worldRay.end);
+            for (irr::u32 b = 0; b < mesh->getMeshBufferCount(); b++) {
+                const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+                if (!mb || mb->getIndexCount() < 3 || !mb->getBoundingBox().intersectsWithLine(ray)) { continue; }
+                const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+                const irr::u16* i16 = mb->getIndices();
+                const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+                const irr::u32 vertexCount = mb->getVertexCount();
+                for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+                    const irr::u32 a = idx32 ? i32[t] : i16[t];
+                    const irr::u32 c = idx32 ? i32[t + 1] : i16[t + 1];
+                    const irr::u32 d = idx32 ? i32[t + 2] : i16[t + 2];
+                    if (a >= vertexCount || c >= vertexCount || d >= vertexCount) { continue; }
+                    const irr::core::triangle3df tri(mb->getPosition(a), mb->getPosition(c), mb->getPosition(d));
+                    irr::core::vector3df hit;
+                    if (!tri.getIntersectionWithLimitedLine(ray, hit)) { continue; }
+                    irr::core::vector3df w = hit;
+                    node->getAbsoluteTransformation().transformVect(w);
+                    const irr::f32 dsq = w.getDistanceFromSQ(worldRay.start);
+                    if (!found || dsq < bestDistSq) { found = true; best = w; bestDistSq = dsq; }
+                }
+            }
+        }
+        const irr::core::list<irr::scene::ISceneNode*>& children = node->getChildren();
+        for (irr::core::list<irr::scene::ISceneNode*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+            //(not the lamps' own little spheres and billboards: only the vessel's meshes)
+            if ((*it)->getType() == irr::scene::ESNT_MESH || (*it)->getType() == irr::scene::ESNT_ANIMATED_MESH ||
+                (*it)->getType() == irr::scene::ESNT_EMPTY) {
+                pickMeshes(*it, worldRay, found, best, bestDistSq);
+            }
+        }
+    }
+}
+
+bool SimulationModel::lightEditPick(const irr::core::line3df& worldRay, irr::core::vector3df& modelPos)
+{
+    if (lightEditVessel == -2) { return false; }
+    ShipLights* lights = getShipLights(lightEditVessel);
+    irr::scene::ISceneNode* node = lights ? lights->getShipNode() : 0;
+    if (!node) { return false; }
+    node->updateAbsolutePosition();
+    bool found = false;
+    irr::core::vector3df hit;
+    irr::f32 bestDistSq = 0.0f;
+    pickMeshes(node, worldRay, found, hit, bestDistSq);
+    if (!found) { return false; }
+    //A few centimetres out of the surface, towards the viewer, so the lamp is not buried in it
+    irr::core::vector3df back = worldRay.start - hit;
+    if (back.getLengthSQ() > 0.0f) { back.normalize(); }
+    hit += back * 0.12f;
+    irr::core::matrix4 toModel;
+    if (!node->getAbsoluteTransformation().getInverse(toModel)) { return false; }
+    toModel.transformVect(modelPos, hit);
+    return true;
+}
+
 //KYARA FEUX EDIT ---------------------------------------------------------------------------------
 bool SimulationModel::beginLightEdit(int vessel)
 {

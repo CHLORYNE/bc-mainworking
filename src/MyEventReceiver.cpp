@@ -147,6 +147,16 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_LEFT_UP)
         {
             leftMouseDown = false;
+            //Light editor: a click on the vessel (not a drag to turn round her) places or adds a lamp there
+            if (model->isLightEditing() &&
+                abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
+            {
+                irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+                if (rootGUIElement->getElementFromPoint(irr::core::position2d<irr::s32>(pressX, pressY)) == rootGUIElement)
+                {
+                    gui->lightEditorClick(model->getMooringRay(pressX, pressY, gui->getCompact3dView()));
+                }
+            }
             //Instrument editor: a click in the view (not a drag to look round) lights what is under it
             if (model->isInstrumentEditing() &&
                 abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
@@ -778,6 +788,15 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                     gui->openLightEditor(vessel);
                 }
                 device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            //Light editor: what a click on the vessel does, the type and colour of a new lamp
+            if (model->isLightEditing() &&
+                (id == GUIMain::GUI_ID_LEDIT_CLICK_MOVE || id == GUIMain::GUI_ID_LEDIT_CLICK_ADD || id == GUIMain::GUI_ID_LEDIT_TYPE ||
+                 (id >= GUIMain::GUI_ID_LEDIT_COLOUR_0 && id < GUIMain::GUI_ID_LEDIT_COLOUR_END)))
+            {
+                gui->lightEditorAction(id);
+                device->getGUIEnvironment()->setFocus(0); //the arrow keys keep moving the lamp
                 return true;
             }
             if (model->isLightEditing() &&
