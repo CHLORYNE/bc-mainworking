@@ -793,6 +793,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             //Light editor: what a click on the vessel does, the type and colour of a new lamp
             if (model->isLightEditing() &&
                 (id == GUIMain::GUI_ID_LEDIT_CLICK_MOVE || id == GUIMain::GUI_ID_LEDIT_CLICK_ADD || id == GUIMain::GUI_ID_LEDIT_TYPE ||
+                 (id >= GUIMain::GUI_ID_LEDIT_MOVE_UP && id <= GUIMain::GUI_ID_LEDIT_STEP) ||
                  (id >= GUIMain::GUI_ID_LEDIT_COLOUR_0 && id < GUIMain::GUI_ID_LEDIT_COLOUR_END)))
             {
                 gui->lightEditorAction(id);

@@ -594,10 +594,17 @@ bool ShipLights::proposeLights(std::wstring& report)
         std::sort(sorted.begin(), sorted.end());
         deckU = sorted[sorted.size() * 3 / 10];
     }
-    auto localDeck = [&](float f, float t) { //lowest top just around a point: the deck under a mast
+    //What the mast stands on: the lowest top in rings round it (a radome, a crow's nest or the
+    //mast's own platforms are not the deck), above the waterline
+    auto localDeck = [&](float f, float t) {
         float best = 1e30f, u;
-        const float d[4][2] = { { 1.5f, 0 }, { -1.5f, 0 }, { 0, 1.0f }, { 0, -1.0f } };
-        for (int k = 0; k < 4; k++) { if (top(f + d[k][0], t + d[k][1], u)) { best = std::min(best, u); } }
+        const float rings[3] = { 1.5f, 3.0f, 5.0f };
+        for (int r = 0; r < 3; r++) {
+            for (int k = 0; k < 8; k++) {
+                const float a = k * 0.785398f;
+                if (top(f + rings[r] * std::cos(a), t + rings[r] * std::sin(a), u) && u > 0.5f) { best = std::min(best, u); }
+            }
+        }
         return (best < 1e29f) ? best : deckU;
     };
 

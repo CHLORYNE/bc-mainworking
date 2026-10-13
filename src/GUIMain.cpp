@@ -5856,6 +5856,8 @@ namespace {
         { L"Feux de signal (x3, superpos\u00E9s)", ShipLights::ROLE_SIGNAL },
     };
     const int LAMP_TYPE_COUNT = sizeof(LAMP_TYPES) / sizeof(LAMP_TYPES[0]);
+    const irr::f32 LAMP_STEPS[4] = { 0.05f, 0.25f, 1.0f, 5.0f };
+    const wchar_t* LAMP_STEP_NAMES[4] = { L"Pas : 5 cm", L"Pas : 25 cm", L"Pas : 1 m", L"Pas : 5 m" };
     const wchar_t* LAMP_COLOUR_NAMES[6] = { L"Blanc", L"Rouge", L"Vert", L"Jaune", L"Orange", L"Bleu" };
     const irr::video::SColor LAMP_COLOURS[6] = {
         irr::video::SColor(255, 255, 250, 235), irr::video::SColor(255, 255, 40, 25), irr::video::SColor(255, 30, 255, 60),
@@ -5882,8 +5884,8 @@ void GUIMain::openLightEditor(int vessel)
     const irr::s32 w = fh * 26;
     const irr::s32 listH = rowH * 6;
     const irr::s32 readH = fh * 5;
-    const irr::s32 helpH = fh * 9;
-    const irr::s32 h = 2 * fh + listH + readH + 10 * (rowH + pad) + fh * 5 + helpH + 3 * pad;
+    const irr::s32 helpH = fh * 5 + fh / 2;
+    const irr::s32 h = 2 * fh + listH + readH + 12 * (rowH + pad) + fh * 5 + helpH + 3 * pad;
     const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
     const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
     const irr::s32 x = sw - w - fh;
@@ -5913,6 +5915,32 @@ void GUIMain::openLightEditor(int vessel)
     lightEditReadout = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + readH),
         true, true, lightEditWindow);
     cy += readH + pad;
+
+    //Keys that move the selected lamp (the whole signal stack when it is selected), by the step shown
+    {
+        const irr::s32 labelW = fh * 7;
+        irr::gui::IGUIStaticText* t = guienv->addStaticText(L"D\u00E9placer :", irr::core::rect<irr::s32>(pad, cy, pad + labelW, cy + rowH),
+            false, false, lightEditWindow);
+        t->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        const irr::s32 kx = pad + labelW, gap = pad / 2;
+        const irr::s32 kw3 = (w - pad - kx - 2 * gap) / 3;
+        guienv->addButton(irr::core::rect<irr::s32>(kx, cy, kx + kw3, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_MOVE_UP, L"Monter", L"Monter le feu s\u00E9lectionn\u00E9 (les 3 feux de signal ensemble) - Pg.Pr\u00E9c");
+        guienv->addButton(irr::core::rect<irr::s32>(kx + kw3 + gap, cy, kx + 2 * kw3 + gap, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_MOVE_DOWN, L"Descendre", L"Descendre le feu s\u00E9lectionn\u00E9 (les 3 feux de signal ensemble) - Pg.Suiv");
+        lightEditStepKey = guienv->addButton(irr::core::rect<irr::s32>(kx + 2 * kw3 + 2 * gap, cy, w - pad, cy + rowH), lightEditWindow,
+            GUI_ID_LEDIT_STEP, L"", L"Longueur d'un pas des touches D\u00E9placer");
+        cy += rowH + pad;
+        const irr::s32 kw4 = (w - pad - kx - 3 * gap) / 4;
+        const wchar_t* names[4] = { L"Avant", L"Arri\u00E8re", L"B\u00E2bord", L"Tribord" };
+        const irr::s32 ids[4] = { GUI_ID_LEDIT_MOVE_FWD, GUI_ID_LEDIT_MOVE_AFT, GUI_ID_LEDIT_MOVE_PORT, GUI_ID_LEDIT_MOVE_STBD };
+        for (int i = 0; i < 4; i++) {
+            const irr::s32 x0 = kx + i * (kw4 + gap);
+            guienv->addButton(irr::core::rect<irr::s32>(x0, cy, (i == 3) ? w - pad : x0 + kw4, cy + rowH), lightEditWindow,
+                ids[i], names[i], L"D\u00E9placer le feu s\u00E9lectionn\u00E9 (fl\u00E8ches du clavier)");
+        }
+        cy += rowH + pad;
+    }
 
     //A click on the vessel in the view: moves the selected lamp there, or adds a new one there
     {
@@ -5994,13 +6022,9 @@ void GUIMain::openLightEditor(int vessel)
 
     guienv->addStaticText(
         L"Clic sur le navire : placer le feu s\u00E9lectionn\u00E9, ou en ajouter un\n"
-        L"Fl\u00E8ches : vers l'avant / l'arri\u00E8re, vers b\u00E2bord / tribord\n"
-        L"Pg.Pr\u00E9c / Pg.Suiv : monter / descendre\n"
-        L"Pas : 25 cm - Maj : 5 cm - Ctrl : 1 m\n"
-        L"Tab : feu suivant - Maj+Tab : pr\u00E9c\u00E9dent\n"
-        L"R : changer le r\u00F4le - Suppr : supprimer le feu\n"
-        L"Tourner autour : glisser dans la vue, ou A / D et W / S\n"
-        L"Zoom : molette, ou Q / E\n"
+        L"Clavier : fl\u00E8ches et Pg.Pr\u00E9c / Pg.Suiv (Maj : 5 cm - Ctrl : 1 m)\n"
+        L"Tab : feu suivant - R : r\u00F4le - Suppr : supprimer\n"
+        L"Tourner : glisser dans la vue (A / D, W / S) - Zoom : molette (Q / E)\n"
         L"Le feu s\u00E9lectionn\u00E9 clignote.",
         irr::core::rect<irr::s32>(pad, cy, w - pad, cy + helpH), false, true, lightEditWindow);
 
@@ -6021,6 +6045,7 @@ void GUIMain::closeLightEditor()
     lightEditTypeKey = 0;
     for (int c = 0; c < 6; c++) { lightEditColourKeys[c] = 0; }
     lightEditColourShow = 0;
+    lightEditStepKey = 0;
 }
 
 void GUIMain::refreshLightEditor()
@@ -6054,6 +6079,7 @@ void GUIMain::refreshLightEditor()
     if (lightEditMoveKey) { lightEditMoveKey->setPressed(!lightEditClickAdd); }
     if (lightEditAddKey) { lightEditAddKey->setPressed(lightEditClickAdd); }
     if (lightEditTypeKey) { lightEditTypeKey->setText(LAMP_TYPES[lightEditNewType].name); }
+    if (lightEditStepKey) { lightEditStepKey->setText(LAMP_STEP_NAMES[lightEditStep]); }
     for (int c = 0; c < 6; c++) { if (lightEditColourKeys[c]) { lightEditColourKeys[c]->setPressed(c == lightEditColour); } }
     if (lightEditColourShow) { lightEditColourShow->setBackgroundColor(LAMP_COLOURS[lightEditColour]); }
 }
@@ -6065,6 +6091,19 @@ void GUIMain::lightEditorAction(irr::s32 id)
     if (id == GUI_ID_LEDIT_CLICK_MOVE) { lightEditClickAdd = false; }
     else if (id == GUI_ID_LEDIT_CLICK_ADD) { lightEditClickAdd = true; }
     else if (id == GUI_ID_LEDIT_TYPE) { lightEditNewType = (lightEditNewType + 1) % LAMP_TYPE_COUNT; }
+    else if (id == GUI_ID_LEDIT_STEP) { lightEditStep = (lightEditStep + 1) % 4; }
+    else if (id >= GUI_ID_LEDIT_MOVE_UP && id <= GUI_ID_LEDIT_MOVE_STBD && lights) {
+        const irr::f32 st = LAMP_STEPS[lightEditStep];
+        irr::f32 fore = 0.0f, stbd = 0.0f, up = 0.0f;
+        if (id == GUI_ID_LEDIT_MOVE_UP) { up = st; }
+        else if (id == GUI_ID_LEDIT_MOVE_DOWN) { up = -st; }
+        else if (id == GUI_ID_LEDIT_MOVE_FWD) { fore = st; }
+        else if (id == GUI_ID_LEDIT_MOVE_AFT) { fore = -st; }
+        else if (id == GUI_ID_LEDIT_MOVE_PORT) { stbd = -st; }
+        else { stbd = st; }
+        lights->moveSelected(fore, stbd, up);
+        setLightEditorStatus(L"Feu d\u00E9plac\u00E9 (non enregistr\u00E9).", false);
+    }
     else if (id >= GUI_ID_LEDIT_COLOUR_0 && id < GUI_ID_LEDIT_COLOUR_END) {
         lightEditColour = id - GUI_ID_LEDIT_COLOUR_0;
         //A free light selected in the list takes the colour at once

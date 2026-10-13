@@ -326,6 +326,13 @@ public:
         GUI_ID_LEDIT_CLICK_ADD,
         GUI_ID_LEDIT_TYPE,
         GUI_ID_LEDIT_PROPOSE,
+        GUI_ID_LEDIT_MOVE_UP,
+        GUI_ID_LEDIT_MOVE_DOWN,
+        GUI_ID_LEDIT_MOVE_FWD,
+        GUI_ID_LEDIT_MOVE_AFT,
+        GUI_ID_LEDIT_MOVE_PORT,
+        GUI_ID_LEDIT_MOVE_STBD,
+        GUI_ID_LEDIT_STEP,
         GUI_ID_LEDIT_COLOUR_0,
         GUI_ID_LEDIT_COLOUR_END = GUI_ID_LEDIT_COLOUR_0 + 6,
         //The "Taille et flottaison" window
@@ -929,6 +936,8 @@ private:
     irr::gui::IGUIButton* lightEditTypeKey = 0;
     irr::gui::IGUIButton* lightEditColourKeys[6] = { 0, 0, 0, 0, 0, 0 };
     irr::gui::IGUIStaticText* lightEditColourShow = 0;
+    int lightEditStep = 1;                   //index into the move keys' steps (5 cm .. 5 m)
+    irr::gui::IGUIButton* lightEditStepKey = 0;
     //Size and waterline window
     irr::gui::IGUIWindow* sizeEditWindow = 0;
     irr::gui::IGUIComboBox* sizeVesselBox = 0;
