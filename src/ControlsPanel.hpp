@@ -9,6 +9,7 @@
 #define __CONTROLSPANEL_HPP_INCLUDED__
 
 #include "irrlicht.h"
+#include "PanelDock.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -53,6 +54,9 @@ public:
     virtual bool OnEvent(const irr::SEvent& event);
     virtual void updateAbsolutePosition();
 
+    //The dock key and the drag by the title bar (GUIMain says what a place means)
+    bridge::PanelDock dock;
+
 private:
     enum RowKind { ROW_SECTION, ROW_SLIDER, ROW_TOGGLE, ROW_KEYS, ROW_CHOICE, ROW_TEXT };
     struct Row
@@ -84,6 +88,7 @@ private:
     void freeFonts();
     irr::core::rect<irr::f32> tabRect(int t) const;
     irr::core::rect<irr::f32> closeRect() const;
+    irr::core::rect<irr::f32> dockRect() const;
     irr::f32 rowHeight(const Row& row) const;
     irr::core::rect<irr::f32> rowRect(int index) const;
     irr::f32 split(const irr::core::rect<irr::f32>& row) const;
@@ -110,6 +115,8 @@ private:
     int hoveredTab;
     bool hoveredClose;
     irr::f32 k;
+    bool compact = false;   //narrow (docked to a side): the card under the list, the tabs on two rows
+    int tabRows = 1;
     irr::core::rect<irr::f32> header, tabsBar, list, info;
     irr::core::rect<irr::s32> laidOutRect;
 

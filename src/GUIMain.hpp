@@ -27,6 +27,8 @@
 #include "GUIRectangle.hpp"
 #include "GUIInstrumentPanel.hpp" //kyara: instrument console
 #include "GUIEngineLever.hpp"     //kyara: styled engine levers
+#include "GUIHelmLever.hpp"       //the helm, for a station without a hardware console
+#include "PanelDock.hpp"          //placement of the controls and weather windows
 #include "RadarCalculation.hpp"
 #include "ShipLights.hpp" //KYARA FEUX TAB: SIT_COUNT / OVERRIDE_SLOTS size the id ranges below
 #include <vector>
@@ -553,6 +555,7 @@ private:
     irr::gui::IGUIScrollBar* portScrollbar;
     irr::gui::IGUIScrollBar* stbdScrollbar;
     irr::gui::OutlineScrollBar* wheelScrollbar;
+    irr::gui::GUIHelmLever* helmLever = 0;   //console layout: the helm under the engine levers (sends the wheel slider's event)
     irr::gui::IGUIScrollBar* bowThrusterScrollbar;
     irr::gui::IGUIScrollBar* sternThrusterScrollbar;
     irr::gui::IGUIStaticText* portText;
@@ -962,6 +965,14 @@ private:
     bool magnificationOwned = false;          //made with new (classic layout): this class drops it
     class ControlsPanel* controlsPanel = 0;   //the controls window as shown (over extraControlsWindow's widgets)
     void placeOverView(irr::gui::IGUIElement* panel);
+    //Where the controls and weather windows go: centre, docked right / left, or where dragged.
+    //Kept in panelPlace.ini in the user folder, so a docked window opens docked next time.
+    int panelPlace = 0;                            //bridge::PanelPlace
+    irr::core::rect<irr::s32> panelFreeRect;       //PLACE_FREE: where it was dropped
+    void hookPanelDock(bridge::PanelDock& dock);
+    void setPanelPlace(int place);
+    void loadPanelPlace();
+    void savePanelPlace() const;
     void layoutCommandBar();
     void applyPaletteMode(int mode);
     irr::gui::IGUIWindow* instrEditWindow = 0;

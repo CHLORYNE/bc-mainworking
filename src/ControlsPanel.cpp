@@ -188,30 +188,50 @@ void ControlsPanel::layout()
         (irr::f32)AbsoluteRect.LowerRightCorner.X, (irr::f32)AbsoluteRect.LowerRightCorner.Y);
     const irr::f32 W = r.getWidth(), H = r.getHeight();
     if (W < 10 || H < 10) { return; }
-    const irr::f32 newK = irr::core::clamp(std::min(H / 720.0f, W / 1200.0f), 0.6f, 2.0f);
+    compact = W < H * 1.15f;
+    const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 760.0f, W / 560.0f), 0.6f, 2.0f)
+                                  : irr::core::clamp(std::min(H / 720.0f, W / 1200.0f), 0.6f, 2.0f);
     if (fabsf(newK - k) > 0.01f || !fonts.title) {
         k = newK;
         loadFonts();
     }
-    const irr::f32 pad = 22 * k;
+    const irr::f32 pad = (compact ? 14 : 22) * k;
+    tabRows = (compact && tabs.size() > 4) ? 2 : 1;
     header = irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 62 * k);
-    tabsBar = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, header.LowerRightCorner.Y, r.LowerRightCorner.X - pad, header.LowerRightCorner.Y + 40 * k);
+    tabsBar = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, header.LowerRightCorner.Y, r.LowerRightCorner.X - pad,
+        header.LowerRightCorner.Y + 40 * k + (tabRows - 1) * 34 * k);
     const irr::f32 bodyTop = tabsBar.LowerRightCorner.Y + 18 * k;
     const irr::f32 bodyBottom = r.LowerRightCorner.Y - pad;
-    const irr::f32 listW = (W - 3 * pad) * 0.6f;
-    list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.UpperLeftCorner.X + pad + listW, bodyBottom);
-    info = irr::core::rect<irr::f32>(list.LowerRightCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyBottom);
+    if (compact) {
+        //Docked to a side: the list on top, its explanation card underneath
+        const irr::f32 listH = (bodyBottom - bodyTop - pad) * 0.62f;
+        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyTop + listH);
+        info = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, list.LowerRightCorner.Y + pad, r.LowerRightCorner.X - pad, bodyBottom);
+    }
+    else {
+        const irr::f32 listW = (W - 3 * pad) * 0.6f;
+        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.UpperLeftCorner.X + pad + listW, bodyBottom);
+        info = irr::core::rect<irr::f32>(list.LowerRightCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyBottom);
+    }
     clampScroll();
 }
 
 irr::core::rect<irr::f32> ControlsPanel::tabRect(int t) const
 {
-    const int n = std::max(1, (int)tabs.size());
+    const int count = std::max(1, (int)tabs.size());
+    const int n = (count + tabRows - 1) / tabRows;   //tabs on a row
+    const int row = t / n, col = t % n;
     const irr::f32 gap = 6 * k;
     const irr::f32 w = std::min(168 * k, (tabsBar.getWidth() - (n - 1) * gap) / n);
     const irr::f32 total = n * w + (n - 1) * gap;
-    const irr::f32 x0 = (tabsBar.UpperLeftCorner.X + tabsBar.LowerRightCorner.X) * 0.5f - total * 0.5f + t * (w + gap);
-    return irr::core::rect<irr::f32>(x0, tabsBar.UpperLeftCorner.Y, x0 + w, tabsBar.LowerRightCorner.Y);
+    const irr::f32 x0 = (tabsBar.UpperLeftCorner.X + tabsBar.LowerRightCorner.X) * 0.5f - total * 0.5f + col * (w + gap);
+    const irr::f32 y0 = tabsBar.UpperLeftCorner.Y + row * 34 * k;
+    return irr::core::rect<irr::f32>(x0, y0, x0 + w, y0 + 40 * k);
+}
+
+irr::core::rect<irr::f32> ControlsPanel::dockRect() const
+{
+    return dock.keyRect(closeRect(), fonts.caption, k);
 }
 
 irr::core::rect<irr::f32> ControlsPanel::closeRect() const
@@ -244,7 +264,7 @@ irr::core::rect<irr::f32> ControlsPanel::rowRect(int index) const
 
 irr::f32 ControlsPanel::split(const irr::core::rect<irr::f32>& row) const
 {
-    return row.UpperLeftCorner.X + row.getWidth() * 0.46f;
+    return row.UpperLeftCorner.X + row.getWidth() * (compact ? 0.34f : 0.46f);  //narrow: the keys need the room
 }
 
 irr::core::rect<irr::f32> ControlsPanel::valueCell(const Row& row, const irr::core::rect<irr::f32>& r) const
@@ -351,6 +371,10 @@ bool ControlsPanel::OnEvent(const irr::SEvent& event)
     const irr::SEvent::SMouseInput& m = event.MouseInput;
     const irr::core::position2di p(m.X, m.Y);
     const irr::core::vector2df pf((irr::f32)m.X, (irr::f32)m.Y);
+    if (draggedRow < 0 && (dock.isDragging() || AbsoluteRect.isPointInside(p)) &&
+        dock.onMouse(this, Environment, m, header, dockRect(), closeRect())) {
+        return true;
+    }
     switch (m.Event) {
     case irr::EMIE_MOUSE_MOVED:
         if (draggedRow >= 0) { dragSlider(draggedRow, m.X); return true; }
@@ -456,10 +480,12 @@ void ControlsPanel::draw()
     fonts.title->drawIn(title, irr::core::rect<irr::f32>(tx + 42 * k, header.UpperLeftCorner.Y, tx + 400 * k, header.LowerRightCorner.Y),
         pal.text, HudFont::Left, 1.5f * k);
     const irr::core::rect<irr::f32> cr = closeRect();
-    if (tab >= 0 && tab < (int)tabs.size()) {
-        fonts.caption->drawIn(tabs[tab].name, irr::core::rect<irr::f32>(tx + 300 * k, header.UpperLeftCorner.Y, cr.UpperLeftCorner.X - 20 * k, header.LowerRightCorner.Y),
+    const irr::core::rect<irr::f32> dr = dockRect();
+    if (tab >= 0 && tab < (int)tabs.size() && !compact) {
+        fonts.caption->drawIn(tabs[tab].name, irr::core::rect<irr::f32>(tx + 300 * k, header.UpperLeftCorner.Y, dr.UpperLeftCorner.X - 20 * k, header.LowerRightCorner.Y),
             pal.textDim, HudFont::Right, 0.5f * k);
     }
+    dock.draw(driver, dr, fonts.caption, k, &clip);
     if (hoveredClose) { bridge::fillRound(driver, toI(cr), (irr::s32)(5 * k), pal.danger, pal.danger, 0); }
     {
         const irr::video::SColor xc = hoveredClose ? pal.dangerText : pal.textDim;

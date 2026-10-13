@@ -479,6 +479,14 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         wheelScrollbar->setMax(30);
         wheelScrollbar->setMin(-30);
         wheelScrollbar->setPos(0);
+        //Console layout: the helm the hidden slider stood for, under the engine levers (placed below)
+        if (instrumentsEnabled) {
+            helmLever = new irr::gui::GUIHelmLever(guienv, guienv->getRootGUIElement(), GUI_ID_WHEEL_SCROLL_BAR,
+                irr::core::rect<irr::s32>(0, 0, 10, 10));
+            helmLever->setMin(wheelScrollbar->getMin());
+            helmLever->setMax(wheelScrollbar->getMax());
+            helmLever->setToolTipText(L"Barre : glisser vers b\u00E2bord / tribord, molette pour 1\u00B0, clic droit : barre \u00E0 z\u00E9ro");
+        }
 
 
         nonFollowUpPortButton = guienv->addButton(irr::core::rect<irr::s32>(0.09 * su, 0.96 * sh, 0.11 * su, 0.99 * sh), 0, GUI_ID_NFU_PORT_BUTTON, language->translate("NFUPort").c_str());
@@ -528,8 +536,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     radDataDisplayBG = irr::video::SColor(200 / 4, 255, 255, 255);
     //CHANGES color for UI -KYARA
     stdDataDisplayBG = dataDisplay->getBackgroundColor();
-    altDataDisplayBG = irr::video::SColor(255, 144, 0, 1);
-    radDataDisplayBG = irr::video::SColor(255, 144, 0, 1);
+    //Over the 3D view in the full views: dark glass and light text, readable on sea and sky
+    altDataDisplayBG = irr::video::SColor(185, 12, 18, 28);
+    radDataDisplayBG = irr::video::SColor(185, 12, 18, 28);
 
     //=============================================================================================
     //KYARA: INSTRUMENT CONSOLE
@@ -640,8 +649,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             const irr::s32 labelH = fh + 4;
             const irr::s32 thrusterH = (irr::s32)(0.034 * sh);
             const irr::s32 thrusters = (bowThrusterScrollbar ? 1 : 0) + (sternThrusterScrollbar ? 1 : 0);
+            const irr::s32 helmH = helmLever ? irr::core::max_(fh * 3 + 8, (irr::s32)(0.06 * sh)) : 0;
             const irr::s32 leverTop = top + labelH;
-            const irr::s32 leverBottom = consoleBottom - thrusters * (thrusterH + 2);
+            const irr::s32 leverBottom = consoleBottom - thrusters * (thrusterH + 2) - (helmLever ? helmH + 2 : 0);
             const irr::s32 xa = X(0.008f), xb = X(0.045f), xc = X(0.085f);
             if (portText) {
                 portText->setRelativePosition(singleEngine ? irr::core::rect<irr::s32>(xa, top, xc, top + labelH)
@@ -670,6 +680,9 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             }
             if (sternThrusterScrollbar) {
                 sternThrusterScrollbar->setRelativePosition(irr::core::rect<irr::s32>(xa, ty, xc, ty + thrusterH));
+            }
+            if (helmLever) {
+                helmLever->setRelativePosition(irr::core::rect<irr::s32>(xa, consoleBottom - helmH, xc, consoleBottom));
             }
             if (clickForEngineText) { clickForEngineText->setRelativePosition(irr::core::rect<irr::s32>(xa, leverTop, xc, leverBottom)); }
             commandBarRect = irr::core::rect<irr::s32>(X(0.005f), (irr::s32)sh - m - barH, X(0.995f), (irr::s32)sh - m);
@@ -712,7 +725,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         const irr::s32 top = bottom - (irr::s32)(0.03 * sh);
         radHdgIndicatorPos = irr::core::rect<irr::s32>(X(0.46f), top, X(0.82f), bottom);
         maxHdgIndicatorPos = radHdgIndicatorPos;
-        radDataDisplayPos = irr::core::rect<irr::s32>(X(0.83f), top, X(0.90f), bottom);
+        radDataDisplayPos = irr::core::rect<irr::s32>(X(0.80f), top, X(0.90f), bottom);
         altDataDisplayPos = radDataDisplayPos;
     }
     headingIndicator = new irr::gui::HeadingIndicator(guienv, guienv->getRootGUIElement(), stdHdgIndicatorPos);
@@ -1284,6 +1297,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         controlsPanel = new ControlsPanel(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(0, 0, 10, 10));
         controlsPanel->drop();
         controlsPanel->setTitle(L"CONTR\u00D4LES", bridge::ICON_CONTROLS);
+        loadPanelPlace();
+        hookPanelDock(controlsPanel->dock);
         ControlsPanel* cp = controlsPanel;
         auto textOf = [](irr::gui::IGUIElement* e) -> std::wstring { return (e && e->getText()) ? std::wstring(e->getText()) : std::wstring(); };
         const std::vector<std::wstring> workingFailed = { L"En service", L"En panne" };
@@ -2294,6 +2309,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             weatherPanel = new WeatherPanel(guienv, guienv->getRootGUIElement(), model, irr::core::rect<irr::s32>(0, 0, 10, 10));
             weatherPanel->drop();
             weatherPanel->setLightingTimeBox(lightingTimeBox);
+            hookPanelDock(weatherPanel->dock);
         }
         //The sonar station's key
         sonarButton = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_SONAR_BUTTON, L"SONAR",
@@ -2405,6 +2421,7 @@ GUIMain::~GUIMain()
     if (portScrollbar) { portScrollbar->drop(); }
     if (stbdScrollbar) { stbdScrollbar->drop(); }
     if (wheelScrollbar) { wheelScrollbar->drop(); }
+    if (helmLever) { helmLever->drop(); }
 
     if (rateofturnScrollbar) { rateofturnScrollbar->drop(); }
 
@@ -2736,14 +2753,20 @@ void GUIMain::updateVisibility()
     if (radarLarge) {
         dataDisplay->setRelativePosition(radDataDisplayPos);
         dataDisplay->setBackgroundColor(radDataDisplayBG);
+        dataDisplay->setOverrideColor(irr::video::SColor(255, 236, 242, 248));
+        dataDisplay->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
     }
     else if (!showInterface) {
         dataDisplay->setRelativePosition(altDataDisplayPos);
         dataDisplay->setBackgroundColor(altDataDisplayBG);
+        dataDisplay->setOverrideColor(irr::video::SColor(255, 236, 242, 248));
+        dataDisplay->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
     }
     else {
         dataDisplay->setRelativePosition(stdDataDisplayPos);
         dataDisplay->setBackgroundColor(stdDataDisplayBG);
+        dataDisplay->enableOverrideColor(false);
+        dataDisplay->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
     }
     // --- HIDE CONTROLS LOGIC ---
      // Determine if primary controls should be visible
@@ -2753,14 +2776,17 @@ void GUIMain::updateVisibility()
 //NOT be gated on controlsHidden.
     bool showDisplayControls = showPrimaryControls && !radarLarge;
     // Apply to all hardware sliders and indicators
-    if (portScrollbar) { portScrollbar->setVisible(showPrimary); }
-    if (stbdScrollbar) { stbdScrollbar->setVisible(showPrimary && !singleEngine); }
+    //The console layout's levers belong to the console: the first F (full 3D view) hides them with it
+    const bool showLevers = showPrimary && (showInterface || !instrumentsEnabled);
+    if (portScrollbar) { portScrollbar->setVisible(showLevers); }
+    if (stbdScrollbar) { stbdScrollbar->setVisible(showLevers && !singleEngine); }
+    if (helmLever) { helmLever->setVisible(showLevers); }
     //KYARA: the helm slider is hidden in the console layout - the rudder dial is the helm now.
     //The element itself stays alive: it still holds the ordered wheel angle and the NFU buttons
     //and the dial both drive the simulation through it.
     if (wheelScrollbar) { wheelScrollbar->setVisible(showPrimary && !instrumentsEnabled); }
-    if (bowThrusterScrollbar) { bowThrusterScrollbar->setVisible(showPrimary); }
-    if (sternThrusterScrollbar) { sternThrusterScrollbar->setVisible(showPrimary); }
+    if (bowThrusterScrollbar) { bowThrusterScrollbar->setVisible(showLevers); }
+    if (sternThrusterScrollbar) { sternThrusterScrollbar->setVisible(showLevers); }
     //(They go with the helm slider, which the console layout does not show; they used to sit hidden
     //under the command bar, and come out from under it when the bar is on the middle of a Surround canvas.)
     if (nonFollowUpPortButton) { nonFollowUpPortButton->setVisible(showPrimary && showInterface && !commandBar); }
@@ -2777,10 +2803,13 @@ void GUIMain::updateVisibility()
     if (hideInterfaceButton) { hideInterfaceButton->setVisible(showDisplayControls && showInterface); }
     if (showInterfaceButton) { showInterfaceButton->setVisible(showDisplayControls && !showInterface); }
 
-    // The rest of the bottom strip
-    if (pcLogButton) { pcLogButton->setVisible(showPrimary && showInterface); }
-    if (showExtraControlsButton) { showExtraControlsButton->setVisible(showPrimary && showInterface); }
-    if (showLinesControlsButton) { showLinesControlsButton->setVisible(showPrimary && showInterface); }
+    // The rest of the bottom strip. On the command bar they stay with the bar in the full 3D view
+    //(the first F hides the console only): the controls, lines, log and quit keys remain at hand
+    const bool barKeys = showPrimary && (showInterface || commandBar);
+    if (pcLogButton) { pcLogButton->setVisible(barKeys); }
+    if (showExtraControlsButton) { showExtraControlsButton->setVisible(barKeys); }
+    if (showLinesControlsButton) { showLinesControlsButton->setVisible(barKeys); }
+    if (exitButton && commandBar) { exitButton->setVisible(showInterface || showDisplayControls); }
     if (pump1On) { pump1On->setVisible(showPrimary && showInterface); }
     if (pump2On) { pump2On->setVisible(showPrimary && showInterface); }
     if (ackAlarms) { ackAlarms->setVisible(showPrimary && showInterface); }
@@ -2793,8 +2822,8 @@ void GUIMain::updateVisibility()
 
     //The heading tape is not shown (the console's compass and the radar give the heading)
     if (headingIndicator) { headingIndicator->setVisible(false); }
-    if (portText) { portText->setVisible(showPrimary); }
-    if (stbdText) { stbdText->setVisible(showPrimary && !singleEngine); }
+    if (portText) { portText->setVisible(showLevers); }
+    if (stbdText) { stbdText->setVisible(showLevers && !singleEngine); }
     if (dataDisplay) { dataDisplay->setVisible(showPrimary && !consoleShown); }
 
     //If we're in secondary mode, make sure things are hidden if they shouldn't be shown on the secondary screen
@@ -2803,7 +2832,7 @@ void GUIMain::updateVisibility()
     }
 
     if (detachConsoleButton) {
-        detachConsoleButton->setVisible(showDisplayControls && showInterface);
+        detachConsoleButton->setVisible(showDisplayControls && (showInterface || commandBar));
         if (commandBar) { detachConsoleButton->setText((iconSpace + (consoleDetached ? L"RATTACHER" : L"D\u00C9TACHER")).c_str()); }
         else { detachConsoleButton->setText(consoleDetached ? L"Rattacher" : L"D\u00E9tacher"); }
     }
@@ -2826,6 +2855,7 @@ void GUIMain::updateVisibility()
 
 void GUIMain::hideInSecondary() {
     //Hide user inputs if in secondary mode
+    if (helmLever) { helmLever->setVisible(false); }
     if (weatherButton) { weatherButton->setVisible(false); }
     if (weatherPanel) { weatherPanel->setVisible(false); }
     if (controlsPanel) { controlsPanel->setVisible(false); }
@@ -3091,6 +3121,7 @@ void GUIMain::updateGuiData(GUIData* guiData)
         wheelScrollbar->setSecondary(Utilities::round(guiData->rudder));
         wheelScrollbar->setPos(Utilities::round(guiData->wheel));
     }
+    if (helmLever && !helmLever->isDragging()) { helmLever->setPos(Utilities::round(guiData->wheel)); }
     if (bowThrusterScrollbar) { bowThrusterScrollbar->setPos(Utilities::round(guiData->bowThruster * 100)); }
     if (sternThrusterScrollbar) { sternThrusterScrollbar->setPos(Utilities::round(guiData->sternThruster * 100)); }
 
@@ -6416,11 +6447,72 @@ void GUIMain::placeOverView(irr::gui::IGUIElement* panel)
     if (!panel) { return; }
     //Over the bridge view, on the middle screen (Surround), as large as the view allows
     const irr::s32 viewH = (irr::s32)(sh * viewProportion3D());
-    const irr::s32 w = irr::core::min_(1260, (irr::s32)(consoleArea.getWidth() * 0.92f));
-    const irr::s32 h = irr::core::max_(irr::core::min_(780, (irr::s32)(viewH * 0.9f)), irr::core::min_(480, (irr::s32)sh - 40));
-    const irr::s32 x = consoleArea.getCenter().X - w / 2;
-    const irr::s32 y = irr::core::max_(10, (viewH - h) / 2);
+    irr::s32 w = irr::core::min_(1260, (irr::s32)(consoleArea.getWidth() * 0.92f));
+    irr::s32 h = irr::core::max_(irr::core::min_(780, (irr::s32)(viewH * 0.9f)), irr::core::min_(480, (irr::s32)sh - 40));
+    irr::s32 x = consoleArea.getCenter().X - w / 2;
+    irr::s32 y = irr::core::max_(10, (viewH - h) / 2);
+    if (panelPlace == bridge::PLACE_RIGHT || panelPlace == bridge::PLACE_LEFT) {
+        //A column down one side of the view, leaving the rest of the scene to watch
+        w = irr::core::clamp((irr::s32)(consoleArea.getWidth() * 0.32f), 460, 680);
+        if (w > consoleArea.getWidth() / 2) { w = consoleArea.getWidth() / 2; }
+        h = irr::core::max_(viewH - 20, irr::core::min_(480, (irr::s32)sh - 40));
+        x = (panelPlace == bridge::PLACE_RIGHT) ? consoleArea.LowerRightCorner.X - w - 10 : consoleArea.UpperLeftCorner.X + 10;
+        y = 10;
+    }
+    else if (panelPlace == bridge::PLACE_FREE && panelFreeRect.getWidth() > 0) {
+        //Where it was dropped, the same size, still on the screen
+        w = panelFreeRect.getWidth();
+        h = panelFreeRect.getHeight();
+        x = irr::core::clamp(panelFreeRect.UpperLeftCorner.X, -w + 120, (irr::s32)su - 120);
+        y = irr::core::clamp(panelFreeRect.UpperLeftCorner.Y, 0, (irr::s32)sh - 60);
+    }
     panel->setRelativePosition(irr::core::rect<irr::s32>(x, y, x + w, y + h));
+    if (controlsPanel) { controlsPanel->dock.place = panelPlace; }
+    if (weatherPanel) { weatherPanel->dock.place = panelPlace; }
+}
+
+void GUIMain::hookPanelDock(bridge::PanelDock& dock)
+{
+    dock.place = panelPlace;
+    dock.onPlace = [this](int place) { setPanelPlace(place); };
+    dock.onMoved = [this](const irr::core::rect<irr::s32>& r) {
+        panelPlace = bridge::PLACE_FREE;
+        panelFreeRect = r;
+        if (controlsPanel) { controlsPanel->dock.place = panelPlace; }
+        if (weatherPanel) { weatherPanel->dock.place = panelPlace; }
+        savePanelPlace();
+    };
+}
+
+void GUIMain::setPanelPlace(int place)
+{
+    panelPlace = place;
+    if (controlsPanel && controlsPanel->isVisible()) { placeOverView(controlsPanel); }
+    if (weatherPanel && weatherPanel->isVisible()) { placeOverView(weatherPanel); }
+    if (controlsPanel) { controlsPanel->dock.place = panelPlace; }
+    if (weatherPanel) { weatherPanel->dock.place = panelPlace; }
+    savePanelPlace();
+}
+
+void GUIMain::loadPanelPlace()
+{
+    const std::string file = Utilities::getUserDir() + "panelPlace.ini";
+    panelPlace = irr::core::clamp((int)IniFile::iniFileTou32(file, "Place"), 0, (int)bridge::PLACE_FREE);
+    const irr::s32 x = IniFile::iniFileTos32(file, "X"), y = IniFile::iniFileTos32(file, "Y");
+    const irr::s32 w = IniFile::iniFileTos32(file, "Width"), h = IniFile::iniFileTos32(file, "Height");
+    panelFreeRect = irr::core::rect<irr::s32>(x, y, x + w, y + h);
+    if (panelPlace == bridge::PLACE_FREE && (w < 200 || h < 200)) { panelPlace = bridge::PLACE_CENTRE; }
+}
+
+void GUIMain::savePanelPlace() const
+{
+    std::ofstream out((Utilities::getUserDir() + "panelPlace.ini").c_str());
+    if (!out.is_open()) { return; }
+    out << "Place=" << panelPlace << "\n";
+    out << "X=" << panelFreeRect.UpperLeftCorner.X << "\n";
+    out << "Y=" << panelFreeRect.UpperLeftCorner.Y << "\n";
+    out << "Width=" << panelFreeRect.getWidth() << "\n";
+    out << "Height=" << panelFreeRect.getHeight() << "\n";
 }
 
 void GUIMain::toggleWeatherPanel()

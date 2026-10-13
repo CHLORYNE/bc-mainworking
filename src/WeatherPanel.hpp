@@ -9,6 +9,7 @@
 #define __WEATHERPANEL_HPP_INCLUDED__
 
 #include "irrlicht.h"
+#include "PanelDock.hpp"
 #include <string>
 #include <vector>
 
@@ -37,6 +38,9 @@ public:
     virtual void draw();
     virtual bool OnEvent(const irr::SEvent& event);
     virtual void updateAbsolutePosition();
+
+    //The dock key and the drag by the title bar (GUIMain says what a place means)
+    bridge::PanelDock dock;
 
 private:
     enum Tab { TAB_PRESETS = 0, TAB_CONDITIONS, TAB_EVOLUTION, TAB_TIME, TAB_COUNT };
@@ -70,6 +74,7 @@ private:
     void buildPresets();
     irr::core::rect<irr::f32> tabRect(int tab) const;
     irr::core::rect<irr::f32> closeRect() const;
+    irr::core::rect<irr::f32> dockRect() const;
 
     //Values, read from and written to the simulation
     irr::f32 value(Param p) const;
@@ -114,6 +119,7 @@ private:
     int transitionIndex;
     irr::f32 scroll[TAB_COUNT];
     irr::f32 k;                          //scale from the panel's size
+    bool compact = false;                //narrow (docked to a side): the card under the list
     irr::core::rect<irr::f32> header, tabsBar, list, info, tile;
     irr::core::dimension2du laidOut;
     irr::core::rect<irr::s32> laidOutRect;

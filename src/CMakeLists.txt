@@ -78,6 +78,8 @@ set(BC_SOURCES
     OutlineScrollBar.cpp
     OwnShip.cpp
     GUIEngineLever.cpp
+    GUIHelmLever.cpp
+    PanelDock.cpp
     RadarCalculation.cpp
     RadarScreen.cpp
     Rain.cpp
