@@ -325,6 +325,7 @@ public:
         GUI_ID_LEDIT_CLICK_MOVE,
         GUI_ID_LEDIT_CLICK_ADD,
         GUI_ID_LEDIT_TYPE,
+        GUI_ID_LEDIT_PROPOSE,
         GUI_ID_LEDIT_COLOUR_0,
         GUI_ID_LEDIT_COLOUR_END = GUI_ID_LEDIT_COLOUR_0 + 6,
         //The "Taille et flottaison" window

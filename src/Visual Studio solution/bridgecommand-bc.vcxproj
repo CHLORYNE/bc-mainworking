@@ -166,6 +166,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\ScrollDial.cpp" />
     <ClCompile Include="..\Ship.cpp" />
     <ClCompile Include="..\ShipLights.cpp" />
+    <ClCompile Include="..\ShipLightsPropose.cpp" />
     <ClCompile Include="..\simple_license.cpp" />
     <ClCompile Include="..\SimulationModel.cpp" />
     <ClCompile Include="..\Sky.cpp" />

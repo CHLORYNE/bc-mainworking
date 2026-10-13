@@ -162,6 +162,12 @@ public:
     bool setSelectedColour(irr::video::SColor colour); //free lights only (the others' colour is set by the rules)
     Role getSelectedRole() const;
     irr::scene::ISceneNode* getShipNode() const { return shipNodeStored; }
+    //Proposes the whole navigation set (ShipLightsPropose.cpp): the lamps the 3D model itself
+    //has (lantern parts named or coloured as such, .obj models), then the rest placed on the real
+    //shape of the hull by the rules of COLREG Annex I (mast top, wheelhouse sides, transom, bow).
+    //Replaces the navigation lamps and the signal stack (working lights stay); Annuler reloads
+    //the lamps from boat.ini. False and why in report if the model could not be read.
+    bool proposeLights(std::wstring& report);
 
     //The ship was resized live (ScaleFactor / YCorrection). The lamps ride on the
     //ship's node, so they follow by themselves; this keeps the metre-based rules and the 2 m
@@ -184,8 +190,9 @@ private:
         irr::f32 iniA0, iniA1;           // arc as written in the ini, before the COLREG default
         std::string sequence;
         irr::u32 phase;
+        int origin;                      // 0, or where a proposal took it from: 1 the 3D model, 2 the rules
         Lamp() : light(0), role(ROLE_UNUSED), signalIndex(-1), lightSource(0),
-            rangeM(2.0f * 1852.0f), iniA0(-360.0f), iniA1(360.0f), phase(0) {}
+            rangeM(2.0f * 1852.0f), iniA0(-360.0f), iniA1(360.0f), phase(0), origin(0) {}
     };
 
     Role roleFromName(const std::string& name) const;
@@ -243,6 +250,13 @@ private:
     bool userSet = false;
     bool standardSetDone = false;
     void addSignalStack(const irr::core::vector3df& lowest);
+    //A lamp of that role at that point, with its COLREG arc (colour: free lights only)
+    void addRoleLamp(Role role, const irr::core::vector3df& modelPos, irr::video::SColor colour);
+    void buildEditList();
+    void removeLamp(int li);         // the fitting and its light, the slot left ROLE_UNUSED
+    void reloadFromIni();            // every lamp again as boat.ini has them (Annuler after a proposal)
+    bool generateMissingArg = false; // what load() was given, for reloadFromIni()
+    bool proposalApplied = false;
     irr::core::vector3df bowDir() const;   // unit vector towards the bow, model frame
     irr::core::vector3df stbdDir() const;  // unit vector to starboard, model frame
     irr::core::vector3df boxCentre() const;

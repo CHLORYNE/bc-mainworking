@@ -5880,10 +5880,10 @@ void GUIMain::openLightEditor(int vessel)
     const irr::s32 pad = fh / 2;
     const irr::s32 rowH = fh + 10;
     const irr::s32 w = fh * 26;
-    const irr::s32 listH = rowH * 7;
+    const irr::s32 listH = rowH * 6;
     const irr::s32 readH = fh * 5;
     const irr::s32 helpH = fh * 9;
-    const irr::s32 h = 2 * fh + listH + readH + 9 * (rowH + pad) + fh * 3 + helpH + 3 * pad;
+    const irr::s32 h = 2 * fh + listH + readH + 10 * (rowH + pad) + fh * 5 + helpH + 3 * pad;
     const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
     const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
     const irr::s32 x = sw - w - fh;
@@ -5974,6 +5974,11 @@ void GUIMain::openLightEditor(int vessel)
         L"Retirer un feu en trop - prend effet \u00E0 l'enregistrement");
     cy += rowH + pad;
 
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH), lightEditWindow,
+        GUI_ID_LEDIT_PROPOSE, L"Proposer les feux (mod\u00E8le 3D + COLREG)",
+        L"Remplace les feux de navigation et de signal : ceux que le mod\u00E8le 3D poss\u00E8de, puis les autres plac\u00E9s sur la forme r\u00E9elle de la coque selon l'Annexe I. Les feux de pont restent. Annuler revient au boat.ini.");
+    cy += rowH + pad;
+
     const irr::s32 third = (w - 4 * pad) / 3;
     guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + third, cy + rowH), lightEditWindow,
         GUI_ID_LEDIT_SAVE, L"Enregistrer", L"\u00C9crire les positions dans le boat.ini du navire (copie .bak / .prev)");
@@ -5983,9 +5988,9 @@ void GUIMain::openLightEditor(int vessel)
         GUI_ID_LEDIT_CLOSE, L"Terminer", L"Fermer l'\u00E9diteur et revenir \u00E0 la passerelle");
     cy += rowH + pad;
 
-    lightEditStatus = guienv->addStaticText(L"Non enregistr\u00E9.", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + fh * 3),
+    lightEditStatus = guienv->addStaticText(L"Non enregistr\u00E9.", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + fh * 5),
         false, true, lightEditWindow);
-    cy += fh * 3 + pad;
+    cy += fh * 5 + pad;
 
     guienv->addStaticText(
         L"Clic sur le navire : placer le feu s\u00E9lectionn\u00E9, ou en ajouter un\n"

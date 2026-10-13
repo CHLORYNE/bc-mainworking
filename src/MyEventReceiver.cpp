@@ -803,7 +803,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 (id == GUIMain::GUI_ID_LEDIT_SAVE || id == GUIMain::GUI_ID_LEDIT_REVERT ||
                  id == GUIMain::GUI_ID_LEDIT_SPACING_DOWN || id == GUIMain::GUI_ID_LEDIT_SPACING_UP ||
                  id == GUIMain::GUI_ID_LEDIT_CLOSE || id == GUIMain::GUI_ID_LEDIT_ROLE ||
-                 id == GUIMain::GUI_ID_LEDIT_DELETE))
+                 id == GUIMain::GUI_ID_LEDIT_DELETE || id == GUIMain::GUI_ID_LEDIT_PROPOSE))
             {
                 ShipLights* lights = model->getShipLights(model->getLightEditVessel());
                 if (lights) {
@@ -812,6 +812,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                         const bool ok = lights->saveToIni(msg);
                         gui->setLightEditorStatus(msg, !ok);
                         device->getLogger()->log(ok ? "Light editor: saved" : "Light editor: SAVE FAILED");
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_PROPOSE) {
+                        std::wstring msg;
+                        const bool ok = lights->proposeLights(msg);
+                        gui->setLightEditorStatus(msg, !ok);
+                        device->getLogger()->log(ok ? "Light editor: lights proposed" : "Light editor: proposal failed");
                     }
                     if (id == GUIMain::GUI_ID_LEDIT_REVERT) {
                         lights->revertEdit();

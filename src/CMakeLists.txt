@@ -105,6 +105,7 @@ set(BC_SOURCES
     Splash.cpp
     ScreenSpray.cpp
     ShipLights.cpp
+    ShipLightsPropose.cpp
     LoadingScreen.cpp
     IncidentConfig.cpp
     chartView/ChartView.cpp

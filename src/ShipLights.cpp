@@ -173,6 +173,7 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
 {
     allowDynamicLights = dynamicLights;
     dynamicLightsUsed = 0;
+    generateMissingArg = generateMissing;
     if (!smgr || !shipNode) { return; }
     lengthMetres = shipLengthMetres;
     if (modelUnitsPerMetre <= 0.0f) { modelUnitsPerMetre = 1.0f; }
@@ -867,8 +868,16 @@ void ShipLights::beginEdit()
     //stays deleted (the types under "Ajouter un feu" put any of them back)
     if (!userSet && !standardSetDone) { ensureStandardSet(); }
     standardSetDone = true;
+    buildEditList();
+    proposalApplied = false;
+    editSel = 0;
+    editing = true;
+}
 
-    //The list: navigation lamps in a fixed order, then the signal stack, then everything else.
+//The list: navigation lamps in a fixed order, then the signal stack, then everything else.
+//Also the snapshot Annuler goes back to.
+void ShipLights::buildEditList()
+{
     editItems.clear();
     const Role order[] = { ROLE_MASTHEAD, ROLE_MASTHEAD_AFT, ROLE_PORT, ROLE_STARBOARD, ROLE_STERN,
                            ROLE_ANCHOR };
@@ -891,8 +900,28 @@ void ShipLights::beginEdit()
         editSnapshot.push_back(lamps[i].light ? lamps[i].light->getLocalPosition() : irr::core::vector3df());
     }
     editSnapshotSpacing = signalSpacingM;
-    editSel = 0;
-    editing = true;
+    editRevision++;
+}
+
+void ShipLights::removeLamp(int li)
+{
+    if (li < 0 || li >= (int)lamps.size()) { return; }
+    Lamp& L = lamps[li];
+    if (L.light) { L.light->remove(); delete L.light; L.light = 0; }
+    if (L.lightSource) { L.lightSource->remove(); L.lightSource = 0; dynamicLightsUsed--; }
+    if (anchorFwd == li) { anchorFwd = -1; }
+    if (anchorAft == li) { anchorAft = -1; }
+    L.role = ROLE_UNUSED;
+}
+
+void ShipLights::reloadFromIni()
+{
+    for (size_t i = 0; i < lamps.size(); i++) { removeLamp((int)i); }
+    lamps.clear();
+    signalLamps.clear();
+    IniFile::forgetFile(iniFile);
+    load(smgrStored, shipNodeStored, iniFile, lengthMetres, mupm, boxStored, allowDynamicLights,
+        waterlineY, generateMissingArg);
 }
 
 void ShipLights::endEdit()
@@ -919,22 +948,37 @@ void ShipLights::selectEditItem(int item)
     editSel = ((item % n) + n) % n; //wraps, so Tab past the end comes back to the top
 }
 
+static std::wstring roleLabelFr(int role, int li);
+
 std::wstring ShipLights::getEditItemLabel(int item) const
 {
     if (item < 0 || item >= (int)editItems.size()) { return L""; }
     const int li = editItems[item];
-    if (li == -1) { return L"Feux de signal (x3, superpos\u00E9s)"; }
-    switch (lamps[li].role) {
-    case ROLE_MASTHEAD:      return L"T\u00EAte de m\u00E2t avant (blanc)";
-    case ROLE_MASTHEAD_AFT:  return L"T\u00EAte de m\u00E2t arri\u00E8re (blanc)";
-    case ROLE_PORT:          return L"C\u00F4t\u00E9 b\u00E2bord (rouge)";
-    case ROLE_STARBOARD:     return L"C\u00F4t\u00E9 tribord (vert)";
-    case ROLE_STERN:         return L"Poupe (blanc)";
-    case ROLE_ANCHOR:        return L"Mouillage (blanc)";
-    case ROLE_DECK:          return L"Feu de pont (n\u00B0" + std::to_wstring(li + 1) + L")";
-    case ROLE_ACCOMMODATION: return L"\u00C9clairage logement (n\u00B0" + std::to_wstring(li + 1) + L")";
-    case ROLE_SEARCHLIGHT:   return L"Projecteur (n\u00B0" + std::to_wstring(li + 1) + L")";
-    case ROLE_CUSTOM:        return L"Feu libre (n\u00B0" + std::to_wstring(li + 1) + L")";
+    if (li == -1) {
+        std::wstring t = L"Feux de signal (x3, superpos\u00E9s)";
+        if (!signalLamps.empty() && lamps[signalLamps[0]].origin == 1) { t += L" - mod\u00E8le 3D"; }
+        else if (!signalLamps.empty() && lamps[signalLamps[0]].origin == 2) { t += L" - propos\u00E9"; }
+        return t;
+    }
+    std::wstring t = roleLabelFr((int)lamps[li].role, li);
+    if (lamps[li].origin == 1) { t += L" - mod\u00E8le 3D"; }
+    else if (lamps[li].origin == 2) { t += L" - propos\u00E9"; }
+    return t;
+}
+
+static std::wstring roleLabelFr(int role, int li)
+{
+    switch ((ShipLights::Role)role) {
+    case ShipLights::ROLE_MASTHEAD:      return L"T\u00EAte de m\u00E2t avant (blanc)";
+    case ShipLights::ROLE_MASTHEAD_AFT:  return L"T\u00EAte de m\u00E2t arri\u00E8re (blanc)";
+    case ShipLights::ROLE_PORT:          return L"C\u00F4t\u00E9 b\u00E2bord (rouge)";
+    case ShipLights::ROLE_STARBOARD:     return L"C\u00F4t\u00E9 tribord (vert)";
+    case ShipLights::ROLE_STERN:         return L"Poupe (blanc)";
+    case ShipLights::ROLE_ANCHOR:        return L"Mouillage (blanc)";
+    case ShipLights::ROLE_DECK:          return L"Feu de pont (n\u00B0" + std::to_wstring(li + 1) + L")";
+    case ShipLights::ROLE_ACCOMMODATION: return L"\u00C9clairage logement (n\u00B0" + std::to_wstring(li + 1) + L")";
+    case ShipLights::ROLE_SEARCHLIGHT:   return L"Projecteur (n\u00B0" + std::to_wstring(li + 1) + L")";
+    case ShipLights::ROLE_CUSTOM:        return L"Feu libre (n\u00B0" + std::to_wstring(li + 1) + L")";
     default:                 return L"Feu n\u00B0" + std::to_wstring(li + 1);
     }
 }
@@ -1012,23 +1056,8 @@ bool ShipLights::placeSelectedAt(const irr::core::vector3df& modelPos)
     return true;
 }
 
-bool ShipLights::addLampAt(const irr::core::vector3df& modelPos, Role role, irr::video::SColor colour)
+void ShipLights::addRoleLamp(Role role, const irr::core::vector3df& modelPos, irr::video::SColor colour)
 {
-    if (!editing || !smgrStored || !shipNodeStored) { return false; }
-    if (role == ROLE_SIGNAL) {
-        //One signal stack per vessel: put it back if it was deleted, otherwise move it here
-        if (signalLamps.empty()) {
-            addSignalStack(modelPos);
-            editItems.push_back(-1);
-            editSel = (int)editItems.size() - 1;
-        } else {
-            for (size_t k = 0; k < editItems.size(); k++) { if (editItems[k] == -1) { editSel = (int)k; } }
-            lamps[signalLamps[0]].light->setPosition(modelPos);
-            restackSignals();
-        }
-        editRevision++;
-        return true;
-    }
     switch (role) {
     case ROLE_MASTHEAD:
     case ROLE_MASTHEAD_AFT:
@@ -1066,6 +1095,26 @@ bool ShipLights::addLampAt(const irr::core::vector3df& modelPos, Role role, irr:
         addLamp(smgrStored, shipNodeStored, ROLE_CUSTOM, modelPos, colour, ARC_ALL_START, ARC_ALL_END, 2.0f);
         break;
     }
+}
+
+bool ShipLights::addLampAt(const irr::core::vector3df& modelPos, Role role, irr::video::SColor colour)
+{
+    if (!editing || !smgrStored || !shipNodeStored) { return false; }
+    if (role == ROLE_SIGNAL) {
+        //One signal stack per vessel: put it back if it was deleted, otherwise move it here
+        if (signalLamps.empty()) {
+            addSignalStack(modelPos);
+            editItems.push_back(-1);
+            editSel = (int)editItems.size() - 1;
+        } else {
+            for (size_t k = 0; k < editItems.size(); k++) { if (editItems[k] == -1) { editSel = (int)k; } }
+            lamps[signalLamps[0]].light->setPosition(modelPos);
+            restackSignals();
+        }
+        editRevision++;
+        return true;
+    }
+    addRoleLamp(role, modelPos, colour);
     editItems.push_back((int)lamps.size() - 1);
     editSel = (int)editItems.size() - 1;
     editRevision++;
@@ -1137,13 +1186,23 @@ std::wstring ShipLights::describeSelectedFr() const
 void ShipLights::changeSignalSpacing(irr::f32 deltaMetres)
 {
     signalSpacingM += deltaMetres;
-    if (signalSpacingM < 0.5f) { signalSpacingM = 0.5f; }
+    if (signalSpacingM < 0.25f) { signalSpacingM = 0.25f; }
     if (signalSpacingM > 6.0f) { signalSpacingM = 6.0f; }
     restackSignals();
 }
 
 void ShipLights::revertEdit()
 {
+    //After a proposal: everything back as boat.ini has it
+    if (proposalApplied) {
+        reloadFromIni();
+        if (!userSet) { ensureStandardSet(); }
+        standardSetDone = true;
+        buildEditList();
+        proposalApplied = false;
+        editSel = 0;
+        return;
+    }
     for (size_t i = 0; i < lamps.size() && i < editSnapshot.size(); i++) {
         if (lamps[i].light) { moveLamp((int)i, editSnapshot[i]); }
     }
