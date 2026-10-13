@@ -311,7 +311,13 @@ bool ShipLights::proposeLights(std::wstring& report)
                 if (line.size() < 2) { continue; }
                 if (line[0] == 'v' && line[1] == ' ') {
                     float x = 0, y = 0, z = 0;
-                    std::sscanf(line.c_str() + 2, "%f %f %f", &x, &y, &z);
+                    //Irrlicht's own reader: no CRT warning, and a '.' whatever the PC's language
+                    const irr::c8* c = line.c_str() + 2;
+                    float* xyz[3] = { &x, &y, &z };
+                    for (int k = 0; k < 3; k++) {
+                        while (*c == ' ' || *c == '\t') { c++; }
+                        *xyz[k] = irr::core::fast_atof(c, &c);
+                    }
                     verts.push_back(irr::core::vector3df(x, y, z));
                 } else if (line.compare(0, 7, "usemtl ") == 0) {
                     std::string n = line.substr(7);
