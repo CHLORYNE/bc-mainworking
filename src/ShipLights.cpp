@@ -198,6 +198,10 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
 
     //KYARA FEUX: per-vessel opt-in to the guessed set (GenerateLights=1 in her boat.ini).
     if (IniFile::iniFileTou32(iniFilename, "GenerateLights") != 0) { generateMissing = true; }
+    //Saved from the editor: exactly the lamps written there, nothing guessed or added
+    userSet = IniFile::iniFileTou32(iniFilename, "LightsEdited") != 0;
+    standardSetDone = false;
+    if (userSet) { generateMissing = false; }
 
     //---- 1. the lamps the model actually has -------------------------------------------------
     const irr::u32 numberOfLights = IniFile::iniFileTou32(iniFilename, "NumberOfLights");
@@ -286,7 +290,7 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     //KYARA FEUX: nothing in the ini and no opt-in, so there is no trustworthy anchor for a mast
     //or a deck on this model. Stop here rather than inventing one: the signal lights below would
     //otherwise hang in the air beside the hull, which is worse than showing nothing at all.
-    if (!generateMissing && lamps.empty()) {
+    if (!generateMissing && lamps.empty() && !userSet) {
         loaded = true;
         return;
     }
@@ -389,21 +393,18 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
             mastTop = irr::core::vector3df(IniFile::iniFileTof32(iniFilename, "SignalX"),
                 IniFile::iniFileTof32(iniFilename, "SignalY"),
                 IniFile::iniFileTof32(iniFilename, "SignalZ"));
-            mastTop.Y -= spacing; //the loop below starts one spacing above mastTop
+            mastTop.Y -= spacing; //the stack below starts one spacing above mastTop
         }
     }
-    for (int i = 0; i < 3; i++) {
-        Lamp lamp;
-        lamp.role = ROLE_SIGNAL;
-        lamp.signalIndex = i;
-        lamp.colour = COL_WHITE;
-        irr::core::vector3df p = mastTop;
-        p.Y += spacing * (irr::f32)(i + 1);
-        lamp.light = makeSignalLight(smgr, shipNode, p, COL_WHITE, SIGNAL_RANGE_NM);
-        lamp.rangeM = SIGNAL_RANGE_NM * M_IN_NM; //KYARA FEUX EDIT
-        lamps.push_back(lamp);
-        signalLamps.push_back((int)lamps.size() - 1);
+    if (userSet) {
+        //Only what was saved: the signal stack if it was kept (SignalX), no anchor light added
+        if (!IniFile::iniFileToString(iniFilename, "SignalX").empty()) {
+            addSignalStack(mastTop + irr::core::vector3df(0.0f, spacing, 0.0f));
+        }
+        loaded = true;
+        return;
     }
+    addSignalStack(mastTop + irr::core::vector3df(0.0f, spacing, 0.0f));
 
     //An anchor light if the vessel has none of its own: forward and low, as Rule 30 wants.
     if (anchorFwd < 0) {
@@ -426,6 +427,25 @@ void ShipLights::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* s
     ensureAftAnchor();
 
     loaded = true;
+}
+
+//The three all-round lamps of the signal line, the lowest at that point, the others stacked
+//straight up from it SignalSpacing metres apart. Created dark: the situation lights them.
+void ShipLights::addSignalStack(const irr::core::vector3df& lowest)
+{
+    if (!smgrStored || !shipNodeStored || !signalLamps.empty()) { return; }
+    for (int i = 0; i < 3; i++) {
+        Lamp lamp;
+        lamp.role = ROLE_SIGNAL;
+        lamp.signalIndex = i;
+        lamp.colour = COL_WHITE;
+        irr::core::vector3df p = lowest;
+        p.Y += signalSpacingM * mupm * (irr::f32)i;
+        lamp.light = makeSignalLight(smgrStored, shipNodeStored, p, COL_WHITE, SIGNAL_RANGE_NM);
+        lamp.rangeM = SIGNAL_RANGE_NM * M_IN_NM; //KYARA FEUX EDIT
+        lamps.push_back(lamp);
+        signalLamps.push_back((int)lamps.size() - 1);
+    }
 }
 
 //Rule 30 a ii: a vessel of 50 m and over at anchor shows a second all-round white light at or near
@@ -826,21 +846,7 @@ void ShipLights::ensureStandardSet()
         addLamp(smgrStored, shipNodeStored, ROLE_STERN, modelPoint(-0.95f, 0.0f, sideH),
             COL_WHITE, ARC_STERN_START - angleCorr, ARC_STERN_END - angleCorr, STERN_RANGE_NM);
     }
-    if (signalLamps.empty()) {
-        irr::core::vector3df base = modelPoint(0.30f, 0.0f, mastH + signalSpacingM);
-        for (int i = 0; i < 3; i++) {
-            Lamp lamp;
-            lamp.role = ROLE_SIGNAL;
-            lamp.signalIndex = i;
-            lamp.colour = COL_WHITE;
-            irr::core::vector3df p = base;
-            p.Y += signalSpacingM * mupm * (irr::f32)i;
-            lamp.light = makeSignalLight(smgrStored, shipNodeStored, p, COL_WHITE, SIGNAL_RANGE_NM);
-            lamp.rangeM = SIGNAL_RANGE_NM * M_IN_NM;
-            lamps.push_back(lamp);
-            signalLamps.push_back((int)lamps.size() - 1);
-        }
-    }
+    if (signalLamps.empty()) { addSignalStack(modelPoint(0.30f, 0.0f, mastH + signalSpacingM)); }
     if (anchorFwd < 0) {
         Lamp lamp;
         lamp.role = ROLE_ANCHOR;
@@ -857,7 +863,10 @@ void ShipLights::ensureStandardSet()
 
 void ShipLights::beginEdit()
 {
-    ensureStandardSet();
+    //Once only, and never on a vessel whose lights were saved from here: what was deleted
+    //stays deleted (the types under "Ajouter un feu" put any of them back)
+    if (!userSet && !standardSetDone) { ensureStandardSet(); }
+    standardSetDone = true;
 
     //The list: navigation lamps in a fixed order, then the signal stack, then everything else.
     editItems.clear();
@@ -1006,6 +1015,20 @@ bool ShipLights::placeSelectedAt(const irr::core::vector3df& modelPos)
 bool ShipLights::addLampAt(const irr::core::vector3df& modelPos, Role role, irr::video::SColor colour)
 {
     if (!editing || !smgrStored || !shipNodeStored) { return false; }
+    if (role == ROLE_SIGNAL) {
+        //One signal stack per vessel: put it back if it was deleted, otherwise move it here
+        if (signalLamps.empty()) {
+            addSignalStack(modelPos);
+            editItems.push_back(-1);
+            editSel = (int)editItems.size() - 1;
+        } else {
+            for (size_t k = 0; k < editItems.size(); k++) { if (editItems[k] == -1) { editSel = (int)k; } }
+            lamps[signalLamps[0]].light->setPosition(modelPos);
+            restackSignals();
+        }
+        editRevision++;
+        return true;
+    }
     switch (role) {
     case ROLE_MASTHEAD:
     case ROLE_MASTHEAD_AFT:
@@ -1131,8 +1154,12 @@ void ShipLights::revertEdit()
         if (anchorFwd == (int)i) { anchorFwd = -1; }
         lamps[i].role = ROLE_UNUSED;
     }
+    const bool stackAdded = !signalLamps.empty() && signalLamps[0] >= (int)editSnapshot.size();
+    if (stackAdded) { signalLamps.clear(); }
     for (size_t k = 0; k < editItems.size(); ) {
-        if (editItems[k] >= (int)editSnapshot.size()) { editItems.erase(editItems.begin() + k); editRevision++; }
+        if (editItems[k] >= (int)editSnapshot.size() || (stackAdded && editItems[k] == -1)) {
+            editItems.erase(editItems.begin() + k); editRevision++;
+        }
         else { k++; }
     }
     if (editSel >= (int)editItems.size()) { editSel = editItems.empty() ? 0 : (int)editItems.size() - 1; }
@@ -1175,7 +1202,7 @@ static bool kyaraIsLightLine(const std::string& rawLine)
         key += (char)std::tolower((unsigned char)ch);
     }
     if (key.empty()) { return false; }
-    if (key == "numberoflights") { return true; }
+    if (key == "numberoflights" || key == "lightsedited") { return true; }
     if (key == "signalx" || key == "signaly" || key == "signalz" || key == "signalspacing") { return true; }
     if (key == "anchorx" || key == "anchory" || key == "anchorz") { return true; }
     if (key.compare(0, 5, "light") == 0 && key.find('(') != std::string::npos) { return true; }
@@ -1255,6 +1282,8 @@ bool ShipLights::saveToIni(std::wstring& message)
         if (L.phase != 0) { lampLines += "PhaseStart" + k + std::to_string(L.phase) + nl; }
         lampLines += nl;
     }
+    //The block is the whole set: lamps deleted here are not made up again on loading
+    block += "LightsEdited=1" + nl;
     block += "NumberOfLights=" + std::to_string(n) + nl + nl + lampLines;
     if (!signalLamps.empty()) {
         const irr::core::vector3df s = lamps[signalLamps[0]].light->getLocalPosition();
@@ -1272,7 +1301,8 @@ bool ShipLights::saveToIni(std::wstring& message)
     out << kept << block;
     out.close();
     IniFile::forgetFile(iniFile); //a later read sees the new lamps, not the cached ones
-    message = L"Enregistr\u00E9 : " + std::to_wstring(n) + L" feux + signaux dans " + wpath;
+    userSet = true;
+    message = L"Enregistr\u00E9 : " + std::to_wstring(n) + (signalLamps.empty() ? L" feux (sans feux de signal) dans " : L" feux + signaux dans ") + wpath;
     return true;
 }
 
@@ -1331,6 +1361,20 @@ bool ShipLights::deleteSelected()
 {
     if (!editing || editItems.empty()) { return false; }
     const int li = editItems[editSel];
+    if (li == -1) {
+        //The whole signal stack (the situations needing it then show nothing more)
+        for (size_t k = 0; k < signalLamps.size(); k++) {
+            Lamp& L = lamps[signalLamps[k]];
+            if (L.light) { L.light->remove(); delete L.light; L.light = 0; }
+            L.role = ROLE_UNUSED;
+        }
+        signalLamps.clear();
+        editItems.erase(editItems.begin() + editSel);
+        if (editSel >= (int)editItems.size()) { editSel = (int)editItems.size() - 1; }
+        if (editSel < 0) { editSel = 0; }
+        editRevision++;
+        return true;
+    }
     if (li < 0 || !lamps[li].light) { return false; }
     lamps[li].light->remove();
     delete lamps[li].light;

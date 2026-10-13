@@ -238,6 +238,11 @@ private:
     std::vector<irr::core::vector3df> editSnapshot;
     irr::f32 editSnapshotSpacing;
     int editRevision;
+    //Her lights were saved from the editor (LightsEdited=1): the ini holds the whole set, lamps
+    //deleted there stay deleted, nothing is added to it on loading or when the editor opens
+    bool userSet = false;
+    bool standardSetDone = false;
+    void addSignalStack(const irr::core::vector3df& lowest);
     irr::core::vector3df bowDir() const;   // unit vector towards the bow, model frame
     irr::core::vector3df stbdDir() const;  // unit vector to starboard, model frame
     irr::core::vector3df boxCentre() const;

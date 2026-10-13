@@ -5610,6 +5610,11 @@ void SimulationModel::update()
             if (lights && node && lights->getSelectedWorldPosition(centre)) {
                 camera.setOrbitCentre(centre, node->getRotation().Y - lights->getAngleCorrection());
             }
+            else if (lights && node) {
+                //No lamp left to centre on: the middle of the vessel, so she can be clicked
+                camera.setOrbitCentre(node->getTransformedBoundingBox().getCenter(),
+                    node->getRotation().Y - lights->getAngleCorrection());
+            }
         }
 
         //Instrument editor: the chosen material blinks for a moment, so it can be found in the view

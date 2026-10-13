@@ -5853,6 +5853,7 @@ namespace {
         { L"Feu de poupe", ShipLights::ROLE_STERN },
         { L"Feu de mouillage", ShipLights::ROLE_ANCHOR },
         { L"Feu de pont (projecteur)", ShipLights::ROLE_DECK },
+        { L"Feux de signal (x3, superpos\u00E9s)", ShipLights::ROLE_SIGNAL },
     };
     const int LAMP_TYPE_COUNT = sizeof(LAMP_TYPES) / sizeof(LAMP_TYPES[0]);
     const wchar_t* LAMP_COLOUR_NAMES[6] = { L"Blanc", L"Rouge", L"Vert", L"Jaune", L"Orange", L"Bleu" };
