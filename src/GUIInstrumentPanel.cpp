@@ -70,47 +70,47 @@ namespace irr
             {
                 if (mode < 0 || mode >= bridge::MODE_COUNT) { mode = bridge::MODE_DUSK; }
                 const u32 c[][bridge::MODE_COUNT][3] = {
-                    { {227, 232, 238}, {28, 42, 60}, {15, 23, 34}, {6, 13, 7} }, //PANEL_TOP
-                    { {211, 218, 226}, {22, 33, 48}, {11, 17, 26}, {2, 6, 3} }, //PANEL_BOTTOM
-                    { {245, 247, 250}, {52, 70, 94}, {29, 40, 54}, {24, 62, 30} }, //PANEL_EDGE_HI
-                    { {160, 172, 186}, {8, 12, 18}, {3, 5, 8}, {0, 0, 0} }, //PANEL_EDGE_LO
-                    { {214, 220, 228}, {122, 134, 150}, {52, 58, 68}, {42, 74, 46} }, //BEZEL_TOP
-                    { {140, 150, 162}, {40, 48, 60}, {18, 22, 28}, {10, 24, 12} }, //BEZEL_BOTTOM
-                    { {110, 120, 132}, {10, 12, 16}, {4, 5, 7}, {0, 0, 0} }, //BEZEL_INNER
-                    { {252, 252, 253}, {38, 44, 54}, {26, 19, 12}, {4, 16, 6} }, //FACE_CENTRE
-                    { {230, 234, 239}, {8, 10, 14}, {2, 3, 4}, {0, 0, 0} }, //FACE_EDGE
-                    { {20, 26, 34}, {246, 249, 253}, {255, 180, 76}, {76, 234, 96} }, //SCALE_WHITE
-                    { {52, 62, 74}, {222, 228, 238}, {236, 162, 78}, {232, 206, 60} }, //TEXT_TITLE
-                    { {96, 108, 122}, {150, 162, 176}, {168, 120, 66}, {52, 146, 62} }, //TEXT_DIM
-                    { {224, 82, 0}, {255, 150, 24}, {255, 118, 28}, {252, 228, 72} }, //NEEDLE
-                    { {120, 128, 138}, {58, 61, 68}, {40, 36, 30}, {30, 62, 34} }, //HUB_OUTER
-                    { {40, 44, 50}, {20, 21, 24}, {10, 9, 8}, {0, 10, 2} }, //HUB_INNER
-                    { {210, 40, 40}, {236, 56, 50}, {214, 56, 42}, {226, 52, 42} }, //BAND_PORT
-                    { {30, 150, 70}, {52, 210, 92}, {60, 180, 84}, {64, 226, 84} }, //BAND_STBD
-                    { {200, 50, 45}, {226, 56, 52}, {204, 54, 42}, {214, 50, 40} }, //BAND_ASTERN
-                    { {210, 30, 25}, {255, 64, 48}, {255, 74, 44}, {255, 60, 48} }, //LUBBER
-                    { {0, 120, 210}, {90, 214, 255}, {96, 184, 236}, {176, 255, 188} }, //COG_MARK
-                    { {220, 150, 0}, {255, 222, 64}, {255, 204, 80}, {252, 228, 72} }, //ORDER_MARK
-                    { {26, 32, 30}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //LCD_BG (readouts in the dials)
-                    { {90, 100, 96}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
-                    { {170, 184, 164}, {26, 34, 40}, {18, 13, 8}, {6, 20, 8} }, //LCD_HEADER
-                    { {232, 240, 234}, {246, 250, 255}, {255, 190, 84}, {96, 255, 116} }, //DIGIT_WHITE
-                    { {255, 112, 98}, {255, 112, 98}, {255, 98, 66}, {255, 92, 72} }, //DIGIT_RED (light red: port, astern)
-                    { {100, 232, 140}, {100, 240, 140}, {130, 226, 104}, {96, 255, 116} }, //DIGIT_GREEN (light green: starboard)
-                    { {255, 200, 86}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //DIGIT_AMBER
-                    { {56, 78, 68}, {132, 196, 216}, {206, 148, 80}, {214, 192, 56} }, //NAV_LABEL
-                    { {20, 28, 24}, {238, 246, 250}, {255, 190, 100}, {104, 246, 120} }, //NAV_VALUE
-                    { {160, 168, 178}, {92, 99, 110}, {60, 52, 40}, {30, 72, 34} }, //HULL_MARK
-                    { {0, 110, 200}, {140, 222, 255}, {255, 178, 76}, {252, 228, 72} }, //WIND_BARB
-                    { {96, 104, 114}, {166, 174, 186}, {150, 118, 76}, {60, 152, 70} }, //SHIP_HULL
-                    { {62, 68, 76}, {220, 226, 234}, {200, 156, 98}, {112, 224, 124} }, //SHIP_HOUSE
-                    { {244, 246, 248}, {130, 138, 150}, {60, 62, 66}, {42, 74, 46} }, //SCREW_HI
-                    { {150, 158, 168}, {50, 56, 66}, {20, 22, 26}, {10, 24, 12} }, //SCREW_LO
-                    { {110, 118, 128}, {24, 28, 34}, {8, 9, 10}, {0, 6, 2} }, //SCREW_SLOT
-                    { {200, 207, 215}, {14, 22, 34}, {7, 11, 17}, {0, 6, 2} }, //STATUS_BG
-                    { {186, 199, 180}, {7, 10, 12}, {8, 6, 3}, {0, 7, 2} }, //NAV_BG (GPS / sounder screen)
-                    { {120, 132, 118}, {64, 70, 78}, {40, 32, 22}, {30, 84, 36} }, //NAV_EDGE
-                    { {22, 28, 24}, {255, 200, 72}, {255, 196, 86}, {242, 222, 72} }, //NAV_DEPTH
+                    { {184, 188, 192}, {44, 48, 53}, {14, 14, 15}, {6, 13, 7} }, //PANEL_TOP
+                    { {174, 179, 183}, {38, 42, 46}, {11, 11, 12}, {2, 6, 3} }, //PANEL_BOTTOM
+                    { {212, 215, 218}, {72, 79, 86}, {34, 30, 26}, {24, 62, 30} }, //PANEL_EDGE_HI
+                    { {104, 110, 116}, {14, 16, 18}, {3, 3, 3}, {0, 0, 0} }, //PANEL_EDGE_LO
+                    { {66, 70, 74}, {62, 67, 72}, {28, 26, 24}, {42, 74, 46} }, //BEZEL_TOP
+                    { {46, 49, 52}, {40, 43, 47}, {17, 16, 15}, {10, 24, 12} }, //BEZEL_BOTTOM
+                    { {10, 11, 12}, {8, 9, 10}, {3, 3, 3}, {0, 0, 0} }, //BEZEL_INNER
+                    { {24, 26, 28}, {22, 24, 26}, {10, 9, 8}, {4, 16, 6} }, //FACE_CENTRE
+                    { {14, 15, 16}, {12, 13, 14}, {4, 4, 4}, {0, 0, 0} }, //FACE_EDGE
+                    { {238, 240, 242}, {228, 232, 235}, {214, 142, 64}, {76, 234, 96} }, //SCALE_WHITE
+                    { {214, 218, 222}, {204, 209, 214}, {196, 128, 58}, {232, 206, 60} }, //TEXT_TITLE
+                    { {150, 156, 162}, {142, 149, 156}, {138, 94, 50}, {52, 146, 62} }, //TEXT_DIM
+                    { {255, 138, 24}, {255, 140, 26}, {232, 112, 32}, {252, 228, 72} }, //NEEDLE
+                    { {72, 76, 80}, {68, 72, 78}, {40, 36, 30}, {30, 62, 34} }, //HUB_OUTER
+                    { {22, 23, 25}, {20, 21, 23}, {10, 9, 8}, {0, 10, 2} }, //HUB_INNER
+                    { {226, 52, 46}, {232, 54, 48}, {204, 54, 40}, {226, 52, 42} }, //BAND_PORT
+                    { {46, 196, 86}, {50, 204, 90}, {60, 172, 80}, {64, 226, 84} }, //BAND_STBD
+                    { {220, 54, 48}, {224, 56, 50}, {198, 52, 40}, {214, 50, 40} }, //BAND_ASTERN
+                    { {255, 64, 48}, {255, 64, 48}, {240, 70, 42}, {255, 60, 48} }, //LUBBER
+                    { {90, 206, 255}, {90, 206, 255}, {96, 176, 226}, {176, 255, 188} }, //COG_MARK
+                    { {255, 212, 64}, {255, 214, 64}, {240, 190, 74}, {252, 228, 72} }, //ORDER_MARK
+                    { {6, 8, 9}, {6, 8, 9}, {7, 5, 3}, {0, 7, 2} }, //LCD_BG
+                    { {70, 76, 82}, {66, 72, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
+                    { {150, 164, 146}, {24, 28, 31}, {16, 12, 8}, {6, 20, 8} }, //LCD_HEADER (the GPS / sounder screen's header line)
+                    { {240, 244, 248}, {240, 244, 248}, {250, 182, 84}, {96, 255, 116} }, //DIGIT_WHITE
+                    { {255, 110, 96}, {255, 110, 96}, {250, 96, 66}, {255, 92, 72} }, //DIGIT_RED
+                    { {100, 236, 140}, {100, 236, 140}, {128, 220, 104}, {96, 255, 116} }, //DIGIT_GREEN
+                    { {255, 200, 80}, {255, 200, 76}, {250, 192, 84}, {242, 222, 72} }, //DIGIT_AMBER
+                    { {52, 70, 60}, {120, 184, 204}, {200, 142, 76}, {214, 192, 56} }, //NAV_LABEL
+                    { {18, 26, 22}, {232, 240, 244}, {250, 184, 96}, {104, 246, 120} }, //NAV_VALUE
+                    { {112, 118, 124}, {96, 102, 110}, {60, 52, 40}, {30, 72, 34} }, //HULL_MARK
+                    { {120, 210, 255}, {130, 214, 255}, {250, 172, 74}, {252, 228, 72} }, //WIND_BARB
+                    { {164, 170, 178}, {160, 168, 176}, {146, 114, 74}, {60, 152, 70} }, //SHIP_HULL
+                    { {214, 220, 226}, {212, 218, 226}, {196, 152, 96}, {112, 224, 124} }, //SHIP_HOUSE
+                    { {140, 146, 152}, {128, 134, 142}, {60, 62, 66}, {42, 74, 46} }, //SCREW_HI
+                    { {64, 68, 72}, {52, 56, 62}, {20, 22, 26}, {10, 24, 12} }, //SCREW_LO
+                    { {28, 30, 32}, {24, 26, 30}, {8, 9, 10}, {0, 6, 2} }, //SCREW_SLOT
+                    { {166, 171, 175}, {32, 35, 39}, {9, 9, 10}, {0, 6, 2} }, //STATUS_BG
+                    { {178, 190, 172}, {7, 9, 10}, {8, 6, 3}, {0, 7, 2} }, //NAV_BG
+                    { {96, 104, 94}, {66, 72, 78}, {40, 32, 22}, {30, 84, 36} }, //NAV_EDGE
+                    { {18, 24, 20}, {255, 200, 72}, {250, 192, 84}, {242, 222, 72} }, //NAV_DEPTH
                 };
                 video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG, &NAV_BG, &NAV_EDGE, &NAV_DEPTH };
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
@@ -647,11 +647,9 @@ namespace irr
         {
             const core::vector2df& c = s.c;
             const f32 R = s.R;
-            //Soft drop shadow, slightly below: the dial sits proud of the panel.
-            const core::vector2df sc(c.X, c.Y + R * 0.035f);
-            batch.sector(sc, 0, R * 0.96f, 0, 360, video::SColor(120, 0, 0, 0), video::SColor(120, 0, 0, 0), false);
-            batch.sector(sc, R * 0.96f, R * 1.07f, 0, 360, video::SColor(120, 0, 0, 0), video::SColor(0, 0, 0, 0), false);
-            //Brushed bezel, then a dark lip, then the face with a gentle radial gradient.
+            //A matte instrument case flush with the panel: a thin dark ring with a hairline lit edge,
+            //a black lip, then the black face (marine repeaters are black with white markings).
+            batch.sector(c, R * 0.995f, R * 1.01f, 0, 360, PANEL_EDGE_LO, PANEL_EDGE_LO, false);
             batch.bezelRing(c, R * 0.895f, R, BEZEL_TOP, BEZEL_BOTTOM);
             batch.sector(c, R * 0.875f, R * 0.895f, 0, 360, BEZEL_INNER, BEZEL_INNER, false);
             batch.disc(c, R * 0.876f, FACE_CENTRE, FACE_EDGE);
@@ -1098,8 +1096,7 @@ namespace irr
             if (depthValid) swprintf(depthBuf, 16, L"%.1f", data.depth);
 
             if (pass == 1) {
-                //Shadow, steel frame, LCD glass
-                batch.rect(core::rect<f32>(b.UpperLeftCorner.X + 2, b.UpperLeftCorner.Y + D * 0.03f, b.LowerRightCorner.X + 2, b.LowerRightCorner.Y + D * 0.03f), video::SColor(110, 0, 0, 0));
+                //Matte case, LCD glass
                 batch.quad(b.UpperLeftCorner, BEZEL_TOP, core::vector2df(b.LowerRightCorner.X, b.UpperLeftCorner.Y), BEZEL_TOP,
                     b.LowerRightCorner, BEZEL_BOTTOM, core::vector2df(b.UpperLeftCorner.X, b.LowerRightCorner.Y), BEZEL_BOTTOM);
                 batch.rect(core::rect<f32>(in.UpperLeftCorner.X - 1, in.UpperLeftCorner.Y - 1, in.LowerRightCorner.X + 1, in.LowerRightCorner.Y + 1), BEZEL_INNER);

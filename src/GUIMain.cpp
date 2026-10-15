@@ -3347,18 +3347,10 @@ void GUIMain::updateGuiData(GUIData* guiData)
     setARPAList(guiData->arpaListSelection);
 
     //Update rudder pump indicators
-    if (guiData->pump1On == true) {
-        pump1On->setBackgroundColor(irr::video::SColor(255, 0, 128, 0));
-    }
-    else {
-        pump1On->setBackgroundColor(irr::video::SColor(255, 128, 0, 0));
-    }
-    if (guiData->pump2On == true) {
-        pump2On->setBackgroundColor(irr::video::SColor(255, 0, 128, 0));
-    }
-    else {
-        pump2On->setBackgroundColor(irr::video::SColor(255, 128, 0, 0));
-    }
+    //Annunciator tiles: lit green while the pump runs, red when it is stopped
+    const irr::video::SColor tileRun(255, 30, 112, 58), tileStop(255, 146, 34, 28);
+    pump1On->setBackgroundColor(guiData->pump1On ? tileRun : tileStop);
+    pump2On->setBackgroundColor(guiData->pump2On ? tileRun : tileStop);
     // Light text on the green/red lamps, whatever the palette
     pump1On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));
     pump2On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));

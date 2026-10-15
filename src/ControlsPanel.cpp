@@ -467,12 +467,14 @@ void ControlsPanel::draw()
     const bridge::Palette& pal = bridge::palette();
     const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
 
-    //Window: translucent, with a shadow and a hairline edge
-    irr::core::rect<irr::s32> shadow = AbsoluteRect;
-    shadow += irr::core::position2di(0, (irr::s32)(6 * k));
-    bridge::fillRound(driver, shadow, (irr::s32)(10 * k), irr::video::SColor(70, 0, 0, 0), irr::video::SColor(70, 0, 0, 0), 0);
-    bridge::fillRound(driver, AbsoluteRect, (irr::s32)(10 * k), withAlpha(pal.panelTop, 236), withAlpha(pal.panelBottom, 236), 0);
+    //Window: slightly translucent
+    //Square, a hairline frame, the title strip darker with the accent tab at its left, and the
+    //bracket marks of a console display's window at the corners
+    bridge::fillRound(driver, AbsoluteRect, 0, withAlpha(pal.panelTop, 240), withAlpha(pal.panelBottom, 240), 0);
+    fill(driver, header, withAlpha(pal.raised, 250), &clip);
+    fill(driver, irr::core::rect<irr::f32>(header.UpperLeftCorner.X, header.UpperLeftCorner.Y, header.UpperLeftCorner.X + 5 * k, header.LowerRightCorner.Y), pal.accent, &clip);
     outline(driver, AbsoluteRect, pal.edge, 0);
+    bridge::cornerMarks(driver, AbsoluteRect, (irr::s32)(16 * k), std::max(2, (irr::s32)(2.5f * k)), pal.accent, &clip);
 
     //Title, the name of the open tab on the right, the close box
     const irr::f32 tx = header.UpperLeftCorner.X + 24 * k;
@@ -618,14 +620,16 @@ void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::
             const irr::f32 sh = 22 * k, sw = 44 * k;
             const irr::f32 sx1 = cell.LowerRightCorner.X - 14 * k, sy0 = cell.getCenter().Y - sh * 0.5f;
             const irr::core::rect<irr::f32> sw_r(sx1 - sw, sy0, sx1, sy0 + sh);
-            const irr::video::SColor trackCol = !enabled ? withAlpha(pal.edge, 120) : (on ? pal.accent : withAlpha(pal.edge, 230));
-            bridge::fillRound(driver, toI(sw_r), (irr::s32)(sh * 0.5f), trackCol, trackCol, &clip);
-            const irr::f32 kr = sh * 0.5f - 3 * k;
-            const irr::core::vector2df kc(on ? sw_r.LowerRightCorner.X - sh * 0.5f : sw_r.UpperLeftCorner.X + sh * 0.5f, sw_r.getCenter().Y);
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            b.disc(kc, kr, enabled ? pal.field : withAlpha(pal.field, 160), enabled ? pal.field : withAlpha(pal.field, 160));
-            b.flush();
+            //A two-position switch: a recessed slot, the lever block at one end, lit when on
+            const irr::video::SColor trackCol = !enabled ? withAlpha(pal.edge, 90) : (on ? pal.accent : withAlpha(pal.raised, 255));
+            fill(driver, sw_r, pal.edge, &clip);
+            fill(driver, irr::core::rect<irr::f32>(sw_r.UpperLeftCorner.X + 1, sw_r.UpperLeftCorner.Y + 1, sw_r.LowerRightCorner.X - 1, sw_r.LowerRightCorner.Y - 1), trackCol, &clip);
+            const irr::f32 kw = sw * 0.46f;
+            const irr::core::rect<irr::f32> knob(on ? sw_r.LowerRightCorner.X - kw - 2 * k : sw_r.UpperLeftCorner.X + 2 * k, sw_r.UpperLeftCorner.Y + 2 * k,
+                on ? sw_r.LowerRightCorner.X - 2 * k : sw_r.UpperLeftCorner.X + 2 * k + kw, sw_r.LowerRightCorner.Y - 2 * k);
+            bridge::bevelKey(driver, toI(knob), enabled ? pal.key : withAlpha(pal.key, 140), pal.edge, false, &clip);
+            fill(driver, irr::core::rect<irr::f32>(knob.getCenter().X - 0.75f * k, knob.UpperLeftCorner.Y + 3 * k, knob.getCenter().X + 0.75f * k, knob.LowerRightCorner.Y - 3 * k),
+                enabled ? pal.textDim : pal.textFaint, &clip);
             const wchar_t* word = !enabled ? L"absent" : (on ? L"oui" : L"non");
             fonts.value->drawIn(hudUpper(word), irr::core::rect<irr::f32>(cell.UpperLeftCorner.X + 10 * k, cell.UpperLeftCorner.Y, sw_r.UpperLeftCorner.X - 8 * k, cell.LowerRightCorner.Y),
                 !enabled ? pal.textFaint : (on ? pal.accent : pal.textDim), HudFont::Left, 1.0f * k, &clip);

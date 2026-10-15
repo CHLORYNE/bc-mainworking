@@ -625,12 +625,14 @@ void WeatherPanel::draw()
     const bridge::Palette& pal = bridge::palette();
     const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
 
-    //Window: translucent, so the sea shows through, with a shadow and a hairline edge
-    irr::core::rect<irr::s32> shadow = AbsoluteRect;
-    shadow += irr::core::position2di(0, (irr::s32)(6 * k));
-    bridge::fillRound(driver, shadow, (irr::s32)(10 * k), irr::video::SColor(70, 0, 0, 0), irr::video::SColor(70, 0, 0, 0), 0);
-    bridge::fillRound(driver, AbsoluteRect, (irr::s32)(10 * k), withAlpha(pal.panelTop, 236), withAlpha(pal.panelBottom, 236), 0);
+    //Window: slightly translucent, so the sea shows through
+    //Square, a hairline frame, the title strip darker with the accent tab at its left, and the
+    //bracket marks of a console display's window at the corners
+    bridge::fillRound(driver, AbsoluteRect, 0, withAlpha(pal.panelTop, 240), withAlpha(pal.panelBottom, 240), 0);
+    fill(driver, header, withAlpha(pal.raised, 250), &clip);
+    fill(driver, irr::core::rect<irr::f32>(header.UpperLeftCorner.X, header.UpperLeftCorner.Y, header.UpperLeftCorner.X + 5 * k, header.LowerRightCorner.Y), pal.accent, &clip);
     outline(driver, AbsoluteRect, pal.edge, 0);
+    bridge::cornerMarks(driver, AbsoluteRect, (irr::s32)(16 * k), std::max(2, (irr::s32)(2.5f * k)), pal.accent, &clip);
 
     //Title, what the weather is doing now, the close box
     const irr::f32 tx = header.UpperLeftCorner.X + 24 * k;

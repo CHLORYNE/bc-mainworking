@@ -58,66 +58,68 @@ namespace bridge
         static bool made = false;
         if (!made) {
             made = true;
-            //Day: light panels and dark text, readable in sunlight
-            p[MODE_DAY].band = SColor(255, 174, 184, 195);
-            p[MODE_DAY].panelTop = SColor(255, 227, 232, 238);
-            p[MODE_DAY].panelBottom = SColor(255, 211, 218, 226);
-            p[MODE_DAY].edge = SColor(255, 160, 172, 186);
-            p[MODE_DAY].raised = SColor(255, 236, 240, 244);
-            p[MODE_DAY].key = SColor(255, 238, 241, 245);
-            p[MODE_DAY].keyHover = SColor(255, 255, 255, 255);
-            p[MODE_DAY].text = SColor(255, 24, 34, 46);
-            p[MODE_DAY].textDim = SColor(255, 84, 97, 112);
-            p[MODE_DAY].textFaint = SColor(255, 130, 141, 154);
-            p[MODE_DAY].accent = SColor(255, 10, 108, 214);
+            //Technical palettes, after integrated bridge consoles (IEC 62288 day / dusk / night):
+            //neutral greys with no tint, hairline edges, one muted accent for what is engaged.
+            //Day: light console grey (RAL 7035 family), black lettering, steel-blue engaged keys
+            p[MODE_DAY].band = SColor(255, 148, 153, 157);
+            p[MODE_DAY].panelTop = SColor(255, 201, 205, 208);
+            p[MODE_DAY].panelBottom = SColor(255, 193, 197, 200);
+            p[MODE_DAY].edge = SColor(255, 104, 110, 116);
+            p[MODE_DAY].raised = SColor(255, 176, 181, 186);
+            p[MODE_DAY].key = SColor(255, 214, 217, 219);
+            p[MODE_DAY].keyHover = SColor(255, 228, 230, 232);
+            p[MODE_DAY].text = SColor(255, 12, 16, 20);
+            p[MODE_DAY].textDim = SColor(255, 58, 64, 70);
+            p[MODE_DAY].textFaint = SColor(255, 112, 118, 124);
+            p[MODE_DAY].accent = SColor(255, 36, 84, 112);
             p[MODE_DAY].accentText = SColor(255, 255, 255, 255);
-            p[MODE_DAY].field = SColor(255, 248, 249, 251);
-            p[MODE_DAY].danger = SColor(255, 199, 70, 60);
+            p[MODE_DAY].field = SColor(255, 229, 231, 232);
+            p[MODE_DAY].danger = SColor(255, 168, 32, 26);
             p[MODE_DAY].dangerText = SColor(255, 255, 255, 255);
-            p[MODE_DAY].ok = SColor(255, 22, 128, 60);
-            p[MODE_DAY].error = SColor(255, 190, 40, 30);
-            p[MODE_DAY].portText = SColor(255, 196, 30, 30);
-            p[MODE_DAY].stbdText = SColor(255, 20, 140, 60);
-            //Dusk: dark panels, white text
-            p[MODE_DUSK].band = SColor(255, 13, 20, 30);
-            p[MODE_DUSK].panelTop = SColor(255, 28, 42, 60);
-            p[MODE_DUSK].panelBottom = SColor(255, 22, 33, 48);
-            p[MODE_DUSK].edge = SColor(255, 44, 60, 82);
-            p[MODE_DUSK].raised = SColor(255, 30, 45, 64);
-            p[MODE_DUSK].key = SColor(255, 29, 43, 62);
-            p[MODE_DUSK].keyHover = SColor(255, 38, 56, 79);
-            p[MODE_DUSK].text = SColor(255, 215, 225, 236);
-            p[MODE_DUSK].textDim = SColor(255, 142, 162, 184);
-            p[MODE_DUSK].textFaint = SColor(255, 100, 117, 138);
-            p[MODE_DUSK].accent = SColor(255, 74, 168, 255);
-            p[MODE_DUSK].accentText = SColor(255, 255, 255, 255);
-            p[MODE_DUSK].field = SColor(255, 14, 22, 34);
-            p[MODE_DUSK].danger = SColor(255, 138, 46, 39);
-            p[MODE_DUSK].dangerText = SColor(255, 255, 236, 232);
-            p[MODE_DUSK].ok = SColor(255, 120, 220, 150);
-            p[MODE_DUSK].error = SColor(255, 255, 120, 100);
-            p[MODE_DUSK].portText = SColor(255, 240, 80, 70);
-            p[MODE_DUSK].stbdText = SColor(255, 70, 210, 110);
-            //Night: near black, dim amber - nothing bright enough to spoil night vision
-            p[MODE_NIGHT].band = SColor(255, 6, 10, 16);
-            p[MODE_NIGHT].panelTop = SColor(255, 15, 23, 34);
-            p[MODE_NIGHT].panelBottom = SColor(255, 11, 17, 26);
-            p[MODE_NIGHT].edge = SColor(255, 29, 40, 54);
-            p[MODE_NIGHT].raised = SColor(255, 17, 26, 38);
-            p[MODE_NIGHT].key = SColor(255, 14, 22, 33);
-            p[MODE_NIGHT].keyHover = SColor(255, 20, 32, 48);
-            p[MODE_NIGHT].text = SColor(255, 224, 170, 100);
-            p[MODE_NIGHT].textDim = SColor(255, 150, 118, 78);
-            p[MODE_NIGHT].textFaint = SColor(255, 90, 74, 54);
-            p[MODE_NIGHT].accent = SColor(255, 240, 166, 60);
-            p[MODE_NIGHT].accentText = SColor(255, 26, 16, 6);
-            p[MODE_NIGHT].field = SColor(255, 7, 11, 17);
-            p[MODE_NIGHT].danger = SColor(255, 110, 36, 30);
-            p[MODE_NIGHT].dangerText = SColor(255, 230, 190, 170);
-            p[MODE_NIGHT].ok = SColor(255, 150, 190, 110);
-            p[MODE_NIGHT].error = SColor(255, 220, 110, 80);
-            p[MODE_NIGHT].portText = SColor(255, 190, 70, 55);
-            p[MODE_NIGHT].stbdText = SColor(255, 80, 160, 90);
+            p[MODE_DAY].ok = SColor(255, 12, 104, 40);
+            p[MODE_DAY].error = SColor(255, 168, 28, 20);
+            p[MODE_DAY].portText = SColor(255, 176, 24, 24);
+            p[MODE_DAY].stbdText = SColor(255, 14, 116, 48);
+            //Dusk: anthracite (RAL 7016 family), light grey lettering, teal engaged keys
+            p[MODE_DUSK].band = SColor(255, 20, 22, 25);
+            p[MODE_DUSK].panelTop = SColor(255, 42, 46, 51);
+            p[MODE_DUSK].panelBottom = SColor(255, 36, 40, 44);
+            p[MODE_DUSK].edge = SColor(255, 82, 90, 98);
+            p[MODE_DUSK].raised = SColor(255, 28, 31, 35);
+            p[MODE_DUSK].key = SColor(255, 50, 55, 61);
+            p[MODE_DUSK].keyHover = SColor(255, 62, 68, 75);
+            p[MODE_DUSK].text = SColor(255, 222, 226, 229);
+            p[MODE_DUSK].textDim = SColor(255, 150, 157, 163);
+            p[MODE_DUSK].textFaint = SColor(255, 100, 107, 114);
+            p[MODE_DUSK].accent = SColor(255, 0, 132, 160);
+            p[MODE_DUSK].accentText = SColor(255, 236, 252, 255);
+            p[MODE_DUSK].field = SColor(255, 22, 24, 27);
+            p[MODE_DUSK].danger = SColor(255, 140, 30, 24);
+            p[MODE_DUSK].dangerText = SColor(255, 255, 232, 226);
+            p[MODE_DUSK].ok = SColor(255, 96, 204, 124);
+            p[MODE_DUSK].error = SColor(255, 240, 98, 80);
+            p[MODE_DUSK].portText = SColor(255, 236, 74, 64);
+            p[MODE_DUSK].stbdText = SColor(255, 72, 204, 108);
+            //Night: black, dim amber - nothing bright enough to spoil night vision
+            p[MODE_NIGHT].band = SColor(255, 5, 5, 6);
+            p[MODE_NIGHT].panelTop = SColor(255, 15, 15, 16);
+            p[MODE_NIGHT].panelBottom = SColor(255, 12, 12, 13);
+            p[MODE_NIGHT].edge = SColor(255, 54, 42, 30);
+            p[MODE_NIGHT].raised = SColor(255, 9, 9, 10);
+            p[MODE_NIGHT].key = SColor(255, 19, 18, 17);
+            p[MODE_NIGHT].keyHover = SColor(255, 28, 25, 22);
+            p[MODE_NIGHT].text = SColor(255, 214, 150, 82);
+            p[MODE_NIGHT].textDim = SColor(255, 148, 102, 56);
+            p[MODE_NIGHT].textFaint = SColor(255, 88, 64, 40);
+            p[MODE_NIGHT].accent = SColor(255, 112, 62, 20);
+            p[MODE_NIGHT].accentText = SColor(255, 246, 186, 108);
+            p[MODE_NIGHT].field = SColor(255, 5, 5, 6);
+            p[MODE_NIGHT].danger = SColor(255, 104, 30, 24);
+            p[MODE_NIGHT].dangerText = SColor(255, 230, 186, 166);
+            p[MODE_NIGHT].ok = SColor(255, 146, 184, 104);
+            p[MODE_NIGHT].error = SColor(255, 216, 104, 74);
+            p[MODE_NIGHT].portText = SColor(255, 186, 66, 50);
+            p[MODE_NIGHT].stbdText = SColor(255, 78, 150, 86);
             //Digital: the radar's colours - black, phosphor green, yellow captions
             p[MODE_DIGITAL].band = SColor(255, 0, 0, 0);
             p[MODE_DIGITAL].panelTop = SColor(255, 6, 13, 7);
@@ -129,8 +131,8 @@ namespace bridge
             p[MODE_DIGITAL].text = SColor(255, 92, 232, 104);
             p[MODE_DIGITAL].textDim = SColor(255, 214, 192, 56);
             p[MODE_DIGITAL].textFaint = SColor(255, 34, 100, 42);
-            p[MODE_DIGITAL].accent = SColor(255, 60, 214, 82);
-            p[MODE_DIGITAL].accentText = SColor(255, 0, 18, 4);
+            p[MODE_DIGITAL].accent = SColor(255, 22, 112, 38);
+            p[MODE_DIGITAL].accentText = SColor(255, 150, 255, 160);
             p[MODE_DIGITAL].field = SColor(255, 0, 4, 1);
             p[MODE_DIGITAL].danger = SColor(255, 120, 30, 24);
             p[MODE_DIGITAL].dangerText = SColor(255, 255, 222, 206);
@@ -152,6 +154,8 @@ namespace bridge
     {
         const irr::s32 w = r.getWidth(), h = r.getHeight();
         if (w <= 0 || h <= 0) { return; }
+        //Technical style: square corners. Only circles (knobs, lamps: radius half the size) stay round.
+        if (rad * 2 < irr::core::min_(w, h) - 1) { rad = 0; }
         if (rad * 2 > h) { rad = h / 2; }
         if (rad * 2 > w) { rad = w / 2; }
         for (irr::s32 i = 0; i < rad; i++) {
@@ -179,6 +183,34 @@ namespace bridge
         const irr::core::rect<irr::s32>* clip)
     {
         fillRound(d, irr::core::rect<irr::s32>(c.X - radius, c.Y - radius, c.X + radius, c.Y + radius), radius, col, col, clip);
+    }
+
+    //Bracket marks at the four corners of a frame, as on a console display's window
+    inline void cornerMarks(irr::video::IVideoDriver* d, const irr::core::rect<irr::s32>& r, irr::s32 len, irr::s32 thick,
+        irr::video::SColor col, const irr::core::rect<irr::s32>* clip)
+    {
+        const irr::s32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x0, y0, x0 + len, y0 + thick), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x0, y0, x0 + thick, y0 + len), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x1 - len, y0, x1, y0 + thick), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x1 - thick, y0, x1, y0 + len), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x0, y1 - thick, x0 + len, y1), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x0, y1 - len, x0 + thick, y1), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x1 - len, y1 - thick, x1, y1), clip);
+        d->draw2DRectangle(col, irr::core::rect<irr::s32>(x1 - thick, y1 - len, x1, y1), clip);
+    }
+
+    //A hardware key: flat face, a hairline frame, a lit upper edge and a shaded lower one
+    inline void bevelKey(irr::video::IVideoDriver* d, const irr::core::rect<irr::s32>& r, irr::video::SColor face,
+        irr::video::SColor edge, bool sunk, const irr::core::rect<irr::s32>* clip)
+    {
+        d->draw2DRectangle(edge, r, clip);
+        const irr::core::rect<irr::s32> in(r.UpperLeftCorner.X + 1, r.UpperLeftCorner.Y + 1, r.LowerRightCorner.X - 1, r.LowerRightCorner.Y - 1);
+        if (in.getWidth() <= 0 || in.getHeight() <= 0) { return; }
+        d->draw2DRectangle(face, in, clip);
+        const irr::video::SColor hi(sunk ? 40 : 70, 255, 255, 255), lo(sunk ? 70 : 50, 0, 0, 0);
+        d->draw2DRectangle(sunk ? lo : hi, irr::core::rect<irr::s32>(in.UpperLeftCorner.X, in.UpperLeftCorner.Y, in.LowerRightCorner.X, in.UpperLeftCorner.Y + 1), clip);
+        d->draw2DRectangle(sunk ? hi : lo, irr::core::rect<irr::s32>(in.UpperLeftCorner.X, in.LowerRightCorner.Y - 1, in.LowerRightCorner.X, in.LowerRightCorner.Y), clip);
     }
 
     //A line two pixels wide, for icons
@@ -379,8 +411,8 @@ namespace bridge
                 (element->getType() == irr::gui::EGUIET_EDIT_BOX);
             const irr::video::SColor edge = focused ? p.accent : p.edge;
             if (element && element->getType() == irr::gui::EGUIET_CHECK_BOX) {
-                //The tick box itself: a rounded square, filled with the accent once ticked (drawIcon)
-                frameRound(d, rect, 3, p.edge, p.field, p.field, clip);
+                //The box itself: a square, a lit square inside once ticked (drawIcon)
+                frameRound(d, rect, 0, p.edge, p.field, p.field, clip);
                 return;
             }
             if (fillBackGround) {
@@ -411,20 +443,19 @@ namespace bridge
                 return title;
             }
             irr::video::IVideoDriver* d = env->getVideoDriver();
-            //A soft shadow, the body, then the title strip with a hairline under it
-            fillRound(d, irr::core::rect<irr::s32>(rect.UpperLeftCorner.X + 3, rect.UpperLeftCorner.Y + 5,
-                rect.LowerRightCorner.X + 3, rect.LowerRightCorner.Y + 5), 7, irr::video::SColor(60, 0, 0, 0), irr::video::SColor(60, 0, 0, 0), clip);
-            frameRound(d, rect, 7, p.edge, p.panelTop, p.panelBottom, clip);
+            //Square body with a hairline frame, a darker title strip with the accent tab at its left,
+            //and bracket marks at the corners
+            frameRound(d, rect, 0, p.edge, p.panelTop, p.panelBottom, clip);
             if (drawTitleBar) {
-                fillRound(d, irr::core::rect<irr::s32>(title.UpperLeftCorner.X, title.UpperLeftCorner.Y,
-                    title.LowerRightCorner.X, title.LowerRightCorner.Y + 6), 6, p.raised, p.raised, clip);
-                d->draw2DRectangle(p.raised, irr::core::rect<irr::s32>(title.UpperLeftCorner.X, title.LowerRightCorner.Y - 6,
-                    title.LowerRightCorner.X, title.LowerRightCorner.Y), clip);
+                d->draw2DRectangle(p.raised, title, clip);
+                d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(title.UpperLeftCorner.X, title.UpperLeftCorner.Y,
+                    title.UpperLeftCorner.X + 4, title.LowerRightCorner.Y), clip);
                 d->draw2DRectangle(p.edge, irr::core::rect<irr::s32>(title.UpperLeftCorner.X, title.LowerRightCorner.Y,
                     title.LowerRightCorner.X, title.LowerRightCorner.Y + 1), clip);
             }
+            cornerMarks(d, rect, 10, 2, p.accent, clip);
             irr::core::rect<irr::s32> textRect = title;
-            textRect.UpperLeftCorner.X += 6;
+            textRect.UpperLeftCorner.X += 12;
             return textRect;
         }
 
@@ -479,11 +510,9 @@ namespace bridge
                 const Palette& p = palette();
                 const irr::s32 h = getSize(irr::gui::EGDS_CHECK_BOX_WIDTH) / 2;
                 const irr::core::rect<irr::s32> box(position.X - h, position.Y - h, position.X + h, position.Y + h);
-                fillRound(d, box, 3, p.accent, p.accent, clip);
-                const irr::f32 s = (irr::f32)(2 * h);
-                const irr::f32 x = (irr::f32)box.UpperLeftCorner.X, y = (irr::f32)box.UpperLeftCorner.Y;
-                thickLine(d, x + 0.24f * s, y + 0.52f * s, x + 0.42f * s, y + 0.7f * s, p.accentText);
-                thickLine(d, x + 0.42f * s, y + 0.7f * s, x + 0.76f * s, y + 0.3f * s, p.accentText);
+                const irr::s32 in = irr::core::max_(3, h / 2);
+                d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(box.UpperLeftCorner.X + in, box.UpperLeftCorner.Y + in,
+                    box.LowerRightCorner.X - in, box.LowerRightCorner.Y - in), clip);
                 return;
             }
             base->drawIcon(element, icon, position, starttime, currenttime, loop, clip);
@@ -553,10 +582,11 @@ namespace bridge
             if (element && element->getType() == irr::gui::EGUIET_SCROLL_BAR) {
                 const bool horizontal = element->getAbsolutePosition().getWidth() > element->getAbsolutePosition().getHeight();
                 if (horizontal) {
-                    const irr::s32 r = irr::core::min_(rect.getHeight(), 18) / 2;
+                    //A fader cap: a narrow upright block with a centre index line
+                    const irr::s32 hh = irr::core::min_(rect.getHeight(), 20) / 2, hw = irr::core::max_(4, hh / 2);
                     const irr::core::position2di c = rect.getCenter();
-                    disc(d, c, r, p.accent, clip);
-                    disc(d, c, r - 2, hovered ? p.keyHover : p.key, clip);
+                    bevelKey(d, irr::core::rect<irr::s32>(c.X - hw, c.Y - hh, c.X + hw, c.Y + hh), hovered ? p.keyHover : p.key, p.edge, false, clip);
+                    d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(c.X - 1, c.Y - hh + 3, c.X + 1, c.Y + hh - 3), clip);
                 }
                 else {
                     const irr::s32 cx = rect.getCenter().X;
@@ -577,23 +607,29 @@ namespace bridge
             const int kind = (style == keyStyles.end()) ? KEY_NORMAL : style->second;
 
             if (kind == KEY_DANGER) {
-                fillRound(d, rect, 5, p.danger, p.danger, clip);
-                if (hovered) { outlineRound(d, rect, 5, p.dangerText, clip); }
+                bevelKey(d, rect, p.danger, hovered ? p.dangerText : p.edge, false, clip);
             }
             else if (kind == KEY_BAR) {
-                //Command bar keys: flat on the bar, a key shape only when hovered or switched on
+                //Command bar keys: flat on the bar, a key shape when hovered, a lit bar under them when on
                 if (pressed || hovered) {
-                    frameRound(d, rect, 5, p.edge, p.keyHover, p.keyHover, clip);
+                    bevelKey(d, rect, pressed ? p.panelBottom : p.keyHover, p.edge, pressed, clip);
                 }
                 if (pressed) {
-                    d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(rect.UpperLeftCorner.X + 5, rect.LowerRightCorner.Y - 3,
-                        rect.LowerRightCorner.X - 5, rect.LowerRightCorner.Y - 1), clip);
+                    d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(rect.UpperLeftCorner.X + 1, rect.LowerRightCorner.Y - 3,
+                        rect.LowerRightCorner.X - 1, rect.LowerRightCorner.Y - 1), clip);
                 }
             }
             else {
-                const irr::video::SColor top = pressed ? p.panelBottom : (hovered ? p.keyHover : p.key);
-                const irr::video::SColor bottom = pressed ? p.panelBottom : p.key;
-                frameRound(d, rect, 5, (hovered && !pressed) ? p.accent : p.edge, top, bottom, clip);
+                //Engaged (a push button held on): the accent face; otherwise a plain hardware key
+                const bool engaged = pressed && element && element->getType() == irr::gui::EGUIET_BUTTON &&
+                    static_cast<irr::gui::IGUIButton*>(element)->isPushButton();
+                const irr::video::SColor face = engaged ? p.key.getInterpolated(p.accent, 0.72f) : (pressed ? p.panelBottom : (hovered ? p.keyHover : p.key));
+                bevelKey(d, rect, face, (hovered && !pressed) || engaged ? p.accent : p.edge, pressed && !engaged, clip);
+                //Its lamp: a lit bar along the top edge, as on a backlit console key
+                if (engaged) {
+                    d->draw2DRectangle(p.accent, irr::core::rect<irr::s32>(rect.UpperLeftCorner.X + 1, rect.UpperLeftCorner.Y + 1,
+                        rect.LowerRightCorner.X - 1, rect.UpperLeftCorner.Y + 4), clip);
+                }
             }
 
             //Icon to the left of the label. Labels with an icon start with spaces that leave it room.
