@@ -10,21 +10,23 @@
 
 #include "irrlicht.h"
 #include "PanelDock.hpp"
+#include "StationUi.hpp"
 #include <string>
 #include <vector>
 
 class SimulationModel;
-class HudFont;
 
-//One window, four tabs:
-//  PRESETS     tiles (clear, cloudy, rain, fog, snow, thunderstorm, sand storm...) - one click sets
-//              all the weather, at once or over a few minutes (EVOLUTION tab)
-//  CONDITIONS  every value on its own slider: cloud, wind, gusts, sea, current, fog, rain, snow,
-//              sand, significant weather, thunder and lightning
-//  EVOLUTION   how presets change the weather, and a weather front passing through
-//  TIME        the hour of the lighting
-//The panel reads the simulation every frame, so it always shows the weather as it is, whoever
-//changed it (scenario, older sliders, a front under way). Colours follow the bridge palette.
+//An instructor station page with six pages:
+//  PRESETS            a table of whole weathers (clear, cloudy, rain, fog, snow, thunderstorm, sand
+//                     storm...): pick one, then apply it at once or over a few minutes
+//  WIND & SEA         cloud, wind, gusts, sea state
+//  VISIBILITY         fog, rain, snow, sand, thunderstorms and squalls
+//  CURRENT            tide of the area, or a current set by hand
+//  EVOLUTION          how presets change the weather, and a weather front passing through
+//  TIME               the hour of the lighting
+//On the right, the weather as it is now (wind rose and readings) and the explanation of the row
+//under the mouse. The page reads the simulation every frame, so it always shows the weather as it
+//is, whoever changed it (scenario, a front under way, the instructor in multiplayer).
 class WeatherPanel : public irr::gui::IGUIElement
 {
 public:
@@ -43,7 +45,7 @@ public:
     bridge::PanelDock dock;
 
 private:
-    enum Tab { TAB_PRESETS = 0, TAB_CONDITIONS, TAB_EVOLUTION, TAB_TIME, TAB_COUNT };
+    enum Tab { TAB_PRESETS = 0, TAB_WIND, TAB_VISIBILITY, TAB_CURRENT, TAB_EVOLUTION, TAB_TIME, TAB_COUNT };
     enum Param {
         P_NONE = 0, P_CLOUD, P_WIND, P_WINDDIR, P_WINDVAR, P_GUST, P_SEA, P_FOG, P_RAIN, P_SNOW, P_DUST,
         P_SIGWX, P_TRANSITION, P_FRONT, P_HOUR, P_MOMENT, P_THUNDER, P_LIGHTNING, P_STREAM_MODE, P_STREAM_DIR, P_STREAM_SPEED
@@ -54,27 +56,29 @@ private:
         RowKind kind;
         Param param;
         std::wstring label;      //in the list
-        std::wstring title;      //at the top of the info card
+        std::wstring title;      //at the top of the explanation
         std::wstring help;       //under it
         irr::f32 minValue, maxValue, step;
         std::vector<std::wstring> choices;
-        int icon;                //WxIcon shown in the info tile
     };
     struct Preset
     {
         std::wstring name, help;
-        int icon;
         irr::f32 cloud, windKn, windVariation, gustKn, visibilityNm, rain, snow, dust, sea;
         int significant;
     };
+    struct Cells
+    {
+        station::Rect label, state, control;
+    };
+    //Keys under the preset table: the transition times, then APPLY
+    enum { KEY_APPLY = 100 };
 
     //Layout (absolute pixels), redone when the size changes
     void layout();
     void buildRows();
     void buildPresets();
-    irr::core::rect<irr::f32> tabRect(int tab) const;
-    irr::core::rect<irr::f32> closeRect() const;
-    irr::core::rect<irr::f32> dockRect() const;
+    station::Rect content() const;
 
     //Values, read from and written to the simulation
     irr::f32 value(Param p) const;
@@ -82,59 +86,57 @@ private:
     int choiceIndex(Param p) const;
     void setChoice(Param p, int index);
     std::wstring valueText(const Row& row) const;
+    std::wstring stateText(const Row& row) const;
     void applyPreset(int index);
     irr::f32 transitionSeconds() const;
+    void recordAction(const std::wstring& what, const std::wstring& value);
+
+    //Rows of the open tab, and where each one is on screen (scrolled)
+    const std::vector<Row>& rowsOfTab() const;
+    irr::f32 rowHeight(const Row& row) const;
+    station::Rect rowRect(int index) const;
+    Cells cells(const station::Rect& r) const;
+    bool usesSegments(const Row& row, const Cells& c) const;
+    std::vector<station::Rect> segmentRects(const Row& row, const station::Rect& r) const;
+    station::Rect stepperRect(const Cells& c) const;
+    station::Rect sliderTrack(const Cells& c) const;
+    int rowAt(const irr::core::vector2df& p) const;
+    int segmentAt(int row, const irr::core::vector2df& p) const;
+    void dragSlider(int rowIndex, irr::s32 mouseX);
+
+    //The preset page: a table, the transition keys and the apply key
+    bool narrowTable() const;
+    station::Rect presetRowRect(int index) const;
+    station::Rect tableHeaderRect() const;
+    std::vector<station::Rect> transitionRects() const;
+    station::Rect applyRect() const;
+    std::wstring applyCaption() const;
+    int presetAt(const irr::core::vector2df& p) const;
+    int presetKeyAt(const irr::core::vector2df& p) const;
+
+    irr::f32 contentHeight() const;
+    void clampScroll();
 
     //Drawing
     void drawRows(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip);
     void drawPresets(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip);
-    void drawInfo(irr::video::IVideoDriver* driver);
-    void drawWeatherIcon(irr::video::IVideoDriver* driver, int icon, const irr::core::rect<irr::f32>& box,
-        irr::video::SColor ink, irr::video::SColor paper);
-    int currentWeatherIcon() const;
-
-    //Rows of the open tab, and where each one is on screen (scrolled)
-    const std::vector<Row>& rowsOfTab() const;
-    irr::f32 contentHeight() const;
-    void clampScroll();
-    int rowAt(const irr::core::position2di& p) const;
-    int presetAt(const irr::core::position2di& p) const;
-    irr::core::rect<irr::f32> rowRect(int index) const;
-    irr::core::rect<irr::f32> sliderTrack(const irr::core::rect<irr::f32>& row) const;
-    irr::core::rect<irr::f32> presetRect(int index) const;
-    void dragSlider(int rowIndex, irr::s32 mouseX);
-
-    void loadFonts();
-    void freeFonts();
+    void drawSide(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip);
+    irr::f32 conditionsHeight(irr::f32 width) const;
+    void drawConditions(irr::video::IVideoDriver* driver, const station::Rect& box, const irr::core::rect<irr::s32>& clip);
+    void drawRose(irr::video::IVideoDriver* driver, const station::Rect& r, irr::f32 fromDegrees, const irr::core::rect<irr::s32>& clip);
 
     SimulationModel* model;
     irr::gui::IGUIEditBox* timeBox;
     std::vector<Row> rows[TAB_COUNT];
     std::vector<Preset> presets;
+    station::Frame frame;
     int tab;
-    int hoveredRow, selectedRow, draggedRow;
-    int hoveredPreset, chosenPreset;
-    int hoveredTab;
-    bool hoveredClose;
+    int hoveredRow, selectedRow, draggedRow, hoveredSeg;
+    int hoveredPreset, selectedPreset, chosenPreset, hoveredKey;
     int transitionIndex;
     irr::f32 scroll[TAB_COUNT];
-    irr::f32 k;                          //scale from the panel's size
-    bool compact = false;                //narrow (docked to a side): the card under the list
-    irr::core::rect<irr::f32> header, tabsBar, list, info, tile;
-    irr::core::dimension2du laidOut;
+    std::wstring lastAction;
     irr::core::rect<irr::s32> laidOutRect;
-
-    struct Fonts
-    {
-        HudFont* title = 0;
-        HudFont* tab = 0;
-        HudFont* label = 0;
-        HudFont* value = 0;
-        HudFont* section = 0;
-        HudFont* infoTitle = 0;
-        HudFont* infoText = 0;
-        HudFont* caption = 0;
-    } fonts;
 };
 
 #endif

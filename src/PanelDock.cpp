@@ -16,7 +16,7 @@ namespace bridge
 {
     namespace
     {
-        const wchar_t* caption(int place)
+        const wchar_t* captionOf(int place)
         {
             switch (nextPanelPlace(place)) {
             case PLACE_RIGHT: return L"\u00C0 DROITE";
@@ -31,6 +31,8 @@ namespace bridge
         }
     }
 
+    const wchar_t* dockCaption(int place) { return captionOf(place); }
+
     int nextPanelPlace(int place)
     {
         switch (place) {
@@ -42,7 +44,7 @@ namespace bridge
 
     irr::core::rect<irr::f32> PanelDock::keyRect(const irr::core::rect<irr::f32>& closeBox, HudFont* font, irr::f32 k) const
     {
-        const irr::f32 textW = font ? font->width(caption(place), 0.5f * k) : 80.0f * k;
+        const irr::f32 textW = font ? font->width(captionOf(place), 0.5f * k) : 80.0f * k;
         const irr::f32 iconW = 26 * k;
         const irr::f32 x1 = closeBox.UpperLeftCorner.X - 12 * k;
         return irr::core::rect<irr::f32>(x1 - (textW + iconW + 26 * k), closeBox.UpperLeftCorner.Y, x1, closeBox.LowerRightCorner.Y);
@@ -67,7 +69,7 @@ namespace bridge
         else { win = irr::core::rect<irr::f32>(ix + iw * 0.22f, iy + 3 * k, ix + iw * 0.78f, iy + ih - 3 * k); }
         driver->draw2DRectangle(pal.accent, toI(win), clip);
         if (font) {
-            font->drawIn(caption(place), irr::core::rect<irr::f32>(scr.LowerRightCorner.X + 8 * k, key.UpperLeftCorner.Y,
+            font->drawIn(captionOf(place), irr::core::rect<irr::f32>(scr.LowerRightCorner.X + 8 * k, key.UpperLeftCorner.Y,
                 key.LowerRightCorner.X - 6 * k, key.LowerRightCorner.Y), pal.text, HudFont::Left, 0.5f * k, clip);
         }
     }

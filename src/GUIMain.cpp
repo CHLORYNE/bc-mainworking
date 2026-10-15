@@ -1296,10 +1296,33 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     {
         controlsPanel = new ControlsPanel(guienv, guienv->getRootGUIElement(), irr::core::rect<irr::s32>(0, 0, 10, 10));
         controlsPanel->drop();
-        controlsPanel->setTitle(L"CONTR\u00D4LES", bridge::ICON_CONTROLS);
+        controlsPanel->setTitle(L"CTL 01", L"Contr\u00F4les");
         loadPanelPlace();
         hookPanelDock(controlsPanel->dock);
         ControlsPanel* cp = controlsPanel;
+        //Exercise time, as shown in the header and after the last action
+        auto exerciseTime = [this]() -> std::wstring {
+            if (!this->model) { return std::wstring(); }
+            const int secs = (int)this->model->getExerciseLog().elapsedSeconds();
+            wchar_t buf[32];
+            swprintf(buf, 32, L"T+ %02d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60);
+            return buf;
+        };
+        cp->setClock(exerciseTime);
+        cp->setHeaderStatus([this, exerciseTime]() {
+            std::vector<ControlsPanel::Readout> out;
+            if (!this->model) { return out; }
+            const irr::f32 acc = this->model->getAccelerator();
+            if (acc <= 0.0f) { out.push_back({ L"Simulation", L"En pause", 3 }); }
+            else if (acc > 1.01f) {
+                wchar_t buf[32];
+                swprintf(buf, 32, L"Acc\u00E9l\u00E9r\u00E9e x%g", acc);
+                out.push_back({ L"Simulation", buf, 3 });
+            }
+            else { out.push_back({ L"Simulation", L"En cours", 1 }); }
+            out.push_back({ L"Exercice", exerciseTime(), 0 });
+            return out;
+        });
         auto textOf = [](irr::gui::IGUIElement* e) -> std::wstring { return (e && e->getText()) ? std::wstring(e->getText()) : std::wstring(); };
         const std::vector<std::wstring> workingFailed = { L"En service", L"En panne" };
 
@@ -1352,6 +1375,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 return out;
             });
 
+        cp->setGroup(tRudder, L"Exercice");
         cp->addSection(tRudder, L"D\u00E9clenchement");
         if (trainDelayKey[0] && trainDelayKey[4]) {
             cp->addKeys(tRudder, L"Quand", L"Quand les pannes choisies ensuite se d\u00E9clenchent : tout de suite, dans 1, 3 ou 5 minutes, ou au hasard entre 2 et 10 minutes. "
@@ -1366,7 +1390,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                 { trainReportedKey, trainRepairKey }, { L"Signal\u00E9e par le stagiaire", L"Tout r\u00E9parer" });
         }
 
-        cp->addSection(tRudder, L"Barre");
+        cp->addSection(tRudder, L"Appareil \u00E0 gouverner");
         if (ecRudderKey[0] && ecRudderKey[1]) {
             cp->addKeys(tRudder, L"Pompe 1", L"La premi\u00E8re pompe de l'appareil \u00E0 gouverner. Une pompe en panne : la barre tourne deux fois moins vite. Les deux : la barre ne bouge plus (barre bloqu\u00E9e).",
                 { ecRudderKey[0], ecRudderKey[1] }, workingFailed,
@@ -1395,8 +1419,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             const std::vector<std::wstring> sensorLevels = { L"En service", L"D\u00E9rive", L"En panne" };
             const std::vector<std::wstring> gpsLevels = { L"En service", L"D\u00E9rive", L"Perte" };
             for (int f = 0; f < SimulationModel::FAIL_COUNT; f++) {
-                if (f == 0) { cp->addSection(tRudder, L"Machines"); }
-                if (f == 2) { cp->addSection(tRudder, L"Instruments"); }
+                if (f == 0) { cp->addSection(tRudder, L"Propulsion"); }
+                if (f == 2) { cp->addSection(tRudder, L"Capteurs"); }
                 irr::gui::IGUIButton* k0 = trainFailKey[3 * f], * k1 = trainFailKey[3 * f + 1], * k2 = trainFailKey[3 * f + 2];
                 if (!k0 || !k1 || !k2) { continue; }
                 if (f == SimulationModel::FAIL_RADAR) {
@@ -1510,6 +1534,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
         //View
         const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.");
+        cp->setGroup(tView, L"Affichage");
         if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
         if (motionScaleScrollbar) {
             cp->addSlider(tView, L"Mouvement du navire", L"La force du tangage et du roulis \u00E0 l'\u00E9cran. 100 % = comme en vrai. Moins = plus doux, pour ne pas avoir le mal de mer devant l'\u00E9cran. Seule l'image change : le comportement du navire reste le m\u00EAme.",

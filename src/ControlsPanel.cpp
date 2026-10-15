@@ -1,46 +1,21 @@
 /*   NAUTITECH - Simulateur de Navigation
-     The instructor's controls window (CONTROLES), drawn like the weather window.
+     The instructor's controls window (CONTROLES), drawn as an instructor station page.
 
      This program is free software; you can redistribute it and/or modify
      it under the terms of the GNU General Public License version 2 as
      published by the Free Software Foundation. */
 
 #include "ControlsPanel.hpp"
-#include "BridgeSkin.hpp"
-#include "GUIPanelDraw.hpp"
 #include "launcher/HudText.hpp"
 
 #include <cmath>
 #include <cwchar>
 #include <algorithm>
 
+using station::Rect;
+
 namespace
 {
-    irr::video::SColor mix(irr::video::SColor a, irr::video::SColor b, irr::f32 t)
-    {
-        return b.getInterpolated(a, irr::core::clamp(t, 0.0f, 1.0f));
-    }
-    irr::video::SColor withAlpha(irr::video::SColor c, irr::u32 a)
-    {
-        c.setAlpha(a);
-        return c;
-    }
-    irr::core::rect<irr::s32> toI(const irr::core::rect<irr::f32>& r)
-    {
-        return irr::core::rect<irr::s32>((irr::s32)floorf(r.UpperLeftCorner.X + 0.5f), (irr::s32)floorf(r.UpperLeftCorner.Y + 0.5f),
-            (irr::s32)floorf(r.LowerRightCorner.X + 0.5f), (irr::s32)floorf(r.LowerRightCorner.Y + 0.5f));
-    }
-    void fill(irr::video::IVideoDriver* d, const irr::core::rect<irr::f32>& r, irr::video::SColor c, const irr::core::rect<irr::s32>* clip)
-    {
-        d->draw2DRectangle(c, toI(r), clip);
-    }
-    void outline(irr::video::IVideoDriver* d, const irr::core::rect<irr::s32>& r, irr::video::SColor c, const irr::core::rect<irr::s32>* clip)
-    {
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 1), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.LowerRightCorner.Y - 1, r.LowerRightCorner.X, r.LowerRightCorner.Y), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + 1, r.LowerRightCorner.Y), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.LowerRightCorner.X - 1, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y), clip);
-    }
     std::wstring textOf(irr::gui::IGUIElement* e)
     {
         return (e && e->getText()) ? std::wstring(e->getText()) : std::wstring();
@@ -51,15 +26,22 @@ namespace
 
 ControlsPanel::ControlsPanel(irr::gui::IGUIEnvironment* environment, irr::gui::IGUIElement* parent, const irr::core::rect<irr::s32>& area)
     : IGUIElement(irr::gui::EGUIET_ELEMENT, environment, parent, -1, area),
-    titleIcon(0), tab(0), hoveredRow(-1), selectedRow(-1), draggedRow(-1), hoveredKey(-1), pressedRow(-1), pressedKey(-1),
-    hoveredTab(-1), hoveredClose(false), k(1.0f)
+    tab(0), hoveredRow(-1), selectedRow(-1), draggedRow(-1), hoveredSeg(-1), pressedRow(-1), pressedSeg(-1)
 {
+    frame.code = L"CTL 01";
+    frame.title = L"Pupitre instructeur";
+    frame.subtitle = L"Contr\u00F4les";
     setVisible(false);
 }
 
 ControlsPanel::~ControlsPanel()
 {
-    freeFonts();
+}
+
+void ControlsPanel::setTitle(const std::wstring& code, const std::wstring& name)
+{
+    frame.code = code;
+    frame.subtitle = name;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -72,8 +54,25 @@ int ControlsPanel::addTab(const std::wstring& name, const std::wstring& help, St
     t.name = name;
     t.help = help;
     t.status = status;
+    if (!tabs.empty()) { t.group = tabs.back().group; }
     tabs.push_back(t);
+    station::Frame::Page page;
+    page.name = name;
+    page.group = t.group;
+    frame.pages.push_back(page);
     return (int)tabs.size() - 1;
+}
+
+void ControlsPanel::setGroup(int t, const std::wstring& group)
+{
+    if (t < 0 || t >= (int)tabs.size()) { return; }
+    //The tab and the ones after it that shared its heading
+    const std::wstring old = tabs[t].group;
+    for (int i = t; i < (int)tabs.size(); i++) {
+        if (i > t && tabs[i].group != old) { break; }
+        tabs[i].group = group;
+        frame.pages[i].group = group;
+    }
 }
 
 void ControlsPanel::addSection(int t, const std::wstring& label)
@@ -147,33 +146,8 @@ void ControlsPanel::addText(int t, irr::gui::IGUIStaticText* text, int lines, st
 }
 
 //-------------------------------------------------------------------------------------------------
-//Layout (the same proportions as the weather window)
+//Layout
 //-------------------------------------------------------------------------------------------------
-
-void ControlsPanel::loadFonts()
-{
-    freeFonts();
-    irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    irr::gui::IGUIFont* fallback = Environment->getSkin() ? Environment->getSkin()->getFont() : 0;
-    const std::string folder = "media/fonts/barlow-condensed/";
-    fonts.title = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 34 * k, fallback);
-    fonts.tab = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 20 * k, fallback);
-    fonts.label = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 21 * k, fallback);
-    fonts.value = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 20 * k, fallback);
-    fonts.section = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 16 * k, fallback);
-    fonts.infoTitle = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 30 * k, fallback);
-    fonts.infoText = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 21 * k, fallback);
-    fonts.caption = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 18 * k, fallback);
-}
-
-void ControlsPanel::freeFonts()
-{
-    HudFont** all[] = { &fonts.title, &fonts.tab, &fonts.label, &fonts.value, &fonts.section, &fonts.infoTitle, &fonts.infoText, &fonts.caption };
-    for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
-        delete *all[i];
-        *all[i] = 0;
-    }
-}
 
 void ControlsPanel::updateAbsolutePosition()
 {
@@ -184,129 +158,126 @@ void ControlsPanel::updateAbsolutePosition()
 void ControlsPanel::layout()
 {
     laidOutRect = AbsoluteRect;
-    const irr::core::rect<irr::f32> r((irr::f32)AbsoluteRect.UpperLeftCorner.X, (irr::f32)AbsoluteRect.UpperLeftCorner.Y,
-        (irr::f32)AbsoluteRect.LowerRightCorner.X, (irr::f32)AbsoluteRect.LowerRightCorner.Y);
-    const irr::f32 W = r.getWidth(), H = r.getHeight();
-    if (W < 10 || H < 10) { return; }
-    compact = W < H * 1.15f;
-    const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 760.0f, W / 560.0f), 0.6f, 2.0f)
-                                  : irr::core::clamp(std::min(H / 720.0f, W / 1200.0f), 0.6f, 2.0f);
-    if (fabsf(newK - k) > 0.01f || !fonts.title) {
-        k = newK;
-        loadFonts();
-    }
-    const irr::f32 pad = (compact ? 14 : 22) * k;
-    tabRows = (compact && tabs.size() > 4) ? 2 : 1;
-    header = irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 62 * k);
-    tabsBar = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, header.LowerRightCorner.Y, r.LowerRightCorner.X - pad,
-        header.LowerRightCorner.Y + 40 * k + (tabRows - 1) * 34 * k);
-    const irr::f32 bodyTop = tabsBar.LowerRightCorner.Y + 18 * k;
-    const irr::f32 bodyBottom = r.LowerRightCorner.Y - pad;
-    if (compact) {
-        //Docked to a side: the list on top, its explanation card underneath
-        const irr::f32 listH = (bodyBottom - bodyTop - pad) * 0.62f;
-        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyTop + listH);
-        info = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, list.LowerRightCorner.Y + pad, r.LowerRightCorner.X - pad, bodyBottom);
-    }
-    else {
-        const irr::f32 listW = (W - 3 * pad) * 0.6f;
-        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.UpperLeftCorner.X + pad + listW, bodyBottom);
-        info = irr::core::rect<irr::f32>(list.LowerRightCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyBottom);
-    }
+    frame.layout(Environment, AbsoluteRect, 340, 250);
     clampScroll();
 }
 
-irr::core::rect<irr::f32> ControlsPanel::tabRect(int t) const
+Rect ControlsPanel::content() const
 {
-    const int count = std::max(1, (int)tabs.size());
-    const int n = (count + tabRows - 1) / tabRows;   //tabs on a row
-    const int row = t / n, col = t % n;
-    const irr::f32 gap = 6 * k;
-    const irr::f32 w = std::min(168 * k, (tabsBar.getWidth() - (n - 1) * gap) / n);
-    const irr::f32 total = n * w + (n - 1) * gap;
-    const irr::f32 x0 = (tabsBar.UpperLeftCorner.X + tabsBar.LowerRightCorner.X) * 0.5f - total * 0.5f + col * (w + gap);
-    const irr::f32 y0 = tabsBar.UpperLeftCorner.Y + row * 34 * k;
-    return irr::core::rect<irr::f32>(x0, y0, x0 + w, y0 + 40 * k);
-}
-
-irr::core::rect<irr::f32> ControlsPanel::dockRect() const
-{
-    return dock.keyRect(closeRect(), fonts.caption, k);
-}
-
-irr::core::rect<irr::f32> ControlsPanel::closeRect() const
-{
-    const irr::f32 s = 34 * k;
-    const irr::f32 x1 = header.LowerRightCorner.X - 16 * k, y0 = header.UpperLeftCorner.Y + (header.getHeight() - s) * 0.5f;
-    return irr::core::rect<irr::f32>(x1 - s, y0, x1, y0 + s);
+    const irr::f32 k = frame.k;
+    const irr::f32 pad = (frame.compact ? 10 : 16) * k;
+    return Rect(frame.main.UpperLeftCorner.X + pad, frame.main.UpperLeftCorner.Y + 4 * k,
+        frame.main.LowerRightCorner.X - pad, frame.main.LowerRightCorner.Y - 6 * k);
 }
 
 irr::f32 ControlsPanel::rowHeight(const Row& row) const
 {
+    const irr::f32 k = frame.k;
     switch (row.kind) {
-    case ROW_SECTION: return 30 * k;
-    case ROW_TEXT: return row.lines * (fonts.infoText ? fonts.infoText->lineHeight() + 2 * k : 24 * k) + 12 * k;
-    default: return 40 * k;
+    case ROW_SECTION: return floorf(34 * k);
+    case ROW_TEXT: return floorf(row.lines * (frame.fonts.text ? frame.fonts.text->lineHeight() + 3 * k : 22 * k) + 14 * k);
+    case ROW_KEYS: return floorf((row.label.empty() ? 36 : 34) * k);
+    default: return floorf(34 * k);
     }
 }
 
-irr::core::rect<irr::f32> ControlsPanel::rowRect(int index) const
+Rect ControlsPanel::rowRect(int index) const
 {
-    if (tab < 0 || tab >= (int)tabs.size()) { return irr::core::rect<irr::f32>(); }
+    if (tab < 0 || tab >= (int)tabs.size()) { return Rect(); }
     const std::vector<Row>& rs = tabs[tab].rows;
-    irr::f32 y = list.UpperLeftCorner.Y - tabs[tab].scroll;
-    for (int i = 0; i < index && i < (int)rs.size(); i++) {
-        y += rowHeight(rs[i]) + 4 * k;
+    const Rect area = content();
+    irr::f32 y = area.UpperLeftCorner.Y - tabs[tab].scroll;
+    for (int i = 0; i < index && i < (int)rs.size(); i++) { y += rowHeight(rs[i]); }
+    const irr::f32 h = index < (int)rs.size() ? rowHeight(rs[index]) : 34 * frame.k;
+    return Rect(area.UpperLeftCorner.X, y, area.LowerRightCorner.X - 8 * frame.k, y + h);
+}
+
+ControlsPanel::Cells ControlsPanel::cells(const Row& row, const Rect& r) const
+{
+    const irr::f32 k = frame.k;
+    Cells c;
+    const irr::f32 x0 = r.UpperLeftCorner.X + 12 * k, x1 = r.LowerRightCorner.X - 4 * k;
+    const irr::f32 W = r.getWidth();
+    if (row.kind == ROW_KEYS && row.label.empty()) {
+        c.control = Rect(x0 - 4 * k, r.UpperLeftCorner.Y, x1, r.LowerRightCorner.Y);
+        return c;
     }
-    const irr::f32 h = index < (int)rs.size() ? rowHeight(rs[index]) : 40 * k;
-    return irr::core::rect<irr::f32>(list.UpperLeftCorner.X, y, list.LowerRightCorner.X - 14 * k, y + h);
+    const irr::f32 labelW = W * (frame.compact ? 0.36f : 0.30f);
+    const irr::f32 stateW = frame.compact ? 0 : W * 0.21f;
+    c.label = Rect(x0, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW - 6 * k, r.LowerRightCorner.Y);
+    c.state = Rect(r.UpperLeftCorner.X + labelW, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW + stateW, r.LowerRightCorner.Y);
+    c.control = Rect(r.UpperLeftCorner.X + labelW + stateW, r.UpperLeftCorner.Y, x1, r.LowerRightCorner.Y);
+    return c;
 }
 
-irr::f32 ControlsPanel::split(const irr::core::rect<irr::f32>& row) const
+std::vector<std::wstring> ControlsPanel::segmentTexts(const Row& row) const
 {
-    return row.UpperLeftCorner.X + row.getWidth() * (compact ? 0.34f : 0.46f);  //narrow: the keys need the room
+    std::vector<std::wstring> out;
+    if (row.kind == ROW_KEYS) { out = row.names; }
+    else if (row.kind == ROW_TOGGLE) { out.push_back(L"Non"); out.push_back(L"Oui"); }
+    else if (row.kind == ROW_CHOICE && row.combo) {
+        for (irr::u32 i = 0; i < row.combo->getItemCount(); i++) { out.push_back(row.combo->getItem(i)); }
+    }
+    return out;
 }
 
-irr::core::rect<irr::f32> ControlsPanel::valueCell(const Row& row, const irr::core::rect<irr::f32>& r) const
+bool ControlsPanel::usesSegments(const Row& row, const Cells& c) const
 {
-    if (row.kind == ROW_KEYS && row.label.empty()) { return r; }  //keys across the whole row
-    return irr::core::rect<irr::f32>(split(r) + 4 * k, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y);
+    if (row.kind == ROW_KEYS || row.kind == ROW_TOGGLE) { return true; }
+    if (row.kind != ROW_CHOICE || !row.combo) { return false; }
+    const irr::u32 n = row.combo->getItemCount();
+    return n >= 2 && n <= 6 && station::segmentsFit(frame.fonts, frame.k, segmentTexts(row), c.control.getWidth());
 }
 
-irr::core::rect<irr::f32> ControlsPanel::sliderTrack(const irr::core::rect<irr::f32>& cell) const
+std::vector<Rect> ControlsPanel::segmentRects(const Row& row, const Rect& r) const
 {
-    //Value on the left of the cell, the track after it
-    const irr::f32 x0 = cell.UpperLeftCorner.X + std::min(118 * k, cell.getWidth() * 0.42f), x1 = cell.LowerRightCorner.X - 18 * k;
-    const irr::f32 cy = cell.getCenter().Y;
-    return irr::core::rect<irr::f32>(x0, cy - 3 * k, x1, cy + 3 * k);
+    const Cells c = cells(row, r);
+    if (!usesSegments(row, c)) { return std::vector<Rect>(); }
+    const std::vector<std::wstring> texts = segmentTexts(row);
+    int align = station::ALIGN_RIGHT;
+    irr::f32 h = 24 * frame.k;
+    if (row.kind == ROW_KEYS && row.label.empty()) {
+        align = texts.size() > 1 ? station::ALIGN_FILL : station::ALIGN_LEFT;
+        h = 26 * frame.k;
+    }
+    return station::layoutSegments(frame.fonts, frame.k, texts, c.control, align, h);
 }
 
-irr::core::rect<irr::f32> ControlsPanel::keyRect(const Row& row, const irr::core::rect<irr::f32>& cell, int index) const
+Rect ControlsPanel::stepperRect(const Cells& c) const
 {
-    const int n = std::max(1, (int)row.keys.size());
-    const irr::f32 gap = 4 * k;
-    const irr::f32 w = (cell.getWidth() - (n - 1) * gap) / n;
-    const irr::f32 x = cell.UpperLeftCorner.X + index * (w + gap);
-    return irr::core::rect<irr::f32>(x, cell.UpperLeftCorner.Y, x + w, cell.LowerRightCorner.Y);
+    const irr::f32 k = frame.k;
+    const irr::f32 w = std::min(c.control.getWidth(), 300 * k);
+    const irr::f32 cy = c.control.getCenter().Y;
+    return Rect(floorf(c.control.LowerRightCorner.X - w), floorf(cy - 12 * k), floorf(c.control.LowerRightCorner.X), floorf(cy + 12 * k));
+}
+
+Rect ControlsPanel::sliderTrack(const Cells& c) const
+{
+    const irr::f32 k = frame.k;
+    //Narrow: no state column, the value is written at the start of the cell
+    const irr::f32 x0 = c.control.UpperLeftCorner.X + (frame.compact ? 76 : 14) * k;
+    const irr::f32 cy = c.control.getCenter().Y;
+    return Rect(x0, cy - 2 * k, c.control.LowerRightCorner.X - 10 * k, cy + 2 * k);
 }
 
 irr::f32 ControlsPanel::contentHeight() const
 {
-    if (tab < 0 || tab >= (int)tabs.size() || tabs[tab].rows.empty()) { return 0; }
-    const irr::core::rect<irr::f32> last = rowRect((int)tabs[tab].rows.size() - 1);
-    return last.LowerRightCorner.Y + tabs[tab].scroll - list.UpperLeftCorner.Y;
+    if (tab < 0 || tab >= (int)tabs.size()) { return 0; }
+    irr::f32 h = 0;
+    for (size_t i = 0; i < tabs[tab].rows.size(); i++) { h += rowHeight(tabs[tab].rows[i]); }
+    return h + 8 * frame.k;
 }
 
 void ControlsPanel::clampScroll()
 {
     if (tab < 0 || tab >= (int)tabs.size()) { return; }
-    const irr::f32 maxScroll = std::max(0.0f, contentHeight() - list.getHeight());
+    const irr::f32 maxScroll = std::max(0.0f, contentHeight() - content().getHeight());
     tabs[tab].scroll = irr::core::clamp(tabs[tab].scroll, 0.0f, maxScroll);
 }
 
 int ControlsPanel::rowAt(const irr::core::vector2df& p) const
 {
-    if (tab < 0 || tab >= (int)tabs.size() || !list.isPointInside(p)) { return -1; }
+    if (tab < 0 || tab >= (int)tabs.size() || !content().isPointInside(p)) { return -1; }
     const std::vector<Row>& rs = tabs[tab].rows;
     for (int i = 0; i < (int)rs.size(); i++) {
         if (rs[i].kind == ROW_SECTION) { continue; }
@@ -315,14 +286,19 @@ int ControlsPanel::rowAt(const irr::core::vector2df& p) const
     return -1;
 }
 
-int ControlsPanel::keyAt(int row, const irr::core::vector2df& p) const
+int ControlsPanel::segmentAt(int row, const irr::core::vector2df& p) const
 {
     if (row < 0 || tab < 0 || tab >= (int)tabs.size() || row >= (int)tabs[tab].rows.size()) { return -1; }
     const Row& r = tabs[tab].rows[row];
-    if (r.kind != ROW_KEYS) { return -1; }
-    const irr::core::rect<irr::f32> cell = valueCell(r, rowRect(row));
-    for (int i = 0; i < (int)r.keys.size(); i++) {
-        if (keyRect(r, cell, i).isPointInside(p)) { return i; }
+    const Rect rr = rowRect(row);
+    const std::vector<Rect> segs = segmentRects(r, rr);
+    for (int i = 0; i < (int)segs.size(); i++) {
+        if (segs[i].isPointInside(p)) { return i; }
+    }
+    if (r.kind == ROW_CHOICE && segs.empty()) {
+        //The stepper: -2 its left arrow, -3 its right arrow
+        const Rect s = stepperRect(cells(r, rr));
+        if (s.isPointInside(p)) { return p.X < s.getCenter().X ? -2 : -3; }
     }
     return -1;
 }
@@ -344,7 +320,7 @@ void ControlsPanel::dragSlider(int rowIndex, irr::s32 mouseX)
     if (tab < 0 || tab >= (int)tabs.size() || rowIndex < 0 || rowIndex >= (int)tabs[tab].rows.size()) { return; }
     const Row& row = tabs[tab].rows[rowIndex];
     if (row.kind != ROW_SLIDER || !row.bar) { return; }
-    const irr::core::rect<irr::f32> track = sliderTrack(valueCell(row, rowRect(rowIndex)));
+    const Rect track = sliderTrack(cells(row, rowRect(rowIndex)));
     irr::f32 t = ((irr::f32)mouseX - track.UpperLeftCorner.X) / std::max(1.0f, track.getWidth());
     t = irr::core::clamp(t, 0.0f, 1.0f);
     const irr::s32 lo = row.bar->getMin(), hi = row.bar->getMax();
@@ -352,6 +328,41 @@ void ControlsPanel::dragSlider(int rowIndex, irr::s32 mouseX)
     if (v != row.bar->getPos()) {
         row.bar->setPos(v);
         send(row.bar, irr::gui::EGET_SCROLL_BAR_CHANGED);
+    }
+}
+
+void ControlsPanel::recordAction(const Row& row, const std::wstring& value)
+{
+    const std::wstring what = row.label.empty() ? (tab >= 0 && tab < (int)tabs.size() ? tabs[tab].name : std::wstring()) : row.label;
+    lastAction = what + L" \u00BB " + value;
+    if (clockText) {
+        const std::wstring t = clockText();
+        if (!t.empty()) { lastAction += L"  \u00B7  " + t; }
+    }
+}
+
+std::wstring ControlsPanel::stateText(const Row& row, int& tone) const
+{
+    tone = station::TONE_NONE;
+    switch (row.kind) {
+    case ROW_KEYS: {
+        const int s = row.selected ? row.selected() : -1;
+        if (s < 0 || s >= (int)row.names.size()) { return std::wstring(); }
+        tone = station::toneOfWords(row.names[s]);
+        return row.names[s];
+    }
+    case ROW_TOGGLE:
+        if (!row.box->isEnabled()) { return L"Absent"; }
+        return row.box->isChecked() ? L"Oui" : L"Non";
+    case ROW_SLIDER:
+        return textOf(row.text);
+    case ROW_CHOICE: {
+        const int n = (int)row.combo->getItemCount();
+        if (n <= 0) { return std::wstring(); }
+        return row.combo->getItem(irr::core::clamp(row.combo->getSelected(), 0, n - 1));
+    }
+    default:
+        return std::wstring();
     }
 }
 
@@ -372,70 +383,80 @@ bool ControlsPanel::OnEvent(const irr::SEvent& event)
     const irr::core::position2di p(m.X, m.Y);
     const irr::core::vector2df pf((irr::f32)m.X, (irr::f32)m.Y);
     if (draggedRow < 0 && (dock.isDragging() || AbsoluteRect.isPointInside(p)) &&
-        dock.onMouse(this, Environment, m, header, dockRect(), closeRect())) {
+        dock.onMouse(this, Environment, m, frame.header, frame.dockRect(dock.place), frame.closeRect())) {
         return true;
     }
     switch (m.Event) {
     case irr::EMIE_MOUSE_MOVED:
         if (draggedRow >= 0) { dragSlider(draggedRow, m.X); return true; }
-        hoveredClose = closeRect().isPointInside(pf);
-        hoveredTab = -1;
-        for (int t = 0; t < (int)tabs.size(); t++) { if (tabRect(t).isPointInside(pf)) { hoveredTab = t; } }
+        frame.hover(pf);
         hoveredRow = rowAt(pf);
-        hoveredKey = keyAt(hoveredRow, pf);
+        hoveredSeg = segmentAt(hoveredRow, pf);
         return AbsoluteRect.isPointInside(p);
     case irr::EMIE_LMOUSE_PRESSED_DOWN: {
         if (!AbsoluteRect.isPointInside(p)) { return false; }
-        if (closeRect().isPointInside(pf)) {
+        if (frame.closeRect().isPointInside(pf)) {
             setVisible(false);
             Environment->removeFocus(this);
             return true;
         }
-        for (int t = 0; t < (int)tabs.size(); t++) {
-            if (tabRect(t).isPointInside(pf)) {
-                tab = t;
-                selectedRow = hoveredRow = hoveredKey = -1;
-                clampScroll();
-                return true;
-            }
+        const int page = frame.pageAt(pf);
+        if (page >= 0) {
+            tab = page;
+            selectedRow = hoveredRow = hoveredSeg = -1;
+            clampScroll();
+            return true;
         }
         const int row = rowAt(pf);
         if (row < 0) { return true; }
         selectedRow = row;
         const Row& r = tabs[tab].rows[row];
-        const irr::core::rect<irr::f32> cell = valueCell(r, rowRect(row));
-        //Switches and choices also answer a click on their label; sliders and keys only in their cell
+        const Rect rr = rowRect(row);
+        const Cells c = cells(r, rr);
+        const int seg = segmentAt(row, pf);
         if (r.kind == ROW_TOGGLE) {
-            if (r.box->isEnabled()) {
-                r.box->setChecked(!r.box->isChecked());
+            //A side of the switch, or anywhere else on the row to change it over
+            const bool want = seg >= 0 ? (seg == 1) : !r.box->isChecked();
+            if (r.box->isEnabled() && want != r.box->isChecked()) {
+                r.box->setChecked(want);
                 send(r.box, irr::gui::EGET_CHECKBOX_CHANGED);
+                recordAction(r, want ? L"Oui" : L"Non");
             }
         }
-        else if (r.kind == ROW_SLIDER && cell.isPointInside(pf)) {
+        else if (r.kind == ROW_SLIDER && c.control.isPointInside(pf)) {
             draggedRow = row;
             Environment->setFocus(this); //the moves come here while dragging, even off the row
             dragSlider(row, m.X);
         }
         else if (r.kind == ROW_KEYS) {
-            const int key = keyAt(row, pf);
-            if (key >= 0 && r.keys[key]->isEnabled()) {
+            if (seg >= 0 && seg < (int)r.keys.size() && r.keys[seg]->isEnabled()) {
                 pressedRow = row;
-                pressedKey = key;
-                send(r.keys[key], irr::gui::EGET_BUTTON_CLICKED);
+                pressedSeg = seg;
+                send(r.keys[seg], irr::gui::EGET_BUTTON_CLICKED);
+                recordAction(r, r.names[seg]);
             }
         }
         else if (r.kind == ROW_CHOICE && r.combo->getItemCount() > 0) {
             const int n = (int)r.combo->getItemCount();
             const int current = irr::core::clamp(r.combo->getSelected(), 0, n - 1);
-            const bool forward = !cell.isPointInside(pf) || pf.X >= cell.getCenter().X;
-            r.combo->setSelected((current + (forward ? 1 : n - 1)) % n);
-            send(r.combo, irr::gui::EGET_COMBO_BOX_CHANGED);
+            int next = current;
+            if (seg >= 0) { next = seg; }
+            else if (seg == -2) { next = (current + n - 1) % n; }
+            else { next = (current + 1) % n; }  //right arrow, or the label
+            if (next != current) {
+                r.combo->setSelected(next);
+                send(r.combo, irr::gui::EGET_COMBO_BOX_CHANGED);
+                recordAction(r, r.combo->getItem(next));
+            }
         }
         return true;
     }
     case irr::EMIE_LMOUSE_LEFT_UP:
-        pressedRow = pressedKey = -1;
+        pressedRow = pressedSeg = -1;
         if (draggedRow >= 0) {
+            if (tab < (int)tabs.size() && draggedRow < (int)tabs[tab].rows.size()) {
+                recordAction(tabs[tab].rows[draggedRow], textOf(tabs[tab].rows[draggedRow].text));
+            }
             draggedRow = -1;
             Environment->removeFocus(this); //keys go back to the ship
             return true;
@@ -443,8 +464,8 @@ bool ControlsPanel::OnEvent(const irr::SEvent& event)
         return AbsoluteRect.isPointInside(p);
     case irr::EMIE_MOUSE_WHEEL:
         if (!AbsoluteRect.isPointInside(p)) { return false; }
-        if (list.isPointInside(pf) && tab >= 0 && tab < (int)tabs.size()) {
-            tabs[tab].scroll -= m.Wheel * 60.0f * k;
+        if (frame.main.isPointInside(pf) && tab >= 0 && tab < (int)tabs.size()) {
+            tabs[tab].scroll -= m.Wheel * 64.0f * frame.k;
             clampScroll();
         }
         return true;
@@ -461,226 +482,189 @@ void ControlsPanel::draw()
 {
     if (!IsVisible) { return; }
     if (AbsoluteRect != laidOutRect) { layout(); }
-    if (!fonts.title) { return; }
+    if (!frame.fonts.title) { return; }
     if (tab >= (int)tabs.size()) { tab = 0; }
     irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    const bridge::Palette& pal = bridge::palette();
     const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
 
-    //Window: slightly translucent
-    //Square, a hairline frame, the title strip darker with the accent tab at its left, and the
-    //bracket marks of a console display's window at the corners
-    bridge::fillRound(driver, AbsoluteRect, 0, withAlpha(pal.panelTop, 240), withAlpha(pal.panelBottom, 240), 0);
-    fill(driver, header, withAlpha(pal.raised, 250), &clip);
-    fill(driver, irr::core::rect<irr::f32>(header.UpperLeftCorner.X, header.UpperLeftCorner.Y, header.UpperLeftCorner.X + 5 * k, header.LowerRightCorner.Y), pal.accent, &clip);
-    outline(driver, AbsoluteRect, pal.edge, 0);
-    bridge::cornerMarks(driver, AbsoluteRect, (irr::s32)(16 * k), std::max(2, (irr::s32)(2.5f * k)), pal.accent, &clip);
-
-    //Title, the name of the open tab on the right, the close box
-    const irr::f32 tx = header.UpperLeftCorner.X + 24 * k;
-    bridge::drawIcon(driver, (bridge::Icon)titleIcon, tx, header.getCenter().Y - 15 * k, 30 * k, pal.accent);
-    fonts.title->drawIn(title, irr::core::rect<irr::f32>(tx + 42 * k, header.UpperLeftCorner.Y, tx + 400 * k, header.LowerRightCorner.Y),
-        pal.text, HudFont::Left, 1.5f * k);
-    const irr::core::rect<irr::f32> cr = closeRect();
-    const irr::core::rect<irr::f32> dr = dockRect();
-    if (tab >= 0 && tab < (int)tabs.size() && !compact) {
-        fonts.caption->drawIn(tabs[tab].name, irr::core::rect<irr::f32>(tx + 300 * k, header.UpperLeftCorner.Y, dr.UpperLeftCorner.X - 20 * k, header.LowerRightCorner.Y),
-            pal.textDim, HudFont::Right, 0.5f * k);
-    }
-    dock.draw(driver, dr, fonts.caption, k, &clip);
-    if (hoveredClose) { bridge::fillRound(driver, toI(cr), (irr::s32)(5 * k), pal.danger, pal.danger, 0); }
-    {
-        const irr::video::SColor xc = hoveredClose ? pal.dangerText : pal.textDim;
-        const irr::f32 in = cr.getWidth() * 0.32f;
-        irr::gui::PanelBatch b;
-        b.begin(driver);
-        b.line(irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.LowerRightCorner.X - in, cr.LowerRightCorner.Y - in), 2.2f * k, xc);
-        b.line(irr::core::vector2df(cr.LowerRightCorner.X - in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.LowerRightCorner.Y - in), 2.2f * k, xc);
-        b.flush();
-    }
-    fill(driver, irr::core::rect<irr::f32>(AbsoluteRect.UpperLeftCorner.X + 1, header.LowerRightCorner.Y - 1, AbsoluteRect.LowerRightCorner.X - 1, header.LowerRightCorner.Y), withAlpha(pal.edge, 160), &clip);
-
-    //Tabs
+    //Faults of each page, beside its name
+    std::vector<Readout> status;
     for (int t = 0; t < (int)tabs.size(); t++) {
-        const irr::core::rect<irr::f32> r = tabRect(t);
-        const irr::core::rect<irr::f32> rr(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + 8 * k, r.LowerRightCorner.X, r.LowerRightCorner.Y);
-        irr::video::SColor face = (t == tab) ? pal.accent : (t == hoveredTab ? pal.keyHover : pal.raised);
-        bridge::fillRound(driver, toI(rr), (irr::s32)(3 * k), face, face, 0);
-        if (t != tab) { outline(driver, toI(rr), withAlpha(pal.edge, 200), 0); }
-        fonts.tab->drawIn(hudUpper(tabs[t].name), rr, t == tab ? pal.accentText : pal.text, HudFont::Centre, 1.2f * k);
-    }
-    fill(driver, irr::core::rect<irr::f32>(list.UpperLeftCorner.X, tabsBar.LowerRightCorner.Y + 8 * k, info.LowerRightCorner.X, tabsBar.LowerRightCorner.Y + 9 * k),
-        withAlpha(pal.edge, 140), &clip);
-
-    //The list (clipped to its own area, it scrolls)
-    irr::core::rect<irr::s32> listClip = toI(list);
-    listClip.clipAgainst(clip);
-    drawRows(driver, listClip);
-
-    //Scroll bar, when there is more than fits
-    const irr::f32 total = contentHeight();
-    if (total > list.getHeight() + 1 && tab < (int)tabs.size()) {
-        const irr::f32 x = list.LowerRightCorner.X - 4 * k;
-        fill(driver, irr::core::rect<irr::f32>(x - 1.5f * k, list.UpperLeftCorner.Y, x + 1.5f * k, list.LowerRightCorner.Y), withAlpha(pal.edge, 160), &clip);
-        const irr::f32 thumbH = std::max(30 * k, list.getHeight() * list.getHeight() / total);
-        const irr::f32 thumbY = list.UpperLeftCorner.Y + (list.getHeight() - thumbH) * tabs[tab].scroll / std::max(1.0f, total - list.getHeight());
-        bridge::fillRound(driver, toI(irr::core::rect<irr::f32>(x - 2.5f * k, thumbY, x + 2.5f * k, thumbY + thumbH)), (irr::s32)(2 * k), pal.textDim, pal.textDim, &clip);
+        std::vector<Readout> st;
+        if (tabs[t].status) { st = tabs[t].status(); }
+        int faults = 0;
+        for (size_t i = 0; i < st.size(); i++) { if (st[i].tone == station::TONE_ERR) { faults++; } }
+        frame.pages[t].badge = faults;
+        if (t == tab) { status = st; }
     }
 
-    drawInfo(driver);
+    std::vector<station::Status> head;
+    if (headerStatus) {
+        const std::vector<Readout> hs = headerStatus();
+        for (size_t i = 0; i < hs.size(); i++) { head.push_back({ hs[i].label, hs[i].text, hs[i].tone }); }
+    }
+    frame.drawBack(driver, dock, tab, head, clip);
+
+    //The rows (clipped to the page, they scroll)
+    const Rect area = content();
+    const irr::core::rect<irr::s32> pageClip = station::clipOf(Rect(frame.main.UpperLeftCorner.X, area.UpperLeftCorner.Y, frame.main.LowerRightCorner.X, area.LowerRightCorner.Y), clip);
+    drawRows(driver, pageClip);
+    if (tab < (int)tabs.size()) {
+        station::drawScrollBar(driver, frame.k, Rect(area.UpperLeftCorner.X, area.UpperLeftCorner.Y, area.LowerRightCorner.X + 6 * frame.k, area.LowerRightCorner.Y),
+            contentHeight(), tabs[tab].scroll, clip);
+    }
+
+    drawSide(driver, status, clip);
+
+    std::vector<station::Status> foot;
+    foot.push_back({ frame.code, L"", 0 });
+    if (tab < (int)tabs.size()) { foot.push_back({ L"Onglet", tabs[tab].name, 0 }); }
+    foot.push_back({ L"Derni\u00E8re action", lastAction.empty() ? std::wstring(L"\u2014") : lastAction, 0 });
+    frame.drawFooter(driver, foot, L"Molette : d\u00E9filer  \u00B7  glisser le titre : d\u00E9placer", clip);
 }
 
 void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip)
 {
     if (tab < 0 || tab >= (int)tabs.size()) { return; }
-    const bridge::Palette& pal = bridge::palette();
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
+    const Rect area = content();
     const std::vector<Row>& rs = tabs[tab].rows;
+    int odd = 0;
     for (int i = 0; i < (int)rs.size(); i++) {
         const Row& row = rs[i];
-        const irr::core::rect<irr::f32> r = rowRect(i);
-        if (r.LowerRightCorner.Y < list.UpperLeftCorner.Y || r.UpperLeftCorner.Y > list.LowerRightCorner.Y) { continue; }
+        const Rect r = rowRect(i);
+        if (row.kind == ROW_SECTION) { odd = 0; }
+        const bool visible = !(r.LowerRightCorner.Y < area.UpperLeftCorner.Y || r.UpperLeftCorner.Y > area.LowerRightCorner.Y);
+
         if (row.kind == ROW_SECTION) {
-            const irr::f32 ly = r.LowerRightCorner.Y - 6 * k;
-            fonts.section->drawIn(hudUpper(row.label), irr::core::rect<irr::f32>(r.UpperLeftCorner.X + 2 * k, r.UpperLeftCorner.Y, r.LowerRightCorner.X, ly - 2 * k),
-                pal.textDim, HudFont::Left, 1.6f * k, &clip);
-            fill(driver, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, ly, r.LowerRightCorner.X, ly + 1), withAlpha(pal.edge, 170), &clip);
+            if (!visible) { continue; }
+            //How many items until the next section
+            int count = 0;
+            for (int j = i + 1; j < (int)rs.size() && rs[j].kind != ROW_SECTION; j++) { if (rs[j].kind != ROW_TEXT) { count++; } }
+            std::wstring items;
+            if (count > 1) { items = std::to_wstring(count) + L" \u00C9L\u00C9MENTS"; }
+            station::drawSection(driver, f, k, Rect(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y - 4 * k), row.label, items, clip);
             continue;
         }
         if (row.kind == ROW_TEXT) {
-            //Read-only: what the simulation says, on a plain field
-            bridge::fillRound(driver, toI(r), (irr::s32)(3 * k), withAlpha(pal.field, 200), withAlpha(pal.field, 200), &clip);
+            if (!visible) { continue; }
+            //Read-only: what the simulation says, on a plain field with a bar when it is an alert
+            const Rect box(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + 4 * k, r.LowerRightCorner.X, r.LowerRightCorner.Y - 4 * k);
             const bool alert = row.alert && row.alert();
-            const irr::f32 px = r.UpperLeftCorner.X + 14 * k;
-            if (alert) { fill(driver, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + 4 * k, r.LowerRightCorner.Y), pal.error, &clip); }
-            const std::vector<std::wstring> lines = fonts.infoText->wrap(textOf(row.text), r.getWidth() - 28 * k);
-            const irr::f32 lh = fonts.infoText->lineHeight() + 2 * k;
-            irr::f32 ly = r.UpperLeftCorner.Y + 6 * k;
+            station::fill(driver, box, col.key, &clip);
+            station::frame(driver, box, col.edge2, &clip);
+            if (alert) { station::fill(driver, Rect(box.UpperLeftCorner.X, box.UpperLeftCorner.Y, box.UpperLeftCorner.X + 3 * k, box.LowerRightCorner.Y), col.err, &clip); }
+            const std::vector<std::wstring> lines = f.text->wrap(textOf(row.text), box.getWidth() - 28 * k);
+            const irr::f32 lh = f.text->lineHeight() + 3 * k;
+            irr::f32 ly = box.UpperLeftCorner.Y + 4 * k;
             for (size_t l = 0; l < lines.size() && (int)l < row.lines; l++, ly += lh) {
-                fonts.infoText->drawIn(lines[l], irr::core::rect<irr::f32>(px, ly, r.LowerRightCorner.X - 12 * k, ly + lh),
-                    alert ? pal.error : pal.text, HudFont::Left, 0, &clip);
+                f.text->drawIn(lines[l], Rect(box.UpperLeftCorner.X + 14 * k, ly, box.LowerRightCorner.X - 10 * k, ly + lh), alert ? col.err : col.text, HudFont::Left, 0, &clip);
             }
             continue;
         }
+        const bool shade = (odd++ % 2) == 0;
+        if (!visible) { continue; }
 
         const bool active = (i == selectedRow) || (i == draggedRow);
         const bool hover = (i == hoveredRow);
         const bool enabled = !(row.kind == ROW_TOGGLE && !row.box->isEnabled());
-        const irr::core::rect<irr::f32> cell = valueCell(row, r);
+        station::drawRowBack(driver, k, r, shade, hover, active, clip);
+        const Cells c = cells(row, r);
 
-        //Label cell: highlighted when it is the row in use
+        //Label
         if (!(row.kind == ROW_KEYS && row.label.empty())) {
-            const irr::core::rect<irr::f32> labelCell(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, split(r), r.LowerRightCorner.Y);
-            irr::video::SColor face = active ? pal.accent : (hover ? mix(pal.raised, pal.accent, 0.25f) : pal.raised);
-            bridge::fillRound(driver, toI(labelCell), (irr::s32)(3 * k), withAlpha(face, 235), withAlpha(face, 235), &clip);
-            fonts.label->drawIn(row.label, irr::core::rect<irr::f32>(labelCell.UpperLeftCorner.X + 16 * k, labelCell.UpperLeftCorner.Y, labelCell.LowerRightCorner.X - 8 * k, labelCell.LowerRightCorner.Y),
-                active ? pal.accentText : (enabled ? pal.text : pal.textFaint), HudFont::Left, 0.3f * k, &clip);
+            const irr::core::rect<irr::s32> lc = station::clipOf(c.label, clip);
+            f.label->drawIn(row.label, Rect(c.label.UpperLeftCorner.X, c.label.UpperLeftCorner.Y, c.label.LowerRightCorner.X, c.label.LowerRightCorner.Y + 1 * k),
+                enabled ? col.text : col.faint, HudFont::Left, 0.5f * k, &lc);
         }
 
-        if (row.kind == ROW_KEYS) {
-            const int chosen = row.selected ? row.selected() : -1;
-            for (int j = 0; j < (int)row.keys.size(); j++) {
-                const irr::core::rect<irr::f32> kr = keyRect(row, cell, j);
-                const bool on = (j == chosen);
-                const bool down = (i == pressedRow && j == pressedKey);
-                const bool over = (i == hoveredRow && j == hoveredKey);
-                irr::video::SColor face = on ? pal.accent : (down ? mix(pal.key, pal.accent, 0.35f) : (over ? pal.keyHover : withAlpha(pal.field, 240)));
-                bridge::fillRound(driver, toI(kr), (irr::s32)(3 * k), face, face, &clip);
-                if (!on) { outline(driver, toI(kr), over ? withAlpha(pal.accent, 200) : withAlpha(pal.edge, 200), &clip); }
-                fonts.value->drawIn(row.names[j], irr::core::rect<irr::f32>(kr.UpperLeftCorner.X + 6 * k, kr.UpperLeftCorner.Y, kr.LowerRightCorner.X - 6 * k, kr.LowerRightCorner.Y),
-                    on ? pal.accentText : pal.text, HudFont::Centre, 0, &clip);
+        //State
+        int tone = station::TONE_NONE;
+        const std::wstring state = stateText(row, tone);
+        if (c.state.getWidth() > 0 && !state.empty()) {
+            if (row.kind == ROW_SLIDER || row.kind == ROW_CHOICE) {
+                const irr::core::rect<irr::s32> sc = station::clipOf(c.state, clip);
+                f.state->drawIn(hudUpper(state), Rect(c.state.UpperLeftCorner.X, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X - 6 * k, c.state.LowerRightCorner.Y + 1 * k),
+                    col.text, HudFont::Left, 1.0f * k, &sc);
             }
+            else if (row.kind == ROW_TOGGLE) {
+                const bool on = enabled && row.box->isChecked();
+                if (on) { station::lamp(driver, c.state.UpperLeftCorner.X + 4 * k, c.state.getCenter().Y, 7 * k, col.accent, &clip); }
+                const irr::f32 x = c.state.UpperLeftCorner.X + (on ? 14 * k : 0);
+                f.state->drawIn(hudUpper(state), Rect(x, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X, c.state.LowerRightCorner.Y + 1 * k),
+                    on ? col.accent : (enabled ? col.dim : col.faint), HudFont::Left, 1.4f * k, &clip);
+            }
+            else {
+                station::drawState(driver, f, k, Rect(c.state.UpperLeftCorner.X, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X - 6 * k, c.state.LowerRightCorner.Y),
+                    state, tone, true, clip);
+            }
+        }
+
+        //Control
+        if (row.kind == ROW_SLIDER) {
+            const Rect track = sliderTrack(c);
+            if (frame.compact) {
+                f.state->drawIn(hudUpper(state), Rect(c.control.UpperLeftCorner.X, c.control.UpperLeftCorner.Y, track.UpperLeftCorner.X - 8 * k, c.control.LowerRightCorner.Y + 1 * k),
+                    col.text, HudFont::Left, 1.0f * k, &clip);
+            }
+            const irr::s32 lo = row.bar->getMin(), hi = row.bar->getMax();
+            const irr::f32 t = (irr::f32)(row.bar->getPos() - lo) / (irr::f32)std::max(1, hi - lo);
+            station::drawFader(driver, k, track, t, active || hover, clip);
             continue;
         }
-
-        //Value cell
-        bridge::fillRound(driver, toI(cell), (irr::s32)(3 * k), withAlpha(pal.field, 240), withAlpha(pal.field, 240), &clip);
-        if ((hover || active) && enabled) { outline(driver, toI(cell), withAlpha(pal.accent, 180), &clip); }
-
-        if (row.kind == ROW_SLIDER) {
-            const irr::core::rect<irr::f32> track = sliderTrack(cell);
-            fonts.value->drawIn(textOf(row.text), irr::core::rect<irr::f32>(cell.UpperLeftCorner.X + 10 * k, cell.UpperLeftCorner.Y, track.UpperLeftCorner.X - 12 * k, cell.LowerRightCorner.Y),
-                pal.text, HudFont::Left, 0, &clip);
-            const irr::s32 lo = row.bar->getMin(), hi = row.bar->getMax();
-            const irr::f32 t = irr::core::clamp((irr::f32)(row.bar->getPos() - lo) / (irr::f32)std::max(1, hi - lo), 0.0f, 1.0f);
-            const irr::f32 kx = track.UpperLeftCorner.X + t * track.getWidth();
-            fill(driver, track, withAlpha(pal.edge, 220), &clip);
-            fill(driver, irr::core::rect<irr::f32>(track.UpperLeftCorner.X, track.UpperLeftCorner.Y, kx, track.LowerRightCorner.Y), pal.accent, &clip);
-            //Diamond knob
-            const irr::f32 ks = (i == draggedRow ? 9.0f : 7.5f) * k;
-            const irr::f32 cy = track.getCenter().Y;
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            b.quad(irr::core::vector2df(kx, cy - ks - 1.5f * k), irr::core::vector2df(kx + ks + 1.5f * k, cy), irr::core::vector2df(kx, cy + ks + 1.5f * k), irr::core::vector2df(kx - ks - 1.5f * k, cy), pal.field);
-            b.quad(irr::core::vector2df(kx, cy - ks), irr::core::vector2df(kx + ks, cy), irr::core::vector2df(kx, cy + ks), irr::core::vector2df(kx - ks, cy), active ? pal.accent : pal.text);
-            b.flush();
-        }
-        else if (row.kind == ROW_TOGGLE) {
-            //A switch on the right, its state in words on the left
-            const bool on = row.box->isChecked();
-            const irr::f32 sh = 22 * k, sw = 44 * k;
-            const irr::f32 sx1 = cell.LowerRightCorner.X - 14 * k, sy0 = cell.getCenter().Y - sh * 0.5f;
-            const irr::core::rect<irr::f32> sw_r(sx1 - sw, sy0, sx1, sy0 + sh);
-            //A two-position switch: a recessed slot, the lever block at one end, lit when on
-            const irr::video::SColor trackCol = !enabled ? withAlpha(pal.edge, 90) : (on ? pal.accent : withAlpha(pal.raised, 255));
-            fill(driver, sw_r, pal.edge, &clip);
-            fill(driver, irr::core::rect<irr::f32>(sw_r.UpperLeftCorner.X + 1, sw_r.UpperLeftCorner.Y + 1, sw_r.LowerRightCorner.X - 1, sw_r.LowerRightCorner.Y - 1), trackCol, &clip);
-            const irr::f32 kw = sw * 0.46f;
-            const irr::core::rect<irr::f32> knob(on ? sw_r.LowerRightCorner.X - kw - 2 * k : sw_r.UpperLeftCorner.X + 2 * k, sw_r.UpperLeftCorner.Y + 2 * k,
-                on ? sw_r.LowerRightCorner.X - 2 * k : sw_r.UpperLeftCorner.X + 2 * k + kw, sw_r.LowerRightCorner.Y - 2 * k);
-            bridge::bevelKey(driver, toI(knob), enabled ? pal.key : withAlpha(pal.key, 140), pal.edge, false, &clip);
-            fill(driver, irr::core::rect<irr::f32>(knob.getCenter().X - 0.75f * k, knob.UpperLeftCorner.Y + 3 * k, knob.getCenter().X + 0.75f * k, knob.LowerRightCorner.Y - 3 * k),
-                enabled ? pal.textDim : pal.textFaint, &clip);
-            const wchar_t* word = !enabled ? L"absent" : (on ? L"oui" : L"non");
-            fonts.value->drawIn(hudUpper(word), irr::core::rect<irr::f32>(cell.UpperLeftCorner.X + 10 * k, cell.UpperLeftCorner.Y, sw_r.UpperLeftCorner.X - 8 * k, cell.LowerRightCorner.Y),
-                !enabled ? pal.textFaint : (on ? pal.accent : pal.textDim), HudFont::Left, 1.0f * k, &clip);
+        const std::vector<Rect> segs = segmentRects(row, r);
+        if (!segs.empty()) {
+            const std::vector<std::wstring> texts = segmentTexts(row);
+            int on = -1;
+            if (row.kind == ROW_KEYS && row.selected) { on = row.selected(); }
+            if (row.kind == ROW_TOGGLE) { on = row.box->isChecked() ? 1 : 0; }
+            if (row.kind == ROW_CHOICE) { on = row.combo->getSelected(); }
+            std::vector<station::Segment> ss(segs.size());
+            for (size_t j = 0; j < segs.size(); j++) {
+                ss[j].text = texts[j];
+                ss[j].on = ((int)j == on);
+                ss[j].tone = (row.kind == ROW_KEYS) ? station::toneOfWords(texts[j]) : (int)station::TONE_NONE;
+                if (ss[j].tone == station::TONE_OK) { ss[j].tone = station::TONE_NONE; }
+                ss[j].hover = (i == hoveredRow && (int)j == hoveredSeg);
+                ss[j].down = (i == pressedRow && (int)j == pressedSeg);
+                ss[j].enabled = enabled && !(row.kind == ROW_KEYS && !row.keys[j]->isEnabled());
+            }
+            station::drawSegments(driver, f, k, segs, ss, clip);
         }
         else if (row.kind == ROW_CHOICE) {
-            const int n = (int)row.combo->getItemCount();
-            const int current = n > 0 ? irr::core::clamp(row.combo->getSelected(), 0, n - 1) : -1;
-            const bool dashes = n > 1 && n <= 10;
-            const irr::core::rect<irr::f32> textBox(cell.UpperLeftCorner.X + 28 * k, cell.UpperLeftCorner.Y - (dashes ? 3 * k : 0), cell.LowerRightCorner.X - 28 * k, cell.LowerRightCorner.Y - (dashes ? 3 * k : 0));
-            if (current >= 0) { fonts.value->drawIn(row.combo->getItem(current), textBox, pal.text, HudFont::Centre, 0, &clip); }
-            //Arrows at both ends, one dash per option underneath (when they fit)
-            const irr::f32 cy = cell.getCenter().Y, a = 5 * k;
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            const irr::f32 lx = cell.UpperLeftCorner.X + 14 * k, rx = cell.LowerRightCorner.X - 14 * k;
-            b.tri(irr::core::vector2df(lx - a * 0.6f, cy), irr::core::vector2df(lx + a * 0.6f, cy - a), irr::core::vector2df(lx + a * 0.6f, cy + a), pal.textDim);
-            b.tri(irr::core::vector2df(rx + a * 0.6f, cy), irr::core::vector2df(rx - a * 0.6f, cy + a), irr::core::vector2df(rx - a * 0.6f, cy - a), pal.textDim);
-            if (dashes) {
-                const irr::f32 dw = 12 * k, dg = 3 * k;
-                const irr::f32 dx0 = cell.getCenter().X - (n * dw + (n - 1) * dg) * 0.5f;
-                const irr::f32 dy = cell.LowerRightCorner.Y - 7 * k;
-                for (int j = 0; j < n; j++) {
-                    b.rect(irr::core::rect<irr::f32>(dx0 + j * (dw + dg), dy, dx0 + j * (dw + dg) + dw, dy + 2.5f * k), j == current ? pal.accent : withAlpha(pal.textDim, 150));
-                }
-            }
-            b.flush();
+            const int side = (i == hoveredRow) ? (hoveredSeg == -2 ? -1 : (hoveredSeg == -3 ? 1 : 0)) : 0;
+            station::drawStepper(driver, f, k, stepperRect(c), state, side, clip);
         }
     }
 }
 
-void ControlsPanel::drawInfo(irr::video::IVideoDriver* driver)
+void ControlsPanel::drawSide(irr::video::IVideoDriver* driver, const std::vector<Readout>& status, const irr::core::rect<irr::s32>& clip)
 {
     if (tab < 0 || tab >= (int)tabs.size()) { return; }
-    const bridge::Palette& pal = bridge::palette();
-    const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
     const Tab& t = tabs[tab];
 
-    //What the card is about: the row (or key) under the mouse, else the one last used, else the tab
-    std::wstring cardTitle = t.name, help = t.help;
+    //What the explanation is about: the row (or key) under the mouse, else the one last used, else the tab
+    std::wstring title = t.name, help = t.help;
     const int r = hoveredRow >= 0 ? hoveredRow : selectedRow;
     if (r >= 0 && r < (int)t.rows.size() && t.rows[r].kind != ROW_TEXT) {
         const Row& row = t.rows[r];
-        const int key = (r == hoveredRow) ? hoveredKey : -1;
-        if (key >= 0) {
-            cardTitle = row.label.empty() ? row.names[key] : row.label + L" : " + row.names[key];
+        const int key = (r == hoveredRow && row.kind == ROW_KEYS) ? hoveredSeg : -1;
+        if (key >= 0 && key < (int)row.keys.size()) {
+            title = row.label.empty() ? row.names[key] : row.label + L" \u2014 " + row.names[key];
             help.clear();
             if (row.keys[key]->getToolTipText().size() > 0) { help = row.keys[key]->getToolTipText().c_str(); }
             if (help.empty()) { help = row.help; }
         }
         else {
-            cardTitle = row.label.empty() ? t.name : row.label;
+            int tone = 0;
+            const std::wstring state = stateText(row, tone);
+            title = row.label.empty() ? t.name : row.label;
+            if (!state.empty() && row.kind != ROW_SLIDER) { title += L" \u2014 " + state; }
             help = row.help;
             if (help.empty()) {
                 irr::gui::IGUIElement* w = row.bar ? (irr::gui::IGUIElement*)row.bar : row.box ? (irr::gui::IGUIElement*)row.box : (irr::gui::IGUIElement*)row.combo;
@@ -689,61 +673,85 @@ void ControlsPanel::drawInfo(irr::video::IVideoDriver* driver)
         }
     }
 
-    //The status readouts of the tab, at the bottom of the column
-    std::vector<Readout> status;
-    if (t.status) { status = t.status(); }
-    const irr::f32 lh = fonts.infoText->lineHeight() + 2 * k;
-    std::vector<std::vector<std::wstring> > statusLines;
-    irr::f32 statusH = 0;
-    for (size_t i = 0; i < status.size(); i++) {
-        statusLines.push_back(fonts.infoText->wrap(status[i].text, info.getWidth() - 28 * k));
-        if (statusLines.back().empty()) { statusLines.back().push_back(L"-"); }
-        statusH += 20 * k + statusLines.back().size() * lh + 10 * k;
+    const irr::f32 pad = (frame.compact ? 10 : 14) * k;
+    const Rect area(frame.side.UpperLeftCorner.X + pad, frame.side.UpperLeftCorner.Y + pad, frame.side.LowerRightCorner.X - pad, frame.side.LowerRightCorner.Y - pad);
+    Rect stateBox, detailBox = area;
+    if (frame.compact && !status.empty()) {
+        //Side by side under the page
+        const irr::f32 split = area.UpperLeftCorner.X + area.getWidth() * 0.54f;
+        stateBox = Rect(area.UpperLeftCorner.X, area.UpperLeftCorner.Y, split - pad * 0.5f, area.LowerRightCorner.Y);
+        detailBox = Rect(split + pad * 0.5f, area.UpperLeftCorner.Y, area.LowerRightCorner.X, area.LowerRightCorner.Y);
     }
-    if (!status.empty()) { statusH += 34 * k; }
-    statusH = std::min(statusH, info.getHeight() * 0.62f);
-
-    //Card: title, a rule, the explanation
-    const irr::core::rect<irr::f32> card(info.UpperLeftCorner.X, info.UpperLeftCorner.Y, info.LowerRightCorner.X,
-        info.LowerRightCorner.Y - (status.empty() ? 0 : statusH + 14 * k));
-    bridge::fillRound(driver, toI(card), (irr::s32)(4 * k), withAlpha(pal.raised, 220), withAlpha(pal.panelBottom, 120), &clip);
-    const irr::f32 px = card.UpperLeftCorner.X + 14 * k;
-    fonts.infoTitle->drawIn(hudUpper(cardTitle), irr::core::rect<irr::f32>(px, card.UpperLeftCorner.Y + 6 * k, card.LowerRightCorner.X - 12 * k, card.UpperLeftCorner.Y + 46 * k),
-        pal.text, HudFont::Left, 0.8f * k, &clip);
-    fill(driver, irr::core::rect<irr::f32>(px, card.UpperLeftCorner.Y + 50 * k, card.LowerRightCorner.X - 14 * k, card.UpperLeftCorner.Y + 50 * k + std::max(1.0f, 1.5f * k)), pal.text, &clip);
-    const std::vector<std::wstring> lines = fonts.infoText->wrap(help, card.getWidth() - 28 * k);
-    irr::f32 ly = card.UpperLeftCorner.Y + 60 * k;
-    for (size_t i = 0; i < lines.size() && ly + lh <= card.LowerRightCorner.Y; i++, ly += lh) {
-        fonts.infoText->drawIn(lines[i], irr::core::rect<irr::f32>(px, ly, card.LowerRightCorner.X - 12 * k, ly + lh), pal.textDim, HudFont::Left, 0, &clip);
+    else if (!status.empty()) {
+        stateBox = Rect(area.UpperLeftCorner.X, area.UpperLeftCorner.Y, area.LowerRightCorner.X, area.UpperLeftCorner.Y);
     }
 
-    if (status.empty()) { return; }
-    //State block: framed, like the picture tile of the weather window
-    const irr::core::rect<irr::f32> box(info.UpperLeftCorner.X, info.LowerRightCorner.Y - statusH, info.LowerRightCorner.X, info.LowerRightCorner.Y);
-    fill(driver, box, withAlpha(pal.edge, 240), &clip);
-    const irr::f32 fr = 3 * k;
-    const irr::core::rect<irr::f32> inner(box.UpperLeftCorner.X + fr, box.UpperLeftCorner.Y + fr, box.LowerRightCorner.X - fr, box.LowerRightCorner.Y - fr);
-    bridge::fillRound(driver, toI(inner), 0, withAlpha(pal.field, 245), withAlpha(pal.field, 245), &clip);
-    irr::core::rect<irr::s32> innerClip = toI(inner);
-    innerClip.clipAgainst(clip);
-    fonts.section->drawIn(L"\u00C9TAT ACTUEL", irr::core::rect<irr::f32>(inner.UpperLeftCorner.X + 12 * k, inner.UpperLeftCorner.Y + 6 * k, inner.LowerRightCorner.X, inner.UpperLeftCorner.Y + 26 * k),
-        pal.textDim, HudFont::Left, 1.4f * k, &innerClip);
-    irr::f32 ry = inner.UpperLeftCorner.Y + 34 * k;
-    for (size_t i = 0; i < status.size(); i++) {
-        const irr::video::SColor col = status[i].tone == 1 ? pal.ok : (status[i].tone == 2 ? pal.error : pal.text);
-        const irr::f32 rx = inner.UpperLeftCorner.X + 12 * k;
-        if (status[i].tone != 0) {
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            b.disc(irr::core::vector2df(rx + 4 * k, ry + 9 * k), 4.5f * k, col, col);
-            b.flush();
+    //State of the page: label on the left, value on the right (under it when it is long)
+    if (!status.empty()) {
+        const irr::f32 w = stateBox.getWidth();
+        const irr::f32 lh = f.strong->lineHeight() + 2 * k;
+        std::vector<std::vector<std::wstring> > lines(status.size());
+        std::vector<bool> stacked(status.size());
+        std::vector<irr::f32> heights(status.size());
+        irr::f32 total = station::boxHeaderHeight(k) + 4 * k;
+        for (size_t i = 0; i < status.size(); i++) {
+            const std::wstring label = hudUpper(status[i].label), value = hudUpper(status[i].text);
+            const irr::f32 lw = f.key->width(label, 1.0f * k), vw = f.strong->width(value, 1.0f * k);
+            const irr::f32 lampW = status[i].tone != 0 ? 14 * k : 0;
+            stacked[i] = lw + vw + lampW + 34 * k > w;
+            if (stacked[i]) {
+                lines[i] = f.strong->wrap(value, w - 20 * k - lampW, 1.0f * k);
+                if (lines[i].empty()) { lines[i].push_back(L"\u2014"); }
+                heights[i] = 26 * k + lines[i].size() * lh + 6 * k;
+            }
+            else {
+                lines[i].push_back(value);
+                heights[i] = 32 * k;
+            }
+            total += heights[i];
         }
-        fonts.section->drawIn(hudUpper(status[i].label), irr::core::rect<irr::f32>(rx + (status[i].tone ? 16 * k : 0), ry, inner.LowerRightCorner.X - 10 * k, ry + 18 * k),
-            pal.textDim, HudFont::Left, 1.2f * k, &innerClip);
-        ry += 20 * k;
-        for (size_t l = 0; l < statusLines[i].size(); l++, ry += lh) {
-            fonts.infoText->drawIn(statusLines[i][l], irr::core::rect<irr::f32>(rx, ry, inner.LowerRightCorner.X - 10 * k, ry + lh), col, HudFont::Left, 0, &innerClip);
+        if (!frame.compact) {
+            total = std::min(total, area.getHeight() * 0.62f);
+            stateBox.LowerRightCorner.Y = stateBox.UpperLeftCorner.Y + total;
+            detailBox.UpperLeftCorner.Y = stateBox.LowerRightCorner.Y + pad;
         }
-        ry += 10 * k;
+        const Rect in = station::drawBox(driver, f, k, stateBox, L"\u00C9tat \u00B7 " + t.name, clip);
+        const irr::core::rect<irr::s32> ic = station::clipOf(in, clip);
+        irr::f32 y = in.UpperLeftCorner.Y;
+        for (size_t i = 0; i < status.size(); i++) {
+            const irr::f32 x0 = in.UpperLeftCorner.X + 10 * k, x1 = in.LowerRightCorner.X - 10 * k;
+            const irr::video::SColor tc = status[i].tone == station::TONE_NONE ? col.text : station::toneColour(status[i].tone);
+            if (!stacked[i]) {
+                const Rect rr(x0, y, x1, y + heights[i] + 1 * k);
+                f.key->drawIn(hudUpper(status[i].label), rr, col.dim, HudFont::Left, 1.0f * k, &ic);
+                const irr::f32 vw = f.strong->width(lines[i][0], 1.0f * k);
+                f.strong->drawIn(lines[i][0], rr, tc, HudFont::Right, 1.0f * k, &ic);
+                if (status[i].tone != 0) { station::lamp(driver, x1 - vw - 10 * k, y + heights[i] * 0.5f, 7 * k, tc, &ic); }
+            }
+            else {
+                f.key->drawIn(hudUpper(status[i].label), Rect(x0, y + 4 * k, x1, y + 24 * k), col.dim, HudFont::Left, 1.0f * k, &ic);
+                irr::f32 ly = y + 24 * k;
+                const irr::f32 lx = x0 + (status[i].tone != 0 ? 14 * k : 0);
+                if (status[i].tone != 0) { station::lamp(driver, x0 + 4 * k, ly + lh * 0.5f, 7 * k, tc, &ic); }
+                for (size_t l = 0; l < lines[i].size(); l++, ly += lh) {
+                    f.strong->drawIn(lines[i][l], Rect(lx, ly, x1, ly + lh), tc, HudFont::Left, 1.0f * k, &ic);
+                }
+            }
+            y += heights[i];
+            //Dashed rule between readouts
+            if (i + 1 < status.size()) {
+                for (irr::f32 dx = in.UpperLeftCorner.X; dx < in.LowerRightCorner.X; dx += 6 * k) {
+                    station::hline(driver, dx, std::min(dx + 3 * k, in.LowerRightCorner.X), y - 1, col.rule, &ic);
+                }
+            }
+        }
+    }
+
+    //Explanation
+    if (detailBox.getHeight() > 40 * k) {
+        const irr::f32 need = station::boxHeaderHeight(k) + station::detailHeight(f, k, detailBox.getWidth(), title, help);
+        if (!frame.compact && need < detailBox.getHeight()) { detailBox.LowerRightCorner.Y = detailBox.UpperLeftCorner.Y + need; }
+        const Rect in = station::drawBox(driver, f, k, detailBox, L"D\u00E9tail", clip);
+        station::drawDetail(driver, f, k, in, title, help, clip);
     }
 }

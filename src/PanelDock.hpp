@@ -21,6 +21,8 @@ namespace bridge
     //Where the dock key sends the window next: centre -> right -> left -> centre (a dragged
     //window goes back to the centre)
     int nextPanelPlace(int place);
+    //The dock key's caption: where the window goes next ("A DROITE"...)
+    const wchar_t* dockCaption(int place);
 
     //The window's side of it: the key in its title bar and the drag by the title bar. The window
     //(ControlsPanel, WeatherPanel) passes its mouse events and draws the key; what a place means on
@@ -40,6 +42,7 @@ namespace bridge
         bool onMouse(irr::gui::IGUIElement* window, irr::gui::IGUIEnvironment* env, const irr::SEvent::SMouseInput& m,
             const irr::core::rect<irr::f32>& titleBar, const irr::core::rect<irr::f32>& key, const irr::core::rect<irr::f32>& closeBox);
         bool isDragging() const { return dragging; }
+        bool isHovered() const { return hover; }
 
     private:
         bool hover = false;

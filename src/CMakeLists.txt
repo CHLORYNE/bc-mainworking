@@ -80,6 +80,7 @@ set(BC_SOURCES
     GUIEngineLever.cpp
     GUIHelmLever.cpp
     PanelDock.cpp
+    StationUi.cpp
     RadarCalculation.cpp
     RadarScreen.cpp
     Rain.cpp

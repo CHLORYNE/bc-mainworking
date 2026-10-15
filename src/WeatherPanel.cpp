@@ -7,7 +7,6 @@
 
 #include "WeatherPanel.hpp"
 #include "SimulationModel.hpp"
-#include "BridgeSkin.hpp"
 #include "GUIPanelDraw.hpp"
 #include "launcher/HudText.hpp"
 
@@ -15,16 +14,21 @@
 #include <cwchar>
 #include <algorithm>
 
+using station::Rect;
+
 namespace
 {
-    //Pictures of the weather, drawn as shapes (they follow the palette and stay sharp at any size)
-    enum WxIcon {
-        WX_SUN = 0, WX_FEW, WX_CLOUDY, WX_OVERCAST, WX_RAIN_LIGHT, WX_RAIN, WX_FOG, WX_SNOW_LIGHT, WX_SNOW,
-        WX_THUNDER, WX_BLIZZARD, WX_DUST, WX_DUSTSTORM, WX_GALE, WX_STORM, WX_WIND, WX_GUST, WX_SEA, WX_CLOCK,
-        WX_FRONT, WX_COMPASS
-    };
-
-    const wchar_t* TAB_NAMES[4] = { L"PR\u00C9R\u00C9GLAGES", L"CONDITIONS", L"\u00C9VOLUTION", L"HEURE" };
+    const wchar_t* TAB_NAMES[6] = { L"Pr\u00E9r\u00E9glages", L"Vent & mer", L"Visibilit\u00E9 & pr\u00E9cip.", L"Courant", L"\u00C9volution", L"Heure & lumi\u00E8re" };
+    const wchar_t* TAB_GROUPS[6] = { L"Conditions", L"Conditions", L"Conditions", L"Conditions", L"Temps", L"Temps" };
+    const wchar_t* TAB_HELP[6] = {
+        L"Un clic choisit un pr\u00E9r\u00E9glage, un double-clic ou la touche APPLIQUER le met en place : ciel, vent, mer, visibilit\u00E9 et pluie d'un coup. "
+        L"La transition dit s'il s'installe tout de suite ou petit \u00E0 petit.",
+        L"Le ciel, le vent et la mer. Chaque curseur agit tout de suite.",
+        L"Ce qui r\u00E9duit la visibilit\u00E9 (brouillard, pluie, neige, sable) et les orages.",
+        L"Le courant : celui de la mar\u00E9e de la zone, ou un courant impos\u00E9 dont vous choisissez la direction et la vitesse.",
+        L"Comment le temps change pendant l'exercice : la dur\u00E9e du changement quand vous appliquez un pr\u00E9r\u00E9glage, et le passage d'une perturbation.",
+        L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit." };
+    const wchar_t* TRANSITION_NAMES[5] = { L"Imm\u00E9diate", L"1 min", L"5 min", L"15 min", L"30 min" };
     const irr::f32 TRANSITION_SECONDS[5] = { 0.0f, 60.0f, 300.0f, 900.0f, 1800.0f };
     const irr::f32 MOMENT_HOURS[6] = { 6.5f, 9.0f, 12.0f, 15.5f, 19.0f, 23.0f };
 
@@ -41,32 +45,29 @@ namespace
         return 1.0f - powf(x, 1.0f / 2.2f);
     }
 
-    irr::video::SColor mix(irr::video::SColor a, irr::video::SColor b, irr::f32 t)
+    //Visibility in nautical miles, or metres when under a mile
+    void visibilityText(irr::f32 nm, std::wstring& value, std::wstring& unit)
     {
-        return b.getInterpolated(a, irr::core::clamp(t, 0.0f, 1.0f));
+        wchar_t text[32];
+        if (nm >= 1.0f) { swprintf(text, 32, L"%.1f", nm); unit = L"NM"; }
+        else { swprintf(text, 32, L"%d", (int)(nm * 1852.0f / 10.0f + 0.5f) * 10); unit = L"m"; }
+        value = text;
     }
-    irr::video::SColor withAlpha(irr::video::SColor c, irr::u32 a)
+
+    int beaufort(irr::f32 kn)
     {
-        c.setAlpha(a);
-        return c;
+        const irr::f32 limits[12] = { 1, 4, 7, 11, 17, 22, 28, 34, 41, 48, 56, 64 };
+        int b = 0;
+        while (b < 12 && kn >= limits[b]) { b++; }
+        return b;
     }
-    irr::core::rect<irr::s32> toI(const irr::core::rect<irr::f32>& r)
+
+    std::wstring clockOf(irr::f32 hours)
     {
-        return irr::core::rect<irr::s32>((irr::s32)floorf(r.UpperLeftCorner.X + 0.5f), (irr::s32)floorf(r.UpperLeftCorner.Y + 0.5f),
-            (irr::s32)floorf(r.LowerRightCorner.X + 0.5f), (irr::s32)floorf(r.LowerRightCorner.Y + 0.5f));
-    }
-    //Rectangle clipped to another (draw2DRectangle takes a clip, PanelBatch does not)
-    void fill(irr::video::IVideoDriver* d, const irr::core::rect<irr::f32>& r, irr::video::SColor c, const irr::core::rect<irr::s32>* clip)
-    {
-        d->draw2DRectangle(c, toI(r), clip);
-    }
-    //Hairline frame round a rectangle
-    void outline(irr::video::IVideoDriver* d, const irr::core::rect<irr::s32>& r, irr::video::SColor c, const irr::core::rect<irr::s32>* clip)
-    {
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 1), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.LowerRightCorner.Y - 1, r.LowerRightCorner.X, r.LowerRightCorner.Y), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + 1, r.LowerRightCorner.Y), clip);
-        d->draw2DRectangle(c, irr::core::rect<irr::s32>(r.LowerRightCorner.X - 1, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y), clip);
+        const int minutes = ((int)(hours * 60.0f + 0.5f)) % (24 * 60);
+        wchar_t text[8];
+        swprintf(text, 8, L"%02d:%02d", minutes / 60, minutes % 60);
+        return text;
     }
 }
 
@@ -75,18 +76,26 @@ namespace
 WeatherPanel::WeatherPanel(irr::gui::IGUIEnvironment* environment, irr::gui::IGUIElement* parent, SimulationModel* simulation,
     const irr::core::rect<irr::s32>& area)
     : IGUIElement(irr::gui::EGUIET_ELEMENT, environment, parent, -1, area),
-    model(simulation), timeBox(0), tab(TAB_PRESETS), hoveredRow(-1), selectedRow(-1), draggedRow(-1),
-    hoveredPreset(-1), chosenPreset(-1), hoveredTab(-1), hoveredClose(false), transitionIndex(0), k(1.0f)
+    model(simulation), timeBox(0), tab(TAB_PRESETS), hoveredRow(-1), selectedRow(-1), draggedRow(-1), hoveredSeg(-1),
+    hoveredPreset(-1), selectedPreset(0), chosenPreset(-1), hoveredKey(-1), transitionIndex(0)
 {
     for (int i = 0; i < TAB_COUNT; i++) { scroll[i] = 0; }
     buildRows();
     buildPresets();
+    frame.code = L"MTO 02";
+    frame.title = L"Pupitre instructeur";
+    frame.subtitle = L"M\u00E9t\u00E9o & environnement";
+    for (int i = 0; i < TAB_COUNT; i++) {
+        station::Frame::Page page;
+        page.name = TAB_NAMES[i];
+        page.group = TAB_GROUPS[i];
+        frame.pages.push_back(page);
+    }
     setVisible(false);
 }
 
 WeatherPanel::~WeatherPanel()
 {
-    freeFonts();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -96,106 +105,110 @@ WeatherPanel::~WeatherPanel()
 void WeatherPanel::buildRows()
 {
     auto section = [](const wchar_t* text) {
-        Row r; r.kind = ROW_SECTION; r.param = P_NONE; r.label = text; r.minValue = r.maxValue = r.step = 0; r.icon = -1;
+        Row r; r.kind = ROW_SECTION; r.param = P_NONE; r.label = text; r.minValue = r.maxValue = r.step = 0;
         return r;
     };
-    auto slider = [](Param p, const wchar_t* label, const wchar_t* title, const wchar_t* help, irr::f32 lo, irr::f32 hi, irr::f32 step, int icon) {
+    auto slider = [](Param p, const wchar_t* label, const wchar_t* title, const wchar_t* help, irr::f32 lo, irr::f32 hi, irr::f32 step) {
         Row r; r.kind = ROW_SLIDER; r.param = p; r.label = label; r.title = title; r.help = help;
-        r.minValue = lo; r.maxValue = hi; r.step = step; r.icon = icon;
+        r.minValue = lo; r.maxValue = hi; r.step = step;
         return r;
     };
-    auto choice = [](Param p, const wchar_t* label, const wchar_t* title, const wchar_t* help, std::vector<std::wstring> options, int icon) {
+    auto choice = [](Param p, const wchar_t* label, const wchar_t* title, const wchar_t* help, std::vector<std::wstring> options) {
         Row r; r.kind = ROW_CHOICE; r.param = p; r.label = label; r.title = title; r.help = help;
-        r.minValue = 0; r.maxValue = (irr::f32)options.size() - 1; r.step = 1; r.choices = options; r.icon = icon;
+        r.minValue = 0; r.maxValue = (irr::f32)options.size() - 1; r.step = 1; r.choices = options;
         return r;
     };
 
-    std::vector<Row>& c = rows[TAB_CONDITIONS];
-    c.push_back(section(L"CIEL"));
-    c.push_back(slider(P_CLOUD, L"Couverture nuageuse [%]", L"Couverture nuageuse",
-        L"La quantit\u00E9 de nuages : 0 % = ciel bleu, 100 % = ciel tout gris. Plus il y a de nuages, plus il fait sombre.", 0, 100, 1, WX_OVERCAST));
-    c.push_back(section(L"VENT"));
-    c.push_back(slider(P_WIND, L"Vent [n\u0153uds]", L"Vent moyen",
-        L"La force du vent, en n\u0153uds. Le vent pousse le navire et fait grossir les vagues.", 0, 70, 1, WX_WIND));
-    c.push_back(slider(P_WINDDIR, L"Direction du vent [\u00B0]", L"Direction du vent",
-        L"D'o\u00F9 vient le vent, en degr\u00E9s. Exemple : 000 = vent du nord, 090 = vent d'est.", 0, 359, 1, WX_COMPASS));
-    c.push_back(slider(P_WINDVAR, L"Variation de direction [\u00B0]", L"Variation de direction",
-        L"Le vent ne souffle jamais exactement de la m\u00EAme direction. Ce r\u00E9glage dit de combien de degr\u00E9s il peut tourner, \u00E0 gauche et \u00E0 droite.", 0, 90, 1, WX_COMPASS));
-    c.push_back(slider(P_GUST, L"Rafales [n\u0153uds]", L"Rafales",
-        L"Des coups de vent plus forts, par moments. Exemple : vent 15 n\u0153uds et rafales 10 n\u0153uds = des pointes \u00E0 25 n\u0153uds.", 0, 40, 1, WX_GUST));
-    c.push_back(section(L"MER"));
-    c.push_back(slider(P_SEA, L"\u00C9tat de la mer", L"\u00C9tat de la mer",
-        L"La hauteur des vagues : 0 = mer plate, 6 = mer tr\u00E8s grosse.", 0, 6, 0.1f, WX_SEA));
-    c.push_back(section(L"COURANT"));
+    std::vector<Row>& w = rows[TAB_WIND];
+    w.push_back(section(L"Ciel"));
+    w.push_back(slider(P_CLOUD, L"Couverture nuageuse", L"Couverture nuageuse",
+        L"La quantit\u00E9 de nuages : 0 % = ciel bleu, 100 % = ciel tout gris. Plus il y a de nuages, plus il fait sombre.", 0, 100, 1));
+    w.push_back(section(L"Vent"));
+    w.push_back(slider(P_WIND, L"Vent moyen", L"Vent moyen",
+        L"La force du vent, en n\u0153uds. Le vent pousse le navire et fait grossir les vagues.", 0, 70, 1));
+    w.push_back(slider(P_WINDDIR, L"Direction du vent", L"Direction du vent",
+        L"D'o\u00F9 vient le vent, en degr\u00E9s. Exemple : 000 = vent du nord, 090 = vent d'est.", 0, 359, 1));
+    w.push_back(slider(P_WINDVAR, L"Variation de direction", L"Variation de direction",
+        L"Le vent ne souffle jamais exactement de la m\u00EAme direction. Ce r\u00E9glage dit de combien de degr\u00E9s il peut tourner, \u00E0 gauche et \u00E0 droite.", 0, 90, 1));
+    w.push_back(slider(P_GUST, L"Rafales", L"Rafales",
+        L"Des coups de vent plus forts, par moments. Exemple : vent 15 n\u0153uds et rafales 10 n\u0153uds = des pointes \u00E0 25 n\u0153uds.", 0, 40, 1));
+    w.push_back(section(L"Mer"));
+    w.push_back(slider(P_SEA, L"\u00C9tat de la mer", L"\u00C9tat de la mer",
+        L"La hauteur des vagues : 0 = mer plate, 6 = mer tr\u00E8s grosse.", 0, 6, 0.1f));
+
+    std::vector<Row>& v = rows[TAB_VISIBILITY];
+    v.push_back(section(L"Visibilit\u00E9 et pr\u00E9cipitations"));
+    v.push_back(slider(P_FOG, L"Brouillard", L"Brouillard",
+        L"Plus le chiffre est haut, moins on voit loin. 0 % : on voit \u00E0 plus de 10 milles. 100 % : on ne voit pas \u00E0 100 m\u00E8tres.", 0, 100, 1));
+    v.push_back(slider(P_RAIN, L"Pluie", L"Pluie",
+        L"La quantit\u00E9 de pluie, de la bruine \u00E0 la grosse averse. La pluie se voit aussi sur l'\u00E9cran radar.", 0, 100, 1));
+    v.push_back(slider(P_SNOW, L"Neige", L"Neige",
+        L"La quantit\u00E9 de neige. Plus il neige, moins on voit loin.", 0, 100, 1));
+    v.push_back(slider(P_DUST, L"Sable / poussi\u00E8re", L"Sable et poussi\u00E8re",
+        L"Du sable ou de la poussi\u00E8re dans l'air, couleur ocre. Plus le chiffre est haut, moins on voit loin.", 0, 100, 1));
+    v.push_back(section(L"Orage et grains"));
+    v.push_back(choice(P_SIGWX, L"Orage et grains", L"Orage et grains",
+        L"Auto : l'orage arrive tout seul quand la mer devient grosse. Aucun : jamais d'orage. Orage : tonnerre et \u00E9clairs tout de suite. Grains : toutes les 5 minutes, un coup de vent avec une averse pendant 1 minute 30.",
+        { L"Auto", L"Aucun", L"Orage", L"Grains" }));
+    v.push_back(choice(P_THUNDER, L"Tonnerre", L"Tonnerre",
+        L"Le bruit du tonnerre pendant l'orage. Non = orage sans bruit.", { L"Non", L"Oui" }));
+    v.push_back(choice(P_LIGHTNING, L"\u00C9clairs", L"\u00C9clairs",
+        L"Les \u00E9clairs dans le ciel pendant l'orage. Non = orage sans \u00E9clairs.", { L"Non", L"Oui" }));
+
+    std::vector<Row>& c = rows[TAB_CURRENT];
+    c.push_back(section(L"Courant"));
     c.push_back(choice(P_STREAM_MODE, L"Courant", L"Courant",
         L"Mar\u00E9e de la zone : le courant normal de la carte. Impos\u00E9 : vous choisissez vous-m\u00EAme la direction et la vitesse du courant, avec les r\u00E9glages ci-dessous.",
-        { L"Mar\u00E9e de la zone", L"Impos\u00E9" }, WX_SEA));
-    c.push_back(slider(P_STREAM_DIR, L"Direction du courant [\u00B0]", L"Direction du courant",
-        L"Vers o\u00F9 le courant emporte le navire, en degr\u00E9s. Attention : c'est l'inverse du vent, qu'on donne d'o\u00F9 il vient.", 0, 359, 1, WX_COMPASS));
-    c.push_back(slider(P_STREAM_SPEED, L"Vitesse du courant [n\u0153uds]", L"Vitesse du courant",
-        L"La vitesse du courant, en n\u0153uds.", 0, 10, 0.1f, WX_SEA));
-    c.push_back(section(L"VISIBILIT\u00C9 ET PR\u00C9CIPITATIONS"));
-    c.push_back(slider(P_FOG, L"Brouillard [%]", L"Brouillard",
-        L"Plus le chiffre est haut, moins on voit loin. 0 % : on voit \u00E0 plus de 10 milles. 100 % : on ne voit pas \u00E0 100 m\u00E8tres.", 0, 100, 1, WX_FOG));
-    c.push_back(slider(P_RAIN, L"Pluie [%]", L"Pluie",
-        L"La quantit\u00E9 de pluie, de la bruine \u00E0 la grosse averse. La pluie se voit aussi sur l'\u00E9cran radar.", 0, 100, 1, WX_RAIN));
-    c.push_back(slider(P_SNOW, L"Neige [%]", L"Neige",
-        L"La quantit\u00E9 de neige. Plus il neige, moins on voit loin.", 0, 100, 1, WX_SNOW));
-    c.push_back(slider(P_DUST, L"Sable / poussi\u00E8re [%]", L"Sable et poussi\u00E8re",
-        L"Du sable ou de la poussi\u00E8re dans l'air, couleur ocre. Plus le chiffre est haut, moins on voit loin.", 0, 100, 1, WX_DUST));
-    c.push_back(section(L"ORAGE ET GRAINS"));
-    c.push_back(choice(P_SIGWX, L"Orage et grains", L"Orage et grains",
-        L"Auto : l'orage arrive tout seul quand la mer devient grosse. Aucun : jamais d'orage. Orage : tonnerre et \u00E9clairs tout de suite. Grains : toutes les 5 minutes, un coup de vent avec une averse pendant 1 minute 30.",
-        { L"Auto", L"Aucun", L"Orage", L"Grains" }, WX_THUNDER));
-    c.push_back(choice(P_THUNDER, L"Tonnerre", L"Tonnerre",
-        L"Le bruit du tonnerre pendant l'orage. Non = orage sans bruit.", { L"Non", L"Oui" }, WX_THUNDER));
-    c.push_back(choice(P_LIGHTNING, L"\u00C9clairs", L"\u00C9clairs",
-        L"Les \u00E9clairs dans le ciel pendant l'orage. Non = orage sans \u00E9clairs.", { L"Non", L"Oui" }, WX_THUNDER));
+        { L"Mar\u00E9e de la zone", L"Impos\u00E9" }));
+    c.push_back(slider(P_STREAM_DIR, L"Direction du courant", L"Direction du courant",
+        L"Vers o\u00F9 le courant emporte le navire, en degr\u00E9s. Attention : c'est l'inverse du vent, qu'on donne d'o\u00F9 il vient.", 0, 359, 1));
+    c.push_back(slider(P_STREAM_SPEED, L"Vitesse du courant", L"Vitesse du courant",
+        L"La vitesse du courant, en n\u0153uds.", 0, 10, 0.1f));
 
     std::vector<Row>& e = rows[TAB_EVOLUTION];
-    e.push_back(section(L"PR\u00C9R\u00C9GLAGES"));
-    e.push_back(choice(P_TRANSITION, L"Dur\u00E9e du changement de temps", L"Dur\u00E9e du changement",
-        L"Quand vous choisissez un pr\u00E9r\u00E9glage, le temps change tout de suite (Imm\u00E9diat), ou petit \u00E0 petit pendant la dur\u00E9e choisie.",
-        { L"Imm\u00E9diat", L"1 minute", L"5 minutes", L"15 minutes", L"30 minutes" }, WX_CLOCK));
-    e.push_back(section(L"PERTURBATION"));
+    e.push_back(section(L"Pr\u00E9r\u00E9glages"));
+    e.push_back(choice(P_TRANSITION, L"Dur\u00E9e de transition", L"Dur\u00E9e de transition",
+        L"Quand vous appliquez un pr\u00E9r\u00E9glage, le temps change tout de suite (imm\u00E9diate), ou petit \u00E0 petit pendant la dur\u00E9e choisie.",
+        { TRANSITION_NAMES[0], TRANSITION_NAMES[1], TRANSITION_NAMES[2], TRANSITION_NAMES[3], TRANSITION_NAMES[4] }));
+    e.push_back(section(L"Perturbation"));
     e.push_back(choice(P_FRONT, L"Perturbation", L"Perturbation",
         L"Le mauvais temps arrive, puis repart tout seul. D'abord le vent forcit et tourne, la pluie arrive, la mer grossit et on voit moins loin. Ensuite tout redevient comme avant. Lente : environ 1 heure en tout. Rapide : environ 20 minutes.",
-        { L"Aucune", L"Lente", L"Rapide" }, WX_FRONT));
+        { L"Aucune", L"Lente", L"Rapide" }));
 
     std::vector<Row>& t = rows[TAB_TIME];
-    t.push_back(section(L"\u00C9CLAIRAGE"));
-    t.push_back(slider(P_HOUR, L"Heure [h]", L"Heure de l'\u00E9clairage",
-        L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit. Seule la lumi\u00E8re change : l'horloge, les autres navires et la mar\u00E9e de l'exercice ne bougent pas.", 0, 24, 0.25f, WX_CLOCK));
+    t.push_back(section(L"\u00C9clairage"));
+    t.push_back(slider(P_HOUR, L"Heure", L"Heure de l'\u00E9clairage",
+        L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit. Seule la lumi\u00E8re change : l'horloge, les autres navires et la mar\u00E9e de l'exercice ne bougent pas.", 0, 24, 0.25f));
     t.push_back(choice(P_MOMENT, L"Moment de la journ\u00E9e", L"Moment de la journ\u00E9e",
         L"Choix rapide de l'heure : aube, matin, midi, apr\u00E8s-midi, cr\u00E9puscule ou nuit.",
-        { L"Aube", L"Matin", L"Midi", L"Apr\u00E8s-midi", L"Cr\u00E9puscule", L"Nuit" }, WX_SUN));
+        { L"Aube", L"Matin", L"Midi", L"Apr\u00E8s-midi", L"Cr\u00E9puscule", L"Nuit" }));
 }
 
 void WeatherPanel::buildPresets()
 {
-    //name, help, icon, cloud, wind, variation, gusts, visibility, rain, snow, dust, sea, significant
-    auto add = [&](const wchar_t* name, const wchar_t* help, int icon, irr::f32 cloud, irr::f32 wind, irr::f32 variation, irr::f32 gusts,
+    //name, help, cloud, wind, variation, gusts, visibility, rain, snow, dust, sea, significant
+    auto add = [&](const wchar_t* name, const wchar_t* help, irr::f32 cloud, irr::f32 wind, irr::f32 variation, irr::f32 gusts,
         irr::f32 visibility, irr::f32 rain, irr::f32 snow, irr::f32 dust, irr::f32 sea, int significant) {
         Preset p;
-        p.name = name; p.help = help; p.icon = icon; p.cloud = cloud; p.windKn = wind; p.windVariation = variation; p.gustKn = gusts;
+        p.name = name; p.help = help; p.cloud = cloud; p.windKn = wind; p.windVariation = variation; p.gustKn = gusts;
         p.visibilityNm = visibility; p.rain = rain; p.snow = snow; p.dust = dust; p.sea = sea; p.significant = significant;
         presets.push_back(p);
     };
-    add(L"Clair", L"Ciel d\u00E9gag\u00E9, petite brise, mer belle. Visibilit\u00E9 excellente.", WX_SUN, 0.0f, 6, 10, 2, 12, 0, 0, 0, 0.5f, 1);
-    add(L"Peu nuageux", L"Quelques nuages, brise l\u00E9g\u00E8re, mer peu agit\u00E9e.", WX_FEW, 0.25f, 9, 12, 3, 10, 0, 0, 0, 1.0f, 1);
-    add(L"Nuageux", L"Ciel nuageux, jolie brise, bonne visibilit\u00E9.", WX_CLOUDY, 0.55f, 13, 15, 5, 8, 0, 0, 0, 1.5f, 1);
-    add(L"Couvert", L"Ciel couvert et gris, bonne brise, mer agit\u00E9e.", WX_OVERCAST, 0.9f, 16, 15, 6, 6, 0, 0, 0, 2.0f, 1);
-    add(L"Pluie faible", L"Ciel couvert, bruine et pluie fine, visibilit\u00E9 moyenne.", WX_RAIN_LIGHT, 0.85f, 13, 15, 6, 4, 2.5f, 0, 0, 1.8f, 1);
-    add(L"Pluie", L"Pluie soutenue, vent frais, visibilit\u00E9 r\u00E9duite.", WX_RAIN, 1.0f, 19, 20, 8, 2.5f, 6, 0, 0, 2.5f, 1);
-    add(L"Brouillard", L"Brouillard \u00E9pais, vent faible, mer calme. Navigation au radar.", WX_FOG, 0.7f, 3, 20, 0, 0.12f, 0, 0, 0, 0.5f, 1);
-    add(L"Neige faible", L"Quelques flocons, ciel couvert, petit vent.", WX_SNOW_LIGHT, 0.85f, 8, 15, 4, 4, 0, 0.3f, 0, 1.2f, 1);
-    add(L"Neige", L"Neige soutenue, visibilit\u00E9 r\u00E9duite.", WX_SNOW, 1.0f, 14, 20, 6, 2, 0, 0.75f, 0, 2.0f, 1);
-    add(L"Orage", L"Orage : pluie forte, rafales, tonnerre et \u00E9clairs.", WX_THUNDER, 1.0f, 26, 30, 15, 2, 8, 0, 0, 3.5f, 2);
-    add(L"Blizzard", L"Temp\u00EAte de neige : vent fort, neige \u00E9paisse, visibilit\u00E9 presque nulle.", WX_BLIZZARD, 1.0f, 40, 30, 15, 0.3f, 0, 1.0f, 0, 4.0f, 1);
-    add(L"Sable / poussi\u00E8re", L"Brume de sable couleur ocre, on voit moins loin.", WX_DUST, 0.3f, 16, 20, 6, 3, 0, 0, 0.45f, 1.5f, 1);
-    add(L"Temp\u00EAte de sable", L"Vent fort charg\u00E9 de sable, visibilit\u00E9 tr\u00E8s r\u00E9duite.", WX_DUSTSTORM, 0.6f, 35, 30, 12, 0.3f, 0, 0, 1.0f, 3.0f, 1);
-    add(L"Coup de vent", L"Coup de vent : mer forte, embruns, rafales.", WX_GALE, 0.8f, 38, 20, 12, 5, 2, 0, 0, 4.5f, 1);
-    add(L"Temp\u00EAte", L"Temp\u00EAte : mer tr\u00E8s grosse, pluie, orage, visibilit\u00E9 r\u00E9duite.", WX_STORM, 1.0f, 55, 30, 18, 1.5f, 7, 0, 0, 6.0f, 2);
+    add(L"Clair", L"Ciel d\u00E9gag\u00E9, petite brise, mer belle. Visibilit\u00E9 excellente.", 0.0f, 6, 10, 2, 12, 0, 0, 0, 0.5f, 1);
+    add(L"Peu nuageux", L"Quelques nuages, brise l\u00E9g\u00E8re, mer peu agit\u00E9e.", 0.25f, 9, 12, 3, 10, 0, 0, 0, 1.0f, 1);
+    add(L"Nuageux", L"Ciel nuageux, jolie brise, bonne visibilit\u00E9.", 0.55f, 13, 15, 5, 8, 0, 0, 0, 1.5f, 1);
+    add(L"Couvert", L"Ciel couvert et gris, bonne brise, mer agit\u00E9e.", 0.9f, 16, 15, 6, 6, 0, 0, 0, 2.0f, 1);
+    add(L"Pluie faible", L"Ciel couvert, bruine et pluie fine, visibilit\u00E9 moyenne.", 0.85f, 13, 15, 6, 4, 2.5f, 0, 0, 1.8f, 1);
+    add(L"Pluie", L"Pluie soutenue, vent frais, visibilit\u00E9 r\u00E9duite.", 1.0f, 19, 20, 8, 2.5f, 6, 0, 0, 2.5f, 1);
+    add(L"Brouillard", L"Brouillard \u00E9pais, vent faible, mer calme. Navigation au radar.", 0.7f, 3, 20, 0, 0.12f, 0, 0, 0, 0.5f, 1);
+    add(L"Neige faible", L"Quelques flocons, ciel couvert, petit vent.", 0.85f, 8, 15, 4, 4, 0, 0.3f, 0, 1.2f, 1);
+    add(L"Neige", L"Neige soutenue, visibilit\u00E9 r\u00E9duite.", 1.0f, 14, 20, 6, 2, 0, 0.75f, 0, 2.0f, 1);
+    add(L"Orage", L"Orage : pluie forte, rafales, tonnerre et \u00E9clairs.", 1.0f, 26, 30, 15, 2, 8, 0, 0, 3.5f, 2);
+    add(L"Blizzard", L"Temp\u00EAte de neige : vent fort, neige \u00E9paisse, visibilit\u00E9 presque nulle.", 1.0f, 40, 30, 15, 0.3f, 0, 1.0f, 0, 4.0f, 1);
+    add(L"Sable / poussi\u00E8re", L"Brume de sable couleur ocre, on voit moins loin.", 0.3f, 16, 20, 6, 3, 0, 0, 0.45f, 1.5f, 1);
+    add(L"Temp\u00EAte de sable", L"Vent fort charg\u00E9 de sable, visibilit\u00E9 tr\u00E8s r\u00E9duite.", 0.6f, 35, 30, 12, 0.3f, 0, 0, 1.0f, 3.0f, 1);
+    add(L"Coup de vent", L"Coup de vent : mer forte, embruns, rafales.", 0.8f, 38, 20, 12, 5, 2, 0, 0, 4.5f, 1);
+    add(L"Temp\u00EAte", L"Temp\u00EAte : mer tr\u00E8s grosse, pluie, orage, visibilit\u00E9 r\u00E9duite.", 1.0f, 55, 30, 18, 1.5f, 7, 0, 0, 6.0f, 2);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -242,12 +255,7 @@ void WeatherPanel::setValue(Param p, irr::f32 v)
     case P_STREAM_SPEED: model->setStreamOverrideSpeed(v); model->setStreamOverride(true); return;
     case P_HOUR:
         model->setLightingTimeOfDay(v);
-        if (timeBox) {
-            const int minutes = ((int)(v * 60.0f + 0.5f)) % (24 * 60);
-            wchar_t text[8];
-            swprintf(text, 8, L"%02d:%02d", minutes / 60, minutes % 60);
-            timeBox->setText(text);
-        }
+        if (timeBox) { timeBox->setText(clockOf(v).c_str()); }
         break;
     default: break;
     }
@@ -307,14 +315,20 @@ std::wstring WeatherPanel::valueText(const Row& row) const
         swprintf(text, 48, L"\u00B1%d\u00B0", (int)(v + 0.5f)); break;
     case P_SEA:
         swprintf(text, 48, L"%.1f", v); break;
-    case P_HOUR: {
-        const int minutes = ((int)(v * 60.0f + 0.5f)) % (24 * 60);
-        swprintf(text, 48, L"%02d:%02d", minutes / 60, minutes % 60);
-        break;
-    }
+    case P_HOUR:
+        return clockOf(v);
     default: text[0] = 0; break;
     }
     return text;
+}
+
+std::wstring WeatherPanel::stateText(const Row& row) const
+{
+    if (row.kind == ROW_SLIDER) { return valueText(row); }
+    if (row.kind == ROW_CHOICE && !row.choices.empty()) {
+        return row.choices[irr::core::clamp(choiceIndex(row.param), 0, (int)row.choices.size() - 1)];
+    }
+    return std::wstring();
 }
 
 irr::f32 WeatherPanel::transitionSeconds() const
@@ -339,36 +353,23 @@ void WeatherPanel::applyPreset(int index)
     model->setWeatherState(s, transitionSeconds());
     model->setSignificantWeather(p.significant);
     chosenPreset = index;
+    recordAction(L"Pr\u00E9r\u00E9glage", p.name + L" (" + TRANSITION_NAMES[irr::core::clamp(transitionIndex, 0, 4)] + L")");
+}
+
+void WeatherPanel::recordAction(const std::wstring& what, const std::wstring& v)
+{
+    lastAction = what + L" \u00BB " + v;
+    if (model) {
+        const int secs = (int)model->getExerciseLog().elapsedSeconds();
+        wchar_t buf[32];
+        swprintf(buf, 32, L"  \u00B7  T+ %02d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60);
+        lastAction += buf;
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
 //Layout
 //-------------------------------------------------------------------------------------------------
-
-void WeatherPanel::loadFonts()
-{
-    freeFonts();
-    irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    irr::gui::IGUIFont* fallback = Environment->getSkin() ? Environment->getSkin()->getFont() : 0;
-    const std::string folder = "media/fonts/barlow-condensed/";
-    fonts.title = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 34 * k, fallback);
-    fonts.tab = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 20 * k, fallback);
-    fonts.label = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 21 * k, fallback);
-    fonts.value = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 20 * k, fallback);
-    fonts.section = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 16 * k, fallback);
-    fonts.infoTitle = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 30 * k, fallback);
-    fonts.infoText = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 21 * k, fallback);
-    fonts.caption = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 18 * k, fallback);
-}
-
-void WeatherPanel::freeFonts()
-{
-    HudFont** all[] = { &fonts.title, &fonts.tab, &fonts.label, &fonts.value, &fonts.section, &fonts.infoTitle, &fonts.infoText, &fonts.caption };
-    for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
-        delete *all[i];
-        *all[i] = 0;
-    }
-}
 
 void WeatherPanel::updateAbsolutePosition()
 {
@@ -379,58 +380,16 @@ void WeatherPanel::updateAbsolutePosition()
 void WeatherPanel::layout()
 {
     laidOutRect = AbsoluteRect;
-    const irr::core::rect<irr::f32> r((irr::f32)AbsoluteRect.UpperLeftCorner.X, (irr::f32)AbsoluteRect.UpperLeftCorner.Y,
-        (irr::f32)AbsoluteRect.LowerRightCorner.X, (irr::f32)AbsoluteRect.LowerRightCorner.Y);
-    const irr::f32 W = r.getWidth(), H = r.getHeight();
-    if (W < 10 || H < 10) { return; }
-    compact = W < H * 1.15f;
-    const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 760.0f, W / 560.0f), 0.6f, 2.0f)
-                                  : irr::core::clamp(std::min(H / 720.0f, W / 1200.0f), 0.6f, 2.0f);
-    if (fabsf(newK - k) > 0.01f || !fonts.title) {
-        k = newK;
-        loadFonts();
-    }
-    const irr::f32 pad = (compact ? 14 : 22) * k;
-    header = irr::core::rect<irr::f32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 62 * k);
-    tabsBar = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, header.LowerRightCorner.Y, r.LowerRightCorner.X - pad, header.LowerRightCorner.Y + 40 * k);
-    const irr::f32 bodyTop = tabsBar.LowerRightCorner.Y + 18 * k;
-    const irr::f32 bodyBottom = r.LowerRightCorner.Y - pad;
-    if (compact) {
-        //Docked to a side: the list on top, its explanation card underneath
-        const irr::f32 listH = (bodyBottom - bodyTop - pad) * 0.62f;
-        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyTop + listH);
-        info = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, list.LowerRightCorner.Y + pad, r.LowerRightCorner.X - pad, bodyBottom);
-    }
-    else {
-        const irr::f32 listW = (W - 3 * pad) * 0.6f;
-        list = irr::core::rect<irr::f32>(r.UpperLeftCorner.X + pad, bodyTop, r.UpperLeftCorner.X + pad + listW, bodyBottom);
-        info = irr::core::rect<irr::f32>(list.LowerRightCorner.X + pad, bodyTop, r.LowerRightCorner.X - pad, bodyBottom);
-    }
-    const irr::f32 tileSide = std::min(info.getWidth() * 0.62f, info.getHeight() * 0.42f);
-    const irr::f32 tileTop = info.UpperLeftCorner.Y + std::min(170 * k, info.getHeight() * 0.36f);
-    tile = irr::core::rect<irr::f32>(info.UpperLeftCorner.X, tileTop, info.UpperLeftCorner.X + tileSide, tileTop + tileSide);
-    for (int i = 0; i < TAB_COUNT; i++) { clampScroll(); }
+    frame.layout(Environment, AbsoluteRect, 370, 330);
+    clampScroll();
 }
 
-irr::core::rect<irr::f32> WeatherPanel::tabRect(int t) const
+Rect WeatherPanel::content() const
 {
-    const irr::f32 gap = 6 * k;
-    const irr::f32 w = std::min(168 * k, (tabsBar.getWidth() - (TAB_COUNT - 1) * gap) / TAB_COUNT);
-    const irr::f32 total = TAB_COUNT * w + (TAB_COUNT - 1) * gap;
-    const irr::f32 x0 = (tabsBar.UpperLeftCorner.X + tabsBar.LowerRightCorner.X) * 0.5f - total * 0.5f + t * (w + gap);
-    return irr::core::rect<irr::f32>(x0, tabsBar.UpperLeftCorner.Y, x0 + w, tabsBar.LowerRightCorner.Y);
-}
-
-irr::core::rect<irr::f32> WeatherPanel::dockRect() const
-{
-    return dock.keyRect(closeRect(), fonts.caption, k);
-}
-
-irr::core::rect<irr::f32> WeatherPanel::closeRect() const
-{
-    const irr::f32 s = 34 * k;
-    const irr::f32 x1 = header.LowerRightCorner.X - 16 * k, y0 = header.UpperLeftCorner.Y + (header.getHeight() - s) * 0.5f;
-    return irr::core::rect<irr::f32>(x1 - s, y0, x1, y0 + s);
+    const irr::f32 k = frame.k;
+    const irr::f32 pad = (frame.compact ? 10 : 16) * k;
+    return Rect(frame.main.UpperLeftCorner.X + pad, frame.main.UpperLeftCorner.Y + 4 * k,
+        frame.main.LowerRightCorner.X - pad, frame.main.LowerRightCorner.Y - 6 * k);
 }
 
 const std::vector<WeatherPanel::Row>& WeatherPanel::rowsOfTab() const
@@ -438,72 +397,87 @@ const std::vector<WeatherPanel::Row>& WeatherPanel::rowsOfTab() const
     return rows[tab];
 }
 
-irr::core::rect<irr::f32> WeatherPanel::rowRect(int index) const
+irr::f32 WeatherPanel::rowHeight(const Row& row) const
+{
+    (void)row;
+    return floorf(34 * frame.k);
+}
+
+Rect WeatherPanel::rowRect(int index) const
 {
     const std::vector<Row>& rs = rowsOfTab();
-    irr::f32 y = list.UpperLeftCorner.Y - scroll[tab];
-    for (int i = 0; i < index && i < (int)rs.size(); i++) {
-        y += (rs[i].kind == ROW_SECTION ? 30 * k : 40 * k) + 4 * k;
-    }
-    const irr::f32 h = (index < (int)rs.size() && rs[index].kind == ROW_SECTION) ? 30 * k : 40 * k;
-    return irr::core::rect<irr::f32>(list.UpperLeftCorner.X, y, list.LowerRightCorner.X - 14 * k, y + h);
+    const Rect area = content();
+    irr::f32 y = area.UpperLeftCorner.Y - scroll[tab];
+    for (int i = 0; i < index && i < (int)rs.size(); i++) { y += rowHeight(rs[i]); }
+    return Rect(area.UpperLeftCorner.X, y, area.LowerRightCorner.X - 8 * frame.k, y + floorf(34 * frame.k));
 }
 
-irr::core::rect<irr::f32> WeatherPanel::sliderTrack(const irr::core::rect<irr::f32>& row) const
+WeatherPanel::Cells WeatherPanel::cells(const Rect& r) const
 {
-    const irr::f32 cellX = row.UpperLeftCorner.X + row.getWidth() * 0.56f + 4 * k;
-    const irr::f32 x0 = cellX + 78 * k, x1 = row.LowerRightCorner.X - 18 * k;
-    const irr::f32 cy = row.getCenter().Y;
-    return irr::core::rect<irr::f32>(x0, cy - 3 * k, x1, cy + 3 * k);
+    const irr::f32 k = frame.k;
+    Cells c;
+    const irr::f32 W = r.getWidth();
+    const irr::f32 labelW = W * (frame.compact ? 0.38f : 0.30f);
+    const irr::f32 stateW = frame.compact ? 0 : W * 0.21f;
+    c.label = Rect(r.UpperLeftCorner.X + 12 * k, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW - 6 * k, r.LowerRightCorner.Y);
+    c.state = Rect(r.UpperLeftCorner.X + labelW, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW + stateW, r.LowerRightCorner.Y);
+    c.control = Rect(r.UpperLeftCorner.X + labelW + stateW, r.UpperLeftCorner.Y, r.LowerRightCorner.X - 4 * k, r.LowerRightCorner.Y);
+    return c;
 }
 
-irr::core::rect<irr::f32> WeatherPanel::presetRect(int index) const
+bool WeatherPanel::usesSegments(const Row& row, const Cells& c) const
 {
-    const int columns = list.getWidth() > 620 * k ? 4 : 3;
-    const irr::f32 gap = 14 * k;
-    const irr::f32 w = (list.getWidth() - 14 * k - (columns - 1) * gap) / columns;
-    const irr::f32 h = 30 * k + w * 0.78f;
-    const int col = index % columns, row = index / columns;
-    const irr::f32 x = list.UpperLeftCorner.X + col * (w + gap);
-    const irr::f32 y = list.UpperLeftCorner.Y - scroll[TAB_PRESETS] + row * (h + gap);
-    return irr::core::rect<irr::f32>(x, y, x + w, y + h);
+    return row.kind == ROW_CHOICE && row.choices.size() >= 2 && row.choices.size() <= 6 &&
+        station::segmentsFit(frame.fonts, frame.k, row.choices, c.control.getWidth());
 }
 
-irr::f32 WeatherPanel::contentHeight() const
+std::vector<Rect> WeatherPanel::segmentRects(const Row& row, const Rect& r) const
 {
-    if (tab == TAB_PRESETS) {
-        if (presets.empty()) { return 0; }
-        const irr::core::rect<irr::f32> last = presetRect((int)presets.size() - 1);
-        return last.LowerRightCorner.Y + scroll[TAB_PRESETS] - list.UpperLeftCorner.Y;
-    }
-    const std::vector<Row>& rs = rowsOfTab();
-    if (rs.empty()) { return 0; }
-    const irr::core::rect<irr::f32> last = rowRect((int)rs.size() - 1);
-    return last.LowerRightCorner.Y + scroll[tab] - list.UpperLeftCorner.Y;
+    const Cells c = cells(r);
+    if (!usesSegments(row, c)) { return std::vector<Rect>(); }
+    return station::layoutSegments(frame.fonts, frame.k, row.choices, c.control, station::ALIGN_RIGHT, 24 * frame.k);
 }
 
-void WeatherPanel::clampScroll()
+Rect WeatherPanel::stepperRect(const Cells& c) const
 {
-    const irr::f32 maxScroll = std::max(0.0f, contentHeight() - list.getHeight());
-    scroll[tab] = irr::core::clamp(scroll[tab], 0.0f, maxScroll);
+    const irr::f32 k = frame.k;
+    const irr::f32 w = std::min(c.control.getWidth(), 300 * k);
+    const irr::f32 cy = c.control.getCenter().Y;
+    return Rect(floorf(c.control.LowerRightCorner.X - w), floorf(cy - 12 * k), floorf(c.control.LowerRightCorner.X), floorf(cy + 12 * k));
 }
 
-int WeatherPanel::rowAt(const irr::core::position2di& p) const
+Rect WeatherPanel::sliderTrack(const Cells& c) const
 {
-    if (tab == TAB_PRESETS || !list.isPointInside(irr::core::vector2df((irr::f32)p.X, (irr::f32)p.Y))) { return -1; }
+    const irr::f32 k = frame.k;
+    const irr::f32 x0 = c.control.UpperLeftCorner.X + (frame.compact ? 76 : 14) * k;
+    const irr::f32 cy = c.control.getCenter().Y;
+    return Rect(x0, cy - 2 * k, c.control.LowerRightCorner.X - 10 * k, cy + 2 * k);
+}
+
+int WeatherPanel::rowAt(const irr::core::vector2df& p) const
+{
+    if (tab == TAB_PRESETS || !content().isPointInside(p)) { return -1; }
     const std::vector<Row>& rs = rowsOfTab();
     for (int i = 0; i < (int)rs.size(); i++) {
         if (rs[i].kind == ROW_SECTION) { continue; }
-        if (rowRect(i).isPointInside(irr::core::vector2df((irr::f32)p.X, (irr::f32)p.Y))) { return i; }
+        if (rowRect(i).isPointInside(p)) { return i; }
     }
     return -1;
 }
 
-int WeatherPanel::presetAt(const irr::core::position2di& p) const
+int WeatherPanel::segmentAt(int row, const irr::core::vector2df& p) const
 {
-    if (tab != TAB_PRESETS || !list.isPointInside(irr::core::vector2df((irr::f32)p.X, (irr::f32)p.Y))) { return -1; }
-    for (int i = 0; i < (int)presets.size(); i++) {
-        if (presetRect(i).isPointInside(irr::core::vector2df((irr::f32)p.X, (irr::f32)p.Y))) { return i; }
+    const std::vector<Row>& rs = rowsOfTab();
+    if (row < 0 || row >= (int)rs.size() || rs[row].kind != ROW_CHOICE) { return -1; }
+    const Rect rr = rowRect(row);
+    const std::vector<Rect> segs = segmentRects(rs[row], rr);
+    for (int i = 0; i < (int)segs.size(); i++) {
+        if (segs[i].isPointInside(p)) { return i; }
+    }
+    if (segs.empty()) {
+        //The stepper: -2 its left arrow, -3 its right arrow
+        const Rect s = stepperRect(cells(rr));
+        if (s.isPointInside(p)) { return p.X < s.getCenter().X ? -2 : -3; }
     }
     return -1;
 }
@@ -513,12 +487,105 @@ void WeatherPanel::dragSlider(int rowIndex, irr::s32 mouseX)
     const std::vector<Row>& rs = rowsOfTab();
     if (rowIndex < 0 || rowIndex >= (int)rs.size() || rs[rowIndex].kind != ROW_SLIDER) { return; }
     const Row& row = rs[rowIndex];
-    const irr::core::rect<irr::f32> track = sliderTrack(rowRect(rowIndex));
+    const Rect track = sliderTrack(cells(rowRect(rowIndex)));
     irr::f32 t = ((irr::f32)mouseX - track.UpperLeftCorner.X) / std::max(1.0f, track.getWidth());
     t = irr::core::clamp(t, 0.0f, 1.0f);
     irr::f32 v = row.minValue + t * (row.maxValue - row.minValue);
     if (row.step > 0) { v = floorf(v / row.step + 0.5f) * row.step; }
     setValue(row.param, irr::core::clamp(v, row.minValue, row.maxValue));
+}
+
+//The preset page ----------------------------------------------------------------------------------
+
+bool WeatherPanel::narrowTable() const
+{
+    return content().getWidth() < 600 * frame.k;
+}
+
+Rect WeatherPanel::tableHeaderRect() const
+{
+    const Rect area = content();
+    const irr::f32 y = area.UpperLeftCorner.Y - scroll[TAB_PRESETS] + floorf(34 * frame.k);
+    return Rect(area.UpperLeftCorner.X, y, area.LowerRightCorner.X - 8 * frame.k, y + floorf(26 * frame.k));
+}
+
+Rect WeatherPanel::presetRowRect(int index) const
+{
+    const Rect h = tableHeaderRect();
+    const irr::f32 rh = floorf(30 * frame.k);
+    const irr::f32 y = h.LowerRightCorner.Y + index * rh;
+    return Rect(h.UpperLeftCorner.X, y, h.LowerRightCorner.X, y + rh);
+}
+
+std::vector<Rect> WeatherPanel::transitionRects() const
+{
+    const irr::f32 k = frame.k;
+    const Rect last = presetRowRect((int)presets.size() - 1);
+    const irr::f32 y = last.LowerRightCorner.Y + 14 * k;
+    const irr::f32 labelW = frame.fonts.small ? frame.fonts.small->width(L"TRANSITION", 2.0f * k) + 14 * k : 80 * k;
+    std::vector<std::wstring> texts(TRANSITION_NAMES, TRANSITION_NAMES + 5);
+    return station::layoutSegments(frame.fonts, k, texts, Rect(last.UpperLeftCorner.X + labelW, y, last.LowerRightCorner.X, y + 28 * k),
+        station::ALIGN_LEFT, 28 * k);
+}
+
+std::wstring WeatherPanel::applyCaption() const
+{
+    if (selectedPreset < 0 || selectedPreset >= (int)presets.size()) { return L"Appliquer"; }
+    wchar_t num[8];
+    swprintf(num, 8, L"%02d", selectedPreset + 1);
+    return std::wstring(L"Appliquer ") + num + L" \u00B7 " + presets[selectedPreset].name;
+}
+
+Rect WeatherPanel::applyRect() const
+{
+    const irr::f32 k = frame.k;
+    const std::vector<Rect> tr = transitionRects();
+    const Rect last = presetRowRect((int)presets.size() - 1);
+    const irr::f32 w = (frame.fonts.state ? frame.fonts.state->width(hudUpper(applyCaption()), 1.6f * k) : 200 * k) + 36 * k;
+    const irr::f32 right = last.LowerRightCorner.X;
+    if (!tr.empty() && tr.back().LowerRightCorner.X + 20 * k + w <= right) {
+        return Rect(right - w, tr.back().UpperLeftCorner.Y, right, tr.back().LowerRightCorner.Y);
+    }
+    //Not enough room: on a line of its own
+    const irr::f32 y = (tr.empty() ? last.LowerRightCorner.Y + 14 * k : tr.back().LowerRightCorner.Y) + 10 * k;
+    return Rect(std::max(last.UpperLeftCorner.X, right - w), y, right, y + 28 * k);
+}
+
+int WeatherPanel::presetAt(const irr::core::vector2df& p) const
+{
+    if (tab != TAB_PRESETS || !content().isPointInside(p)) { return -1; }
+    for (int i = 0; i < (int)presets.size(); i++) {
+        if (presetRowRect(i).isPointInside(p)) { return i; }
+    }
+    return -1;
+}
+
+int WeatherPanel::presetKeyAt(const irr::core::vector2df& p) const
+{
+    if (tab != TAB_PRESETS || !content().isPointInside(p)) { return -1; }
+    const std::vector<Rect> tr = transitionRects();
+    for (int i = 0; i < (int)tr.size(); i++) { if (tr[i].isPointInside(p)) { return i; } }
+    if (applyRect().isPointInside(p)) { return KEY_APPLY; }
+    return -1;
+}
+
+irr::f32 WeatherPanel::contentHeight() const
+{
+    const Rect area = content();
+    if (tab == TAB_PRESETS) {
+        if (presets.empty()) { return 0; }
+        return applyRect().LowerRightCorner.Y + 10 * frame.k + scroll[TAB_PRESETS] - area.UpperLeftCorner.Y;
+    }
+    irr::f32 h = 0;
+    const std::vector<Row>& rs = rowsOfTab();
+    for (size_t i = 0; i < rs.size(); i++) { h += rowHeight(rs[i]); }
+    return h + 8 * frame.k;
+}
+
+void WeatherPanel::clampScroll()
+{
+    const irr::f32 maxScroll = std::max(0.0f, contentHeight() - content().getHeight());
+    scroll[tab] = irr::core::clamp(scroll[tab], 0.0f, maxScroll);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -538,63 +605,84 @@ bool WeatherPanel::OnEvent(const irr::SEvent& event)
     const irr::core::position2di p(m.X, m.Y);
     const irr::core::vector2df pf((irr::f32)m.X, (irr::f32)m.Y);
     if (draggedRow < 0 && (dock.isDragging() || AbsoluteRect.isPointInside(p)) &&
-        dock.onMouse(this, Environment, m, header, dockRect(), closeRect())) {
+        dock.onMouse(this, Environment, m, frame.header, frame.dockRect(dock.place), frame.closeRect())) {
         return true;
     }
     switch (m.Event) {
     case irr::EMIE_MOUSE_MOVED:
         if (draggedRow >= 0) { dragSlider(draggedRow, m.X); return true; }
-        hoveredClose = closeRect().isPointInside(pf);
-        hoveredTab = -1;
-        for (int t = 0; t < TAB_COUNT; t++) { if (tabRect(t).isPointInside(pf)) { hoveredTab = t; } }
-        hoveredRow = rowAt(p);
-        hoveredPreset = presetAt(p);
+        frame.hover(pf);
+        hoveredRow = rowAt(pf);
+        hoveredSeg = segmentAt(hoveredRow, pf);
+        hoveredPreset = presetAt(pf);
+        hoveredKey = presetKeyAt(pf);
         return AbsoluteRect.isPointInside(p);
     case irr::EMIE_LMOUSE_PRESSED_DOWN: {
         if (!AbsoluteRect.isPointInside(p)) { return false; }
-        if (closeRect().isPointInside(pf)) {
+        if (frame.closeRect().isPointInside(pf)) {
             setVisible(false);
             Environment->removeFocus(this);
             return true;
         }
-        for (int t = 0; t < TAB_COUNT; t++) {
-            if (tabRect(t).isPointInside(pf)) {
-                tab = t;
-                selectedRow = -1;
-                hoveredRow = -1;
-                clampScroll();
-                return true;
-            }
-        }
-        const int preset = presetAt(p);
-        if (preset >= 0) {
-            applyPreset(preset);
+        const int page = frame.pageAt(pf);
+        if (page >= 0) {
+            tab = page;
+            selectedRow = hoveredRow = hoveredSeg = -1;
+            clampScroll();
             return true;
         }
-        const int row = rowAt(p);
+        if (tab == TAB_PRESETS) {
+            const int key = presetKeyAt(pf);
+            if (key == KEY_APPLY) { applyPreset(selectedPreset); return true; }
+            if (key >= 0 && key < 5) {
+                setChoice(P_TRANSITION, key);
+                recordAction(L"Transition", TRANSITION_NAMES[key]);
+                return true;
+            }
+            const int preset = presetAt(pf);
+            if (preset >= 0) { selectedPreset = preset; }
+            return true;
+        }
+        const int row = rowAt(pf);
         if (row >= 0) {
             selectedRow = row;
             const Row& r = rowsOfTab()[row];
-            const irr::core::rect<irr::f32> rr = rowRect(row);
-            const irr::f32 cellX = rr.UpperLeftCorner.X + rr.getWidth() * 0.56f;
-            if (pf.X >= cellX) {
-                if (r.kind == ROW_SLIDER) {
-                    draggedRow = row;
-                    Environment->setFocus(this); //the moves come here while dragging, even off the row
-                    dragSlider(row, m.X);
-                }
-                else if (r.kind == ROW_CHOICE) {
-                    const int n = (int)r.choices.size();
-                    const int current = choiceIndex(r.param);
-                    const bool forward = pf.X >= (cellX + rr.LowerRightCorner.X) * 0.5f;
-                    setChoice(r.param, (current + (forward ? 1 : n - 1)) % n);
+            const Cells c = cells(rowRect(row));
+            if (r.kind == ROW_SLIDER && c.control.isPointInside(pf)) {
+                draggedRow = row;
+                Environment->setFocus(this); //the moves come here while dragging, even off the row
+                dragSlider(row, m.X);
+            }
+            else if (r.kind == ROW_CHOICE && !r.choices.empty()) {
+                const int n = (int)r.choices.size();
+                const int current = irr::core::clamp(choiceIndex(r.param), 0, n - 1);
+                const int seg = segmentAt(row, pf);
+                int next = current;
+                if (seg >= 0) { next = seg; }
+                else if (seg == -2) { next = (current + n - 1) % n; }
+                else { next = (current + 1) % n; }  //right arrow, or the label
+                if (next != current) {
+                    setChoice(r.param, next);
+                    recordAction(r.label, r.choices[next]);
                 }
             }
         }
         return true;
     }
+    case irr::EMIE_LMOUSE_DOUBLE_CLICK: {
+        //A double click on a preset applies it
+        const int preset = presetAt(pf);
+        if (preset >= 0) {
+            selectedPreset = preset;
+            applyPreset(preset);
+            return true;
+        }
+        return AbsoluteRect.isPointInside(p);
+    }
     case irr::EMIE_LMOUSE_LEFT_UP:
         if (draggedRow >= 0) {
+            const std::vector<Row>& rs = rowsOfTab();
+            if (draggedRow < (int)rs.size()) { recordAction(rs[draggedRow].label, valueText(rs[draggedRow])); }
             draggedRow = -1;
             Environment->removeFocus(this); //keys go back to the ship
             return true;
@@ -602,8 +690,8 @@ bool WeatherPanel::OnEvent(const irr::SEvent& event)
         return AbsoluteRect.isPointInside(p);
     case irr::EMIE_MOUSE_WHEEL:
         if (!AbsoluteRect.isPointInside(p)) { return false; }
-        if (list.isPointInside(pf)) {
-            scroll[tab] -= m.Wheel * 60.0f * k;
+        if (frame.main.isPointInside(pf)) {
+            scroll[tab] -= m.Wheel * 64.0f * frame.k;
             clampScroll();
         }
         return true;
@@ -620,233 +708,247 @@ void WeatherPanel::draw()
 {
     if (!IsVisible) { return; }
     if (AbsoluteRect != laidOutRect) { layout(); }
-    if (!fonts.title) { return; }
+    if (!frame.fonts.title) { return; }
     irr::video::IVideoDriver* driver = Environment->getVideoDriver();
-    const bridge::Palette& pal = bridge::palette();
     const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
 
-    //Window: slightly translucent, so the sea shows through
-    //Square, a hairline frame, the title strip darker with the accent tab at its left, and the
-    //bracket marks of a console display's window at the corners
-    bridge::fillRound(driver, AbsoluteRect, 0, withAlpha(pal.panelTop, 240), withAlpha(pal.panelBottom, 240), 0);
-    fill(driver, header, withAlpha(pal.raised, 250), &clip);
-    fill(driver, irr::core::rect<irr::f32>(header.UpperLeftCorner.X, header.UpperLeftCorner.Y, header.UpperLeftCorner.X + 5 * k, header.LowerRightCorner.Y), pal.accent, &clip);
-    outline(driver, AbsoluteRect, pal.edge, 0);
-    bridge::cornerMarks(driver, AbsoluteRect, (irr::s32)(16 * k), std::max(2, (irr::s32)(2.5f * k)), pal.accent, &clip);
+    //Header: what the weather is doing, the hour of the light
+    std::vector<station::Status> head;
+    if (model) {
+        wchar_t text[64];
+        if (model->getWeatherByInstructor()) {
+            head.push_back({ L"M\u00E9t\u00E9o", L"Pilot\u00E9e par l'instructeur", station::TONE_WARN });
+        }
+        else if (model->getWeatherFront() != 0) {
+            swprintf(text, 64, L"%d %%", (int)(model->getWeatherFrontProgress() * 100.0f + 0.5f));
+            head.push_back({ L"Perturbation", text, station::TONE_WARN });
+        }
+        else if (model->isWeatherChanging()) {
+            swprintf(text, 64, L"En cours %d %%", (int)(model->getWeatherChangeProgress() * 100.0f + 0.5f));
+            head.push_back({ L"Transition", text, station::TONE_WARN });
+        }
+        else {
+            head.push_back({ L"M\u00E9t\u00E9o", L"Stable", station::TONE_OK });
+        }
+        head.push_back({ L"Heure \u00E9clairage", clockOf(model->getLightingTimeOfDay()), station::TONE_NONE });
+    }
+    frame.drawBack(driver, dock, tab, head, clip);
 
-    //Title, what the weather is doing now, the close box
-    const irr::f32 tx = header.UpperLeftCorner.X + 24 * k;
-    bridge::drawIcon(driver, bridge::ICON_WEATHER, tx, header.getCenter().Y - 15 * k, 30 * k, pal.accent);
-    fonts.title->drawIn(L"M\u00C9T\u00C9O", irr::core::rect<irr::f32>(tx + 42 * k, header.UpperLeftCorner.Y, tx + 300 * k, header.LowerRightCorner.Y),
-        pal.text, HudFont::Left, 1.5f * k);
-    std::wstring status;
-    if (model && model->getWeatherByInstructor()) {
-        status = model->isWeatherChanging() ? L"M\u00E9t\u00E9o pilot\u00E9e par l'instructeur  \u00B7  changement en cours" : L"M\u00E9t\u00E9o pilot\u00E9e par l'instructeur";
-    }
-    else if (model && model->getWeatherFront() != 0) {
-        wchar_t text[96];
-        swprintf(text, 96, L"Perturbation en cours  \u00B7  %d %%", (int)(model->getWeatherFrontProgress() * 100.0f + 0.5f));
-        status = text;
-    }
-    else if (model && model->isWeatherChanging()) {
-        wchar_t text[96];
-        swprintf(text, 96, L"Changement de temps en cours  \u00B7  %d %%", (int)(model->getWeatherChangeProgress() * 100.0f + 0.5f));
-        status = text;
-    }
-    else if (chosenPreset >= 0) {
-        status = L"Pr\u00E9r\u00E9glage : " + presets[chosenPreset].name;
-    }
-    else {
-        status = L"Conditions personnalis\u00E9es";
-    }
-    const irr::core::rect<irr::f32> cr = closeRect();
-    const irr::core::rect<irr::f32> dr = dockRect();
-    if (!compact) {
-        fonts.caption->drawIn(status, irr::core::rect<irr::f32>(tx + 170 * k, header.UpperLeftCorner.Y, dr.UpperLeftCorner.X - 20 * k, header.LowerRightCorner.Y),
-            pal.textDim, HudFont::Right, 0.5f * k);
-    }
-    dock.draw(driver, dr, fonts.caption, k, &clip);
-    if (hoveredClose) { bridge::fillRound(driver, toI(cr), (irr::s32)(5 * k), pal.danger, pal.danger, 0); }
-    {
-        const irr::video::SColor xc = hoveredClose ? pal.dangerText : pal.textDim;
-        const irr::f32 in = cr.getWidth() * 0.32f;
-        irr::gui::PanelBatch b;
-        b.begin(driver);
-        b.line(irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.LowerRightCorner.X - in, cr.LowerRightCorner.Y - in), 2.2f * k, xc);
-        b.line(irr::core::vector2df(cr.LowerRightCorner.X - in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.LowerRightCorner.Y - in), 2.2f * k, xc);
-        b.flush();
-    }
-    fill(driver, irr::core::rect<irr::f32>(AbsoluteRect.UpperLeftCorner.X + 1, header.LowerRightCorner.Y - 1, AbsoluteRect.LowerRightCorner.X - 1, header.LowerRightCorner.Y), withAlpha(pal.edge, 160), &clip);
+    //The page (clipped, it scrolls)
+    const Rect area = content();
+    const irr::core::rect<irr::s32> pageClip = station::clipOf(Rect(frame.main.UpperLeftCorner.X, area.UpperLeftCorner.Y, frame.main.LowerRightCorner.X, area.LowerRightCorner.Y), clip);
+    if (tab == TAB_PRESETS) { drawPresets(driver, pageClip); }
+    else { drawRows(driver, pageClip); }
+    station::drawScrollBar(driver, frame.k, Rect(area.UpperLeftCorner.X, area.UpperLeftCorner.Y, area.LowerRightCorner.X + 6 * frame.k, area.LowerRightCorner.Y),
+        contentHeight(), scroll[tab], clip);
 
-    //Tabs
-    for (int t = 0; t < TAB_COUNT; t++) {
-        const irr::core::rect<irr::f32> r = tabRect(t);
-        const irr::core::rect<irr::f32> rr(r.UpperLeftCorner.X, r.UpperLeftCorner.Y + 8 * k, r.LowerRightCorner.X, r.LowerRightCorner.Y);
-        irr::video::SColor face = (t == tab) ? pal.accent : (t == hoveredTab ? pal.keyHover : pal.raised);
-        bridge::fillRound(driver, toI(rr), (irr::s32)(3 * k), face, face, 0);
-        if (t != tab) { outline(driver, toI(rr), withAlpha(pal.edge, 200), 0); }
-        fonts.tab->drawIn(TAB_NAMES[t], rr, t == tab ? pal.accentText : pal.text, HudFont::Centre, 1.2f * k);
+    drawSide(driver, clip);
+
+    std::vector<station::Status> foot;
+    foot.push_back({ frame.code, L"", 0 });
+    foot.push_back({ L"Onglet", TAB_NAMES[tab], 0 });
+    if (tab == TAB_PRESETS && selectedPreset >= 0 && selectedPreset < (int)presets.size()) {
+        wchar_t num[8];
+        swprintf(num, 8, L"%02d", selectedPreset + 1);
+        foot.push_back({ L"S\u00E9lection", std::wstring(num) + L" \u00B7 " + presets[selectedPreset].name, 0 });
     }
-    fill(driver, irr::core::rect<irr::f32>(list.UpperLeftCorner.X, tabsBar.LowerRightCorner.Y + 8 * k, info.LowerRightCorner.X, tabsBar.LowerRightCorner.Y + 9 * k),
-        withAlpha(pal.edge, 140), &clip);
-
-    //The list (clipped to its own area, it scrolls)
-    irr::core::rect<irr::s32> listClip = toI(list);
-    listClip.clipAgainst(clip);
-    if (tab == TAB_PRESETS) { drawPresets(driver, listClip); }
-    else { drawRows(driver, listClip); }
-
-    //Scroll bar, when there is more than fits
-    const irr::f32 total = contentHeight();
-    if (total > list.getHeight() + 1) {
-        const irr::f32 x = list.LowerRightCorner.X - 4 * k;
-        fill(driver, irr::core::rect<irr::f32>(x - 1.5f * k, list.UpperLeftCorner.Y, x + 1.5f * k, list.LowerRightCorner.Y), withAlpha(pal.edge, 160), &clip);
-        const irr::f32 thumbH = std::max(30 * k, list.getHeight() * list.getHeight() / total);
-        const irr::f32 thumbY = list.UpperLeftCorner.Y + (list.getHeight() - thumbH) * scroll[tab] / std::max(1.0f, total - list.getHeight());
-        bridge::fillRound(driver, toI(irr::core::rect<irr::f32>(x - 2.5f * k, thumbY, x + 2.5f * k, thumbY + thumbH)), (irr::s32)(2 * k), pal.textDim, pal.textDim, &clip);
-    }
-
-    drawInfo(driver);
+    foot.push_back({ L"Derni\u00E8re action", lastAction.empty() ? std::wstring(L"\u2014") : lastAction, 0 });
+    frame.drawFooter(driver, foot, tab == TAB_PRESETS ? L"Double-clic : appliquer  \u00B7  glisser le titre : d\u00E9placer"
+                                                      : L"Molette : d\u00E9filer  \u00B7  glisser le titre : d\u00E9placer", clip);
 }
 
 void WeatherPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip)
 {
-    const bridge::Palette& pal = bridge::palette();
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
+    const Rect area = content();
     const std::vector<Row>& rs = rowsOfTab();
+    int odd = 0;
     for (int i = 0; i < (int)rs.size(); i++) {
         const Row& row = rs[i];
-        const irr::core::rect<irr::f32> r = rowRect(i);
-        if (r.LowerRightCorner.Y < list.UpperLeftCorner.Y || r.UpperLeftCorner.Y > list.LowerRightCorner.Y) { continue; }
+        const Rect r = rowRect(i);
+        const bool visible = !(r.LowerRightCorner.Y < area.UpperLeftCorner.Y || r.UpperLeftCorner.Y > area.LowerRightCorner.Y);
         if (row.kind == ROW_SECTION) {
-            const irr::f32 ly = r.LowerRightCorner.Y - 6 * k;
-            fonts.section->drawIn(row.label, irr::core::rect<irr::f32>(r.UpperLeftCorner.X + 2 * k, r.UpperLeftCorner.Y, r.LowerRightCorner.X, ly - 2 * k),
-                pal.textDim, HudFont::Left, 1.6f * k, &clip);
-            fill(driver, irr::core::rect<irr::f32>(r.UpperLeftCorner.X, ly, r.LowerRightCorner.X, ly + 1), withAlpha(pal.edge, 170), &clip);
+            odd = 0;
+            if (!visible) { continue; }
+            int count = 0;
+            for (int j = i + 1; j < (int)rs.size() && rs[j].kind != ROW_SECTION; j++) { count++; }
+            std::wstring items;
+            if (count > 1) { items = std::to_wstring(count) + L" R\u00C9GLAGES"; }
+            station::drawSection(driver, f, k, Rect(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y - 4 * k), row.label, items, clip);
             continue;
         }
+        const bool shade = (odd++ % 2) == 0;
+        if (!visible) { continue; }
         const bool active = (i == selectedRow) || (i == draggedRow);
         const bool hover = (i == hoveredRow);
-        const irr::f32 split = r.UpperLeftCorner.X + r.getWidth() * 0.56f;
-
-        //Label cell: highlighted when it is the row in use
-        const irr::core::rect<irr::f32> labelCell(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, split, r.LowerRightCorner.Y);
-        irr::video::SColor face = active ? pal.accent : (hover ? mix(pal.raised, pal.accent, 0.25f) : pal.raised);
-        bridge::fillRound(driver, toI(labelCell), (irr::s32)(3 * k), withAlpha(face, 235), withAlpha(face, 235), &clip);
-        fonts.label->drawIn(row.label, irr::core::rect<irr::f32>(labelCell.UpperLeftCorner.X + 16 * k, labelCell.UpperLeftCorner.Y, labelCell.LowerRightCorner.X - 8 * k, labelCell.LowerRightCorner.Y),
-            active ? pal.accentText : pal.text, HudFont::Left, 0.3f * k, &clip);
-
-        //Value cell
-        const irr::core::rect<irr::f32> valueCell(split + 4 * k, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y);
-        bridge::fillRound(driver, toI(valueCell), (irr::s32)(3 * k), withAlpha(pal.field, 240), withAlpha(pal.field, 240), &clip);
-        if (hover || active) { outline(driver, toI(valueCell), withAlpha(pal.accent, 180), &clip); }
-
-        if (row.kind == ROW_SLIDER) {
-            fonts.value->drawIn(valueText(row), irr::core::rect<irr::f32>(valueCell.UpperLeftCorner.X + 10 * k, valueCell.UpperLeftCorner.Y, valueCell.UpperLeftCorner.X + 74 * k, valueCell.LowerRightCorner.Y),
-                pal.text, HudFont::Left, 0, &clip);
-            const irr::core::rect<irr::f32> track = sliderTrack(r);
-            const irr::f32 t = irr::core::clamp((value(row.param) - row.minValue) / std::max(0.001f, row.maxValue - row.minValue), 0.0f, 1.0f);
-            const irr::f32 kx = track.UpperLeftCorner.X + t * track.getWidth();
-            fill(driver, track, withAlpha(pal.edge, 220), &clip);
-            fill(driver, irr::core::rect<irr::f32>(track.UpperLeftCorner.X, track.UpperLeftCorner.Y, kx, track.LowerRightCorner.Y), pal.accent, &clip);
-            //Diamond knob
-            const irr::f32 ks = (active ? 9.0f : 7.5f) * k;
-            const irr::f32 cy = track.getCenter().Y;
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            b.quad(irr::core::vector2df(kx, cy - ks - 1.5f * k), irr::core::vector2df(kx + ks + 1.5f * k, cy), irr::core::vector2df(kx, cy + ks + 1.5f * k), irr::core::vector2df(kx - ks - 1.5f * k, cy), pal.field);
-            b.quad(irr::core::vector2df(kx, cy - ks), irr::core::vector2df(kx + ks, cy), irr::core::vector2df(kx, cy + ks), irr::core::vector2df(kx - ks, cy), active ? pal.accent : pal.text);
-            b.flush();
+        station::drawRowBack(driver, k, r, shade, hover, active, clip);
+        const Cells c = cells(r);
+        const irr::core::rect<irr::s32> lc = station::clipOf(c.label, clip);
+        f.label->drawIn(row.label, Rect(c.label.UpperLeftCorner.X, c.label.UpperLeftCorner.Y, c.label.LowerRightCorner.X, c.label.LowerRightCorner.Y + 1 * k),
+            col.text, HudFont::Left, 0.5f * k, &lc);
+        const std::wstring state = stateText(row);
+        if (c.state.getWidth() > 0) {
+            const irr::core::rect<irr::s32> sc = station::clipOf(c.state, clip);
+            f.state->drawIn(hudUpper(state), Rect(c.state.UpperLeftCorner.X, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X - 6 * k, c.state.LowerRightCorner.Y + 1 * k),
+                col.text, HudFont::Left, 1.0f * k, &sc);
         }
-        else if (row.kind == ROW_CHOICE) {
-            const int n = (int)row.choices.size();
-            const int current = irr::core::clamp(choiceIndex(row.param), 0, n - 1);
-            const irr::core::rect<irr::f32> textBox(valueCell.UpperLeftCorner.X, valueCell.UpperLeftCorner.Y - 3 * k, valueCell.LowerRightCorner.X, valueCell.LowerRightCorner.Y - 3 * k);
-            fonts.value->drawIn(row.choices[current], textBox, pal.text, HudFont::Centre, 0, &clip);
-            //Arrows at both ends, one dash per option underneath
-            const irr::f32 cy = valueCell.getCenter().Y, a = 5 * k;
-            irr::gui::PanelBatch b;
-            b.begin(driver);
-            const irr::f32 lx = valueCell.UpperLeftCorner.X + 14 * k, rx = valueCell.LowerRightCorner.X - 14 * k;
-            b.tri(irr::core::vector2df(lx - a * 0.6f, cy), irr::core::vector2df(lx + a * 0.6f, cy - a), irr::core::vector2df(lx + a * 0.6f, cy + a), pal.textDim);
-            b.tri(irr::core::vector2df(rx + a * 0.6f, cy), irr::core::vector2df(rx - a * 0.6f, cy + a), irr::core::vector2df(rx - a * 0.6f, cy - a), pal.textDim);
-            const irr::f32 dw = 12 * k, dg = 3 * k;
-            const irr::f32 dx0 = valueCell.getCenter().X - (n * dw + (n - 1) * dg) * 0.5f;
-            const irr::f32 dy = valueCell.LowerRightCorner.Y - 7 * k;
-            for (int j = 0; j < n; j++) {
-                b.rect(irr::core::rect<irr::f32>(dx0 + j * (dw + dg), dy, dx0 + j * (dw + dg) + dw, dy + 2.5f * k), j == current ? pal.accent : withAlpha(pal.textDim, 150));
+        if (row.kind == ROW_SLIDER) {
+            const Rect track = sliderTrack(c);
+            if (frame.compact) {
+                f.state->drawIn(hudUpper(state), Rect(c.control.UpperLeftCorner.X, c.control.UpperLeftCorner.Y, track.UpperLeftCorner.X - 8 * k, c.control.LowerRightCorner.Y + 1 * k),
+                    col.text, HudFont::Left, 1.0f * k, &clip);
             }
-            b.flush();
+            const irr::f32 t = (value(row.param) - row.minValue) / std::max(0.001f, row.maxValue - row.minValue);
+            station::drawFader(driver, k, track, t, active || hover, clip);
+            continue;
+        }
+        const std::vector<Rect> segs = segmentRects(row, r);
+        if (!segs.empty()) {
+            const int on = choiceIndex(row.param);
+            std::vector<station::Segment> ss(segs.size());
+            for (size_t j = 0; j < segs.size(); j++) {
+                ss[j].text = row.choices[j];
+                ss[j].on = ((int)j == on);
+                ss[j].hover = (i == hoveredRow && (int)j == hoveredSeg);
+            }
+            station::drawSegments(driver, f, k, segs, ss, clip);
+        }
+        else {
+            const int side = (i == hoveredRow) ? (hoveredSeg == -2 ? -1 : (hoveredSeg == -3 ? 1 : 0)) : 0;
+            station::drawStepper(driver, f, k, stepperRect(c), state, side, clip);
         }
     }
 }
 
 void WeatherPanel::drawPresets(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip)
 {
-    const bridge::Palette& pal = bridge::palette();
-    const bool day = bridge::currentMode() == bridge::MODE_DAY;
-    const irr::video::SColor paper = day ? irr::video::SColor(255, 214, 220, 228) : mix(pal.field, pal.raised, 0.5f);
-    const irr::video::SColor ink = day ? irr::video::SColor(255, 30, 38, 48) : pal.text;
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
+    const Rect head = tableHeaderRect();
+    station::drawSection(driver, f, k, Rect(head.UpperLeftCorner.X, head.UpperLeftCorner.Y - 34 * k, head.LowerRightCorner.X, head.UpperLeftCorner.Y - 4 * k),
+        L"Biblioth\u00E8que de pr\u00E9r\u00E9glages", std::to_wstring(presets.size()) + L" CONDITIONS", clip);
+
+    //Columns: number, name, wind, gusts, visibility, sea, precipitation (narrow: no gusts, no sea)
+    const bool narrow = narrowTable();
+    std::vector<irr::f32> widths;
+    std::vector<std::wstring> titles;
+    if (narrow) {
+        widths = { 0.09f, 0.31f, 0.15f, 0.17f, 0.28f };
+        titles = { L"#", L"Pr\u00E9r\u00E9glage", L"Vent", L"Visibilit\u00E9", L"Pr\u00E9cipitations" };
+    }
+    else {
+        widths = { 0.06f, 0.22f, 0.11f, 0.11f, 0.14f, 0.10f, 0.26f };
+        titles = { L"#", L"Pr\u00E9r\u00E9glage", L"Vent", L"Rafales", L"Visibilit\u00E9", L"Mer", L"Pr\u00E9cipitations" };
+    }
+    std::vector<irr::f32> xs(widths.size() + 1);
+    xs[0] = head.UpperLeftCorner.X;
+    for (size_t i = 0; i < widths.size(); i++) { xs[i + 1] = xs[i] + widths[i] * head.getWidth(); }
+    const irr::f32 tx = 10 * k;
+
+    station::hline(driver, head.UpperLeftCorner.X, head.LowerRightCorner.X, head.LowerRightCorner.Y - 1, col.edge, &clip);
+    for (size_t i = 0; i < titles.size(); i++) {
+        const irr::core::rect<irr::s32> cc = station::clipOf(Rect(xs[i], head.UpperLeftCorner.Y, xs[i + 1], head.LowerRightCorner.Y), clip);
+        f.small->drawIn(hudUpper(titles[i]), Rect(xs[i] + tx, head.UpperLeftCorner.Y, xs[i + 1], head.LowerRightCorner.Y), col.faint, HudFont::Left, 2.0f * k, &cc);
+    }
+
+    const Rect area = content();
     for (int i = 0; i < (int)presets.size(); i++) {
-        const irr::core::rect<irr::f32> r = presetRect(i);
-        if (r.LowerRightCorner.Y < list.UpperLeftCorner.Y || r.UpperLeftCorner.Y > list.LowerRightCorner.Y) { continue; }
-        const bool chosen = (i == chosenPreset);
-        const bool hover = (i == hoveredPreset);
-        //Caption bar over the picture
-        const irr::core::rect<irr::f32> cap(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.UpperLeftCorner.Y + 30 * k);
-        const irr::video::SColor capFace = chosen ? pal.accent : (hover ? mix(pal.raised, pal.accent, 0.3f) : pal.raised);
-        fill(driver, cap, withAlpha(capFace, 240), &clip);
-        fonts.caption->drawIn(hudUpper(presets[i].name), cap, chosen ? pal.accentText : pal.text, HudFont::Centre, 1.0f * k, &clip);
-        //Picture
-        const irr::core::rect<irr::f32> pic(r.UpperLeftCorner.X, cap.LowerRightCorner.Y + 3 * k, r.LowerRightCorner.X, r.LowerRightCorner.Y);
-        fill(driver, pic, chosen || hover ? pal.accent : withAlpha(pal.edge, 230), &clip);
-        const irr::f32 frame = (chosen ? 3.0f : 2.0f) * k;
-        const irr::core::rect<irr::f32> inner(pic.UpperLeftCorner.X + frame, pic.UpperLeftCorner.Y + frame, pic.LowerRightCorner.X - frame, pic.LowerRightCorner.Y - frame);
-        fill(driver, inner, paper, &clip);
-        const irr::f32 side = std::min(inner.getWidth(), inner.getHeight()) * 0.86f;
-        const irr::core::vector2df c = inner.getCenter();
-        const irr::core::rect<irr::f32> iconBox(c.X - side * 0.5f, c.Y - side * 0.5f, c.X + side * 0.5f, c.Y + side * 0.5f);
-        if (iconBox.UpperLeftCorner.Y >= list.UpperLeftCorner.Y - 1 && iconBox.LowerRightCorner.Y <= list.LowerRightCorner.Y + 1) {
-            drawWeatherIcon(driver, presets[i].icon, iconBox, ink, paper);
+        const Rect r = presetRowRect(i);
+        if (r.LowerRightCorner.Y < area.UpperLeftCorner.Y || r.UpperLeftCorner.Y > area.LowerRightCorner.Y) { continue; }
+        const Preset& p = presets[i];
+        const bool sel = (i == selectedPreset), hov = (i == hoveredPreset);
+        if (sel) {
+            station::fill(driver, r, col.selRow, &clip);
+            station::frame(driver, r, col.accent, &clip);
+            station::fill(driver, Rect(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + floorf(3 * k), r.LowerRightCorner.Y), col.accent, &clip);
+        }
+        else {
+            station::drawRowBack(driver, k, r, (i % 2) == 0, hov, false, clip);
+        }
+        //Cells
+        std::vector<std::wstring> cellText;
+        wchar_t text[48];
+        swprintf(text, 48, L"%02d", i + 1);
+        cellText.push_back(text);
+        cellText.push_back(hudUpper(p.name));
+        swprintf(text, 48, L"%02d kn", (int)(p.windKn + 0.5f));
+        cellText.push_back(text);
+        if (!narrow) {
+            if (p.gustKn >= 0.5f) { swprintf(text, 48, L"%02d kn", (int)(p.windKn + p.gustKn + 0.5f)); cellText.push_back(text); }
+            else { cellText.push_back(L"\u2014"); }
+        }
+        std::wstring vis, unit;
+        visibilityText(p.visibilityNm, vis, unit);
+        cellText.push_back(vis + L" " + unit);
+        if (!narrow) {
+            swprintf(text, 48, L"%.1f", p.sea);
+            cellText.push_back(text);
+        }
+        std::wstring precip;
+        if (p.rain > 0) { swprintf(text, 48, L"Pluie %d %%", (int)(p.rain * 10.0f + 0.5f)); precip = text; }
+        else if (p.snow > 0) { swprintf(text, 48, L"Neige %d %%", (int)(p.snow * 100.0f + 0.5f)); precip = text; }
+        else if (p.dust > 0) { swprintf(text, 48, L"Sable %d %%", (int)(p.dust * 100.0f + 0.5f)); precip = text; }
+        else { precip = L"Aucune"; }
+        if (p.significant == 2) { precip += L" + orage"; }
+        cellText.push_back(hudUpper(precip));
+
+        const Rect rr(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y + 1 * k);
+        for (size_t c = 0; c < cellText.size() && c + 1 < xs.size(); c++) {
+            const irr::core::rect<irr::s32> cc = station::clipOf(Rect(xs[c], r.UpperLeftCorner.Y, xs[c + 1] - 4 * k, r.LowerRightCorner.Y), clip);
+            const Rect box(xs[c] + tx, rr.UpperLeftCorner.Y, xs[c + 1], rr.LowerRightCorner.Y);
+            if (c == 0) {
+                f.navNum->drawIn(cellText[c], box, sel ? col.accentText : col.dim, HudFont::Left, 0.5f * k, &cc);
+                //The preset in force: a lamp after its number
+                if (i == chosenPreset) { station::lamp(driver, xs[c] + tx + 24 * k, r.getCenter().Y, 7 * k, col.ok, &cc); }
+            }
+            else if (c == 1) {
+                f.state->drawIn(cellText[c], box, sel ? col.accentText : col.text, HudFont::Left, 1.0f * k, &cc);
+            }
+            else {
+                f.key->drawIn(cellText[c], box, sel ? col.accentText : col.text.getInterpolated(col.dim, 0.75f), HudFont::Left, 0.5f * k, &cc);
+            }
         }
     }
+
+    //Transition keys and the apply key
+    const std::vector<Rect> tr = transitionRects();
+    if (!tr.empty()) {
+        f.small->drawIn(L"TRANSITION", Rect(head.UpperLeftCorner.X, tr[0].UpperLeftCorner.Y, tr[0].UpperLeftCorner.X, tr[0].LowerRightCorner.Y + 1 * k),
+            col.dim, HudFont::Left, 2.0f * k, &clip);
+        std::vector<station::Segment> ss(tr.size());
+        for (size_t j = 0; j < tr.size(); j++) {
+            ss[j].text = TRANSITION_NAMES[j];
+            ss[j].on = ((int)j == transitionIndex);
+            ss[j].hover = (hoveredKey == (int)j);
+        }
+        station::drawSegments(driver, f, k, tr, ss, clip);
+    }
+    const bool locked = model && model->getWeatherByInstructor();
+    station::drawKey(driver, f, k, applyRect(), applyCaption(), !locked, hoveredKey == KEY_APPLY, false, clip);
 }
 
-int WeatherPanel::currentWeatherIcon() const
+void WeatherPanel::drawSide(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip)
 {
-    if (!model) { return WX_SUN; }
-    const irr::f32 rain = model->getRain(), snow = model->getSnow(), dust = model->getDust();
-    const irr::f32 vis = model->getVisibility(), cloud = model->getCloudCover(), wind = model->getWindSpeedBase();
-    const bool storm = model->getSignificantWeather() == 2 || (model->getSignificantWeather() == 0 && model->getWeather() >= 3.5f);
-    if (storm && (rain > 3 || model->getWeather() >= 5)) { return model->getWeather() >= 5 ? WX_STORM : WX_THUNDER; }
-    if (snow > 0.6f && wind > 30) { return WX_BLIZZARD; }
-    if (snow > 0.4f) { return WX_SNOW; }
-    if (snow > 0.05f) { return WX_SNOW_LIGHT; }
-    if (dust > 0.6f) { return WX_DUSTSTORM; }
-    if (dust > 0.1f) { return WX_DUST; }
-    if (vis < 0.6f) { return WX_FOG; }
-    if (rain > 4) { return WX_RAIN; }
-    if (rain > 0.5f) { return WX_RAIN_LIGHT; }
-    if (wind >= 34) { return WX_GALE; }
-    if (cloud > 0.75f) { return WX_OVERCAST; }
-    if (cloud > 0.4f) { return WX_CLOUDY; }
-    if (cloud > 0.12f) { return WX_FEW; }
-    return WX_SUN;
-}
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
 
-void WeatherPanel::drawInfo(irr::video::IVideoDriver* driver)
-{
-    const bridge::Palette& pal = bridge::palette();
-    const irr::core::rect<irr::s32>& clip = AbsoluteClippingRect;
-
-    //What the card is about: the row or tile under the mouse, else the one last used, else the tab
-    std::wstring title, help;
-    int icon = currentWeatherIcon();
+    //What the explanation is about
+    std::wstring title = TAB_NAMES[tab], help = TAB_HELP[tab];
     if (tab == TAB_PRESETS) {
-        const int p = hoveredPreset >= 0 ? hoveredPreset : chosenPreset;
-        if (p >= 0) { title = presets[p].name; help = presets[p].help; icon = presets[p].icon; }
-        else {
-            title = L"Pr\u00E9r\u00E9glages";
-            help = L"Un clic r\u00E8gle tout le temps d'un coup : ciel, vent, mer, visibilit\u00E9 et pluie. Pour un changement petit \u00E0 petit, choisissez une dur\u00E9e dans l'onglet \u00C9volution.";
+        const int p = hoveredPreset >= 0 ? hoveredPreset : selectedPreset;
+        if (hoveredKey >= 0 && hoveredKey < 5) {
+            title = std::wstring(L"Transition \u2014 ") + TRANSITION_NAMES[hoveredKey];
+            help = rows[TAB_EVOLUTION][1].help;
+        }
+        else if (p >= 0 && p < (int)presets.size()) {
+            wchar_t num[8];
+            swprintf(num, 8, L"%02d", p + 1);
+            title = std::wstring(num) + L" \u00B7 " + presets[p].name;
+            help = presets[p].help + (transitionIndex == 0 ? L" Appliqu\u00E9 imm\u00E9diatement." : L" Appliqu\u00E9 progressivement sur la dur\u00E9e de transition choisie.");
+            if (p == chosenPreset) { help += L" C'est le pr\u00E9r\u00E9glage en place."; }
         }
     }
     else {
@@ -855,233 +957,168 @@ void WeatherPanel::drawInfo(irr::video::IVideoDriver* driver)
         if (r >= 0 && r < (int)rs.size()) {
             title = rs[r].title;
             help = rs[r].help;
-            if (rs[r].icon >= 0 && tab != TAB_CONDITIONS) { icon = rs[r].icon; }
-        }
-        else if (tab == TAB_CONDITIONS) {
-            title = L"Conditions";
-            help = L"Chaque \u00E9l\u00E9ment du temps se r\u00E8gle avec son curseur. Le changement est imm\u00E9diat.";
-        }
-        else if (tab == TAB_EVOLUTION) {
-            title = L"\u00C9volution";
-            help = L"Comment le temps change pendant l'exercice : la dur\u00E9e du changement quand vous choisissez un pr\u00E9r\u00E9glage, et le passage d'une perturbation.";
-            icon = WX_FRONT;
-        }
-        else {
-            title = L"Heure";
-            help = L"L'heure de la lumi\u00E8re : jour, aube, cr\u00E9puscule ou nuit.";
-            icon = WX_CLOCK;
         }
     }
-
-    //Card: title, a rule, the explanation
-    const irr::f32 cardBottom = tile.UpperLeftCorner.Y - 16 * k;
-    const irr::core::rect<irr::f32> card(info.UpperLeftCorner.X, info.UpperLeftCorner.Y, info.LowerRightCorner.X, cardBottom);
-    bridge::fillRound(driver, toI(card), (irr::s32)(4 * k), withAlpha(pal.raised, 220), withAlpha(pal.panelBottom, 120), &clip);
-    const irr::f32 px = card.UpperLeftCorner.X + 14 * k;
-    fonts.infoTitle->drawIn(hudUpper(title), irr::core::rect<irr::f32>(px, card.UpperLeftCorner.Y + 6 * k, card.LowerRightCorner.X - 12 * k, card.UpperLeftCorner.Y + 46 * k),
-        pal.text, HudFont::Left, 0.8f * k, &clip);
-    fill(driver, irr::core::rect<irr::f32>(px, card.UpperLeftCorner.Y + 50 * k, card.LowerRightCorner.X - 14 * k, card.UpperLeftCorner.Y + 50 * k + std::max(1.0f, 1.5f * k)), pal.text, &clip);
-    const std::vector<std::wstring> lines = fonts.infoText->wrap(help, card.getWidth() - 28 * k);
-    irr::f32 ly = card.UpperLeftCorner.Y + 60 * k;
-    const irr::f32 lh = fonts.infoText->lineHeight() + 2 * k;
-    for (size_t i = 0; i < lines.size() && ly + lh <= card.LowerRightCorner.Y; i++, ly += lh) {
-        fonts.infoText->drawIn(lines[i], irr::core::rect<irr::f32>(px, ly, card.LowerRightCorner.X - 12 * k, ly + lh), pal.textDim, HudFont::Left, 0, &clip);
+    if (model && model->getWeatherByInstructor()) {
+        help += L" En multijoueur, la m\u00E9t\u00E9o est pilot\u00E9e depuis le poste instructeur : les r\u00E9glages sont bloqu\u00E9s ici.";
     }
 
-    //Picture tile, framed, with its caption
-    const bool day = bridge::currentMode() == bridge::MODE_DAY;
-    const irr::video::SColor paper = day ? irr::video::SColor(255, 214, 220, 228) : mix(pal.field, pal.raised, 0.5f);
-    const irr::video::SColor ink = day ? irr::video::SColor(255, 30, 38, 48) : pal.text;
-    fill(driver, tile, withAlpha(pal.edge, 240), &clip);
-    const irr::f32 fr = 5 * k;
-    const irr::core::rect<irr::f32> inner(tile.UpperLeftCorner.X + fr, tile.UpperLeftCorner.Y + fr, tile.LowerRightCorner.X - fr, tile.LowerRightCorner.Y - fr);
-    fill(driver, inner, paper, &clip);
-    fonts.section->drawIn(tab == TAB_PRESETS && (hoveredPreset >= 0 || chosenPreset >= 0) ? L"PR\u00C9R\u00C9GLAGE" : L"TEMPS ACTUEL",
-        irr::core::rect<irr::f32>(inner.UpperLeftCorner.X + 8 * k, inner.UpperLeftCorner.Y + 4 * k, inner.LowerRightCorner.X, inner.UpperLeftCorner.Y + 22 * k),
-        withAlpha(ink, 150), HudFont::Left, 1.0f * k, &clip);
-    const irr::f32 side = inner.getWidth() * 0.72f;
-    const irr::core::vector2df c(inner.getCenter().X, inner.getCenter().Y + 8 * k);
-    drawWeatherIcon(driver, icon, irr::core::rect<irr::f32>(c.X - side * 0.5f, c.Y - side * 0.5f, c.X + side * 0.5f, c.Y + side * 0.5f), ink, paper);
-
-    //Beside the tile: the weather as it is now (gusts and all)
-    if (!model) { return; }
-    const irr::f32 rx = tile.LowerRightCorner.X + 16 * k;
-    if (rx > info.LowerRightCorner.X - 60 * k) { return; }
-    irr::f32 ry = tile.UpperLeftCorner.Y;
-    auto readout = [&](const std::wstring& label, const std::wstring& text) {
-        fonts.section->drawIn(label, irr::core::rect<irr::f32>(rx, ry, info.LowerRightCorner.X, ry + 18 * k), pal.textDim, HudFont::Left, 1.2f * k, &clip);
-        fonts.value->drawIn(text, irr::core::rect<irr::f32>(rx, ry + 18 * k, info.LowerRightCorner.X, ry + 42 * k), pal.text, HudFont::Left, 0, &clip);
-        ry += 50 * k;
-    };
-    wchar_t text[96];
-    swprintf(text, 96, L"%03d\u00B0  \u00B7  %d kn", ((int)(model->getWindDirection() + 0.5f)) % 360, (int)(model->getWindSpeed() + 0.5f));
-    readout(L"VENT", text);
-    const irr::f32 vis = model->getVisibility();
-    if (vis >= 1.0f) { swprintf(text, 96, L"%.1f NM", vis); }
-    else { swprintf(text, 96, L"%d m", (int)(vis * 1852.0f / 10.0f + 0.5f) * 10); }
-    readout(L"VISIBILIT\u00C9", text);
-    swprintf(text, 96, L"%.1f", model->getWeather());
-    readout(L"MER", text);
-    swprintf(text, 96, L"%d %%", (int)(model->getCloudCover() * 100.0f + 0.5f));
-    readout(L"NUAGES", text);
-    if (model->isWeatherChanging()) {
-        //Progress of the change under way
-        const irr::f32 prog = model->getWeatherChangeProgress();
-        const irr::core::rect<irr::f32> bar(rx, ry + 4 * k, std::min(info.LowerRightCorner.X, rx + 160 * k), ry + 9 * k);
-        fill(driver, bar, withAlpha(pal.edge, 200), &clip);
-        fill(driver, irr::core::rect<irr::f32>(bar.UpperLeftCorner.X, bar.UpperLeftCorner.Y, bar.UpperLeftCorner.X + bar.getWidth() * prog, bar.LowerRightCorner.Y), pal.accent, &clip);
-        fonts.section->drawIn(model->getWeatherFront() ? L"PERTURBATION EN COURS" : L"\u00C9VOLUTION EN COURS",
-            irr::core::rect<irr::f32>(rx, ry + 12 * k, info.LowerRightCorner.X, ry + 30 * k), pal.accent, HudFont::Left, 1.2f * k, &clip);
+    const irr::f32 pad = (frame.compact ? 10 : 14) * k;
+    const Rect area(frame.side.UpperLeftCorner.X + pad, frame.side.UpperLeftCorner.Y + pad, frame.side.LowerRightCorner.X - pad, frame.side.LowerRightCorner.Y - pad);
+    const irr::f32 ch = std::min(conditionsHeight(area.getWidth()), area.getHeight());
+    const Rect cond(area.UpperLeftCorner.X, area.UpperLeftCorner.Y, area.LowerRightCorner.X, area.UpperLeftCorner.Y + ch);
+    drawConditions(driver, cond, clip);
+    Rect detail(area.UpperLeftCorner.X, cond.LowerRightCorner.Y + pad, area.LowerRightCorner.X, area.LowerRightCorner.Y);
+    if (detail.getHeight() > 50 * k) {
+        const irr::f32 need = station::boxHeaderHeight(k) + station::detailHeight(f, k, detail.getWidth(), title, help);
+        if (need < detail.getHeight()) { detail.LowerRightCorner.Y = detail.UpperLeftCorner.Y + need; }
+        const Rect in = station::drawBox(driver, f, k, detail, L"D\u00E9tail", clip);
+        station::drawDetail(driver, f, k, in, title, help, clip);
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-//Weather pictures
-//-------------------------------------------------------------------------------------------------
-
-void WeatherPanel::drawWeatherIcon(irr::video::IVideoDriver* driver, int icon, const irr::core::rect<irr::f32>& box,
-    irr::video::SColor ink, irr::video::SColor paper)
+irr::f32 WeatherPanel::conditionsHeight(irr::f32 width) const
 {
-    const irr::f32 s = box.getWidth();
-    const irr::f32 ox = box.UpperLeftCorner.X, oy = box.UpperLeftCorner.Y;
-    auto P = [&](irr::f32 x, irr::f32 y) { return irr::core::vector2df(ox + x * s, oy + y * s); };
+    const irr::f32 k = frame.k;
+    const irr::f32 R = std::min(124 * k, width * 0.36f);
+    const int colsBeside = irr::core::clamp((int)((width - R - 24 * k) / (86 * k)), 1, 4);
+    const int rest = std::max(0, 10 - 2 * colsBeside);
+    const int colsGrid = irr::core::clamp((int)(width / (140 * k)), 2, 5);
+    const int rowsGrid = (rest + colsGrid - 1) / colsGrid;
+    const bool changing = model && model->isWeatherChanging();
+    return station::boxHeaderHeight(k) + 12 * k + R + 12 * k + rowsGrid * 54 * k + (changing ? 42 * k : 0) + 2;
+}
+
+void WeatherPanel::drawConditions(irr::video::IVideoDriver* driver, const Rect& box, const irr::core::rect<irr::s32>& clip)
+{
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
+    const Rect in = station::drawBox(driver, f, k, box, L"Conditions actuelles", clip);
+    if (!model) { return; }
+    const irr::core::rect<irr::s32> ic = station::clipOf(in, clip);
+
+    //The readings
+    struct Reading { std::wstring caption, value, unit; };
+    std::vector<Reading> rd;
+    wchar_t text[48];
+    swprintf(text, 48, L"%03d\u00B0", ((int)(model->getWindDirection() + 0.5f)) % 360);
+    rd.push_back({ L"Vent", text, L"" });
+    const irr::f32 wind = model->getWindSpeed();
+    swprintf(text, 48, L"%d", (int)(wind + 0.5f));
+    rd.push_back({ L"Force", text, L"kn" });
+    const irr::f32 gust = model->getWindGust();
+    if (gust >= 0.5f) { swprintf(text, 48, L"%d", (int)(model->getWindSpeedBase() + gust + 0.5f)); rd.push_back({ L"Rafales", text, L"kn" }); }
+    else { rd.push_back({ L"Rafales", L"\u2014", L"" }); }
+    rd.push_back({ L"Beaufort", std::to_wstring(beaufort(wind)), L"" });
+    std::wstring vis, visUnit;
+    visibilityText(model->getVisibility(), vis, visUnit);
+    rd.push_back({ L"Visibilit\u00E9", vis, visUnit });
+    swprintf(text, 48, L"%.1f", model->getWeather());
+    rd.push_back({ L"\u00C9tat de mer", text, L"/ 6" });
+    swprintf(text, 48, L"%d", (int)(model->getCloudCover() * 100.0f + 0.5f));
+    rd.push_back({ L"Couverture", text, L"%" });
+    if (model->getRain() > 0.05f) { swprintf(text, 48, L"%d", (int)(model->getRain() * 10.0f + 0.5f)); rd.push_back({ L"Pr\u00E9cip.", text, L"% pluie" }); }
+    else if (model->getSnow() > 0.005f) { swprintf(text, 48, L"%d", (int)(model->getSnow() * 100.0f + 0.5f)); rd.push_back({ L"Pr\u00E9cip.", text, L"% neige" }); }
+    else if (model->getDust() > 0.005f) { swprintf(text, 48, L"%d", (int)(model->getDust() * 100.0f + 0.5f)); rd.push_back({ L"Pr\u00E9cip.", text, L"% sable" }); }
+    else { rd.push_back({ L"Pr\u00E9cip.", L"0", L"%" }); }
+    if (model->getStreamOverride()) {
+        swprintf(text, 48, L"%.1f", model->getStreamOverrideSpeed());
+        wchar_t unit[32];
+        swprintf(unit, 32, L"kn / %03d\u00B0", ((int)(model->getStreamOverrideDirection() + 0.5f)) % 360);
+        rd.push_back({ L"Courant", text, unit });
+    }
+    else { rd.push_back({ L"Courant", L"MAR\u00C9E", L"" }); }
+    rd.push_back({ L"Heure", clockOf(model->getLightingTimeOfDay()), L"\u00E9clairage" });
+
+    auto cell = [&](const Rect& c, const Reading& r) {
+        station::vline(driver, c.LowerRightCorner.X - 1, c.UpperLeftCorner.Y, c.LowerRightCorner.Y, col.rule, &ic);
+        station::hline(driver, c.UpperLeftCorner.X, c.LowerRightCorner.X, c.LowerRightCorner.Y - 1, col.rule, &ic);
+        const irr::core::rect<irr::s32> cc = station::clipOf(c, ic);
+        f.small->drawIn(hudUpper(r.caption), Rect(c.UpperLeftCorner.X + 10 * k, c.UpperLeftCorner.Y + 6 * k, c.LowerRightCorner.X - 4 * k, c.UpperLeftCorner.Y + 20 * k),
+            col.faint, HudFont::Left, 2.0f * k, &cc);
+        //Value and unit on one baseline
+        const irr::f32 top = c.UpperLeftCorner.Y + 24 * k + std::max(0.0f, (c.getHeight() - 24 * k - f.big->capHeight()) * 0.5f - 4 * k);
+        const irr::f32 vw = f.big->draw(r.value, c.UpperLeftCorner.X + 10 * k, top, col.text, 0.5f * k, &cc);
+        if (!r.unit.empty()) {
+            f.unit->draw(r.unit, c.UpperLeftCorner.X + 10 * k + vw + 4 * k, top + f.big->capHeight() - f.unit->capHeight(), col.dim, 0.3f * k, &cc);
+        }
+    };
+
+    const irr::f32 W = in.getWidth();
+    const irr::f32 R = std::min(124 * k, W * 0.36f);
+    const int colsBeside = irr::core::clamp((int)((W - R - 24 * k) / (86 * k)), 1, 4);
+    const Rect rose(in.UpperLeftCorner.X + 12 * k, in.UpperLeftCorner.Y + 12 * k, in.UpperLeftCorner.X + 12 * k + R, in.UpperLeftCorner.Y + 12 * k + R);
+    drawRose(driver, rose, model->getWindDirection(), ic);
+
+    //Beside the rose: the wind
+    const Rect beside(rose.LowerRightCorner.X + 12 * k, rose.UpperLeftCorner.Y, in.LowerRightCorner.X, rose.LowerRightCorner.Y);
+    station::frame(driver, beside, col.rule, &ic);
+    size_t n = 0;
+    const irr::f32 bw = beside.getWidth() / colsBeside, bh = beside.getHeight() / 2;
+    for (int row = 0; row < 2; row++) {
+        for (int c = 0; c < colsBeside && n < rd.size(); c++, n++) {
+            cell(Rect(beside.UpperLeftCorner.X + c * bw, beside.UpperLeftCorner.Y + row * bh, beside.UpperLeftCorner.X + (c + 1) * bw, beside.UpperLeftCorner.Y + (row + 1) * bh), rd[n]);
+        }
+    }
+
+    //Under it: the rest, in a grid
+    const int colsGrid = irr::core::clamp((int)(W / (140 * k)), 2, 5);
+    irr::f32 y = rose.LowerRightCorner.Y + 12 * k;
+    station::hline(driver, in.UpperLeftCorner.X, in.LowerRightCorner.X, y, col.rule, &ic);
+    const irr::f32 gw = W / colsGrid, gh = 54 * k;
+    for (int i = 0; n < rd.size(); i++, n++) {
+        const int c = i % colsGrid, row = i / colsGrid;
+        cell(Rect(in.UpperLeftCorner.X + c * gw, y + row * gh, in.UpperLeftCorner.X + (c + 1) * gw, y + (row + 1) * gh), rd[n]);
+    }
+    const int rest = std::max(0, 10 - 2 * colsBeside);
+    y += ((rest + colsGrid - 1) / colsGrid) * gh;
+
+    //A change under way: its progress
+    if (model->isWeatherChanging()) {
+        const irr::f32 prog = model->getWeatherChangeProgress();
+        const bool front = model->getWeatherFront() != 0;
+        const Rect line(in.UpperLeftCorner.X + 10 * k, y + 6 * k, in.LowerRightCorner.X - 10 * k, y + 22 * k);
+        f.small->drawIn(front ? L"PERTURBATION EN COURS" : L"TRANSITION EN COURS", line, col.warn, HudFont::Left, 2.0f * k, &ic);
+        swprintf(text, 48, L"%d %%", (int)(prog * 100.0f + 0.5f));
+        f.state->drawIn(text, line, col.text, HudFont::Right, 1.0f * k, &ic);
+        const Rect bar(line.UpperLeftCorner.X, y + 28 * k, line.LowerRightCorner.X, y + 32 * k);
+        station::fill(driver, bar, col.edge2, &ic);
+        station::fill(driver, Rect(bar.UpperLeftCorner.X, bar.UpperLeftCorner.Y, bar.UpperLeftCorner.X + bar.getWidth() * irr::core::clamp(prog, 0.0f, 1.0f), bar.LowerRightCorner.Y), col.warn, &ic);
+    }
+}
+
+void WeatherPanel::drawRose(irr::video::IVideoDriver* driver, const Rect& r, irr::f32 from, const irr::core::rect<irr::s32>& clip)
+{
+    const station::Colours& col = station::colours();
+    const station::Fonts& f = frame.fonts;
+    const irr::f32 k = frame.k;
+    const irr::core::vector2df c = r.getCenter();
+    const irr::f32 rr = r.getWidth() * 0.5f;
+    auto P = [&](irr::f32 deg, irr::f32 radius) {
+        const irr::f32 a = deg * irr::core::DEGTORAD;
+        return irr::core::vector2df(c.X + sinf(a) * radius, c.Y - cosf(a) * radius);
+    };
     irr::gui::PanelBatch b;
     b.begin(driver);
-
-    //A cloud: three puffs on a flat base. Outlined (a lighter weather) or solid (a heavier one).
-    auto cloudShape = [&](irr::f32 cx, irr::f32 cy, irr::f32 sc, irr::f32 grow, irr::video::SColor col) {
-        b.disc(P(cx - 0.22f * sc, cy + 0.02f * sc), (0.19f * sc + grow) * s, col, col);
-        b.disc(P(cx + 0.02f * sc, cy - 0.10f * sc), (0.27f * sc + grow) * s, col, col);
-        b.disc(P(cx + 0.27f * sc, cy + 0.04f * sc), (0.17f * sc + grow) * s, col, col);
-        b.rect(irr::core::rect<irr::f32>(P(cx - 0.22f * sc, cy + 0.02f * sc - grow).X, P(0, cy + 0.02f * sc).Y,
-            P(cx + 0.27f * sc, 0).X, P(0, cy + 0.21f * sc + grow).Y), col);
-    };
-    auto cloud = [&](irr::f32 cx, irr::f32 cy, irr::f32 sc, bool solid) {
-        const irr::f32 t = 0.035f * sc;
-        cloudShape(cx, cy, sc, solid ? 0.0f : t, ink);
-        if (!solid) { cloudShape(cx, cy, sc, -0.0f, paper); }
-    };
-    auto sun = [&](irr::f32 cx, irr::f32 cy, irr::f32 r) {
-        b.disc(P(cx, cy), r * s, ink, ink);
-        for (int i = 0; i < 8; i++) {
-            const irr::f32 a = i * 45.0f * irr::core::DEGTORAD;
-            b.line(P(cx + sinf(a) * r * 1.45f, cy - cosf(a) * r * 1.45f), P(cx + sinf(a) * r * 1.95f, cy - cosf(a) * r * 1.95f), r * 0.28f * s, ink);
-        }
-    };
-    auto drops = [&](int n, irr::f32 x0, irr::f32 x1, irr::f32 y0, irr::f32 y1) {
-        for (int i = 0; i < n; i++) {
-            const irr::f32 x = x0 + (x1 - x0) * (n > 1 ? (irr::f32)i / (n - 1) : 0.5f);
-            b.line(P(x + 0.04f, y0), P(x - 0.04f, y1), 0.028f * s, ink);
-        }
-    };
-    auto flake = [&](irr::f32 cx, irr::f32 cy, irr::f32 r) {
-        const irr::f32 w = std::max(1.5f, r * 0.13f * s);
-        for (int i = 0; i < 6; i++) {
-            const irr::f32 a = i * 60.0f * irr::core::DEGTORAD;
-            const irr::core::vector2df tip = P(cx + sinf(a) * r, cy - cosf(a) * r);
-            b.line(P(cx, cy), tip, w, ink);
-            const irr::core::vector2df mid = P(cx + sinf(a) * r * 0.58f, cy - cosf(a) * r * 0.58f);
-            for (int sgn = -1; sgn <= 1; sgn += 2) {
-                const irr::f32 a2 = a + sgn * 0.75f;
-                b.line(mid, irr::core::vector2df(mid.X + sinf(a2) * r * 0.32f * s, mid.Y - cosf(a2) * r * 0.32f * s), w * 0.8f, ink);
-            }
-        }
-        b.disc(P(cx, cy), r * 0.14f * s, ink, ink);
-    };
-    auto bolt = [&](irr::f32 cx, irr::f32 cy, irr::f32 sc) {
-        b.quad(P(cx + 0.02f * sc, cy - 0.30f * sc), P(cx + 0.14f * sc, cy - 0.30f * sc), P(cx + 0.02f * sc, cy + 0.02f * sc), P(cx - 0.12f * sc, cy + 0.02f * sc), ink);
-        b.quad(P(cx - 0.06f * sc, cy - 0.02f * sc), P(cx + 0.10f * sc, cy - 0.02f * sc), P(cx - 0.08f * sc, cy + 0.34f * sc), P(cx - 0.08f * sc, cy + 0.20f * sc), ink);
-    };
-    auto windLines = [&](irr::f32 x0, irr::f32 y0, irr::f32 sc) {
-        const irr::f32 w = 0.045f * sc * s;
-        const irr::f32 lens[3] = { 0.62f, 0.78f, 0.48f };
-        for (int i = 0; i < 3; i++) {
-            const irr::f32 y = y0 + i * 0.16f * sc;
-            b.line(P(x0, y), P(x0 + lens[i] * sc, y), w, ink);
-            b.disc(P(x0, y), w * 0.5f, ink, ink);
-            //curl at the end
-            b.sector(P(x0 + lens[i] * sc, y - 0.06f * sc), 0.06f * sc * s - w * 0.5f, 0.06f * sc * s + w * 0.5f, -10.0f, 180.0f, ink, ink);
-        }
-    };
-    auto fogBars = [&](irr::f32 cx, irr::f32 cy, irr::f32 sc) {
-        const irr::f32 widths[6] = { 0.30f, 0.52f, 0.66f, 0.70f, 0.66f, 0.50f };
-        for (int i = 0; i < 6; i++) {
-            const irr::f32 y = cy + (i - 2.5f) * 0.075f * sc;
-            const irr::f32 w = widths[i] * sc;
-            b.line(P(cx - w * 0.5f, y), P(cx + w * 0.5f, y), 0.042f * sc * s, ink);
-        }
-    };
-    auto dustCloud = [&](irr::f32 cx, irr::f32 cy, irr::f32 sc, bool dense) {
-        //A cloud outline made of dots, a ground line underneath
-        const irr::f32 step = dense ? 0.045f : 0.06f;
-        for (irr::f32 y = cy - 0.36f * sc; y <= cy + 0.2f * sc; y += step * sc) {
-            for (irr::f32 x = cx - 0.42f * sc; x <= cx + 0.46f * sc; x += step * sc) {
-                const irr::f32 dx1 = (x - (cx - 0.22f * sc)) / (0.19f * sc), dy1 = (y - (cy + 0.02f * sc)) / (0.19f * sc);
-                const irr::f32 dx2 = (x - (cx + 0.02f * sc)) / (0.27f * sc), dy2 = (y - (cy - 0.10f * sc)) / (0.27f * sc);
-                const irr::f32 dx3 = (x - (cx + 0.27f * sc)) / (0.17f * sc), dy3 = (y - (cy + 0.04f * sc)) / (0.17f * sc);
-                const bool inBase = x >= cx - 0.22f * sc && x <= cx + 0.27f * sc && y >= cy + 0.02f * sc && y <= cy + 0.21f * sc;
-                if (inBase || dx1 * dx1 + dy1 * dy1 <= 1 || dx2 * dx2 + dy2 * dy2 <= 1 || dx3 * dx3 + dy3 * dy3 <= 1) {
-                    const irr::f32 d = 0.011f * sc;
-                    b.rect(irr::core::rect<irr::f32>(P(x - d, y - d), P(x + d, y + d)), ink); //small squares: hundreds of them
-                }
-            }
-        }
-        b.line(P(cx - 0.42f * sc, cy + 0.29f * sc), P(cx + 0.46f * sc, cy + 0.29f * sc), 0.035f * sc * s, ink);
-    };
-    auto waves = [&](irr::f32 y, irr::f32 amp, irr::f32 w) {
-        irr::core::vector2df prev = P(0.1f, y);
-        for (int i = 1; i <= 24; i++) {
-            const irr::f32 x = 0.1f + 0.8f * i / 24.0f;
-            const irr::core::vector2df cur = P(x, y + amp * sinf(i / 24.0f * 2.0f * irr::core::PI * 2.0f));
-            b.line(prev, cur, w * s, ink);
-            prev = cur;
-        }
-    };
-
-    switch (icon) {
-    case WX_SUN: sun(0.5f, 0.5f, 0.17f); break;
-    case WX_FEW: sun(0.36f, 0.36f, 0.12f); cloud(0.58f, 0.6f, 0.75f, false); break;
-    case WX_CLOUDY: sun(0.33f, 0.38f, 0.11f); cloud(0.55f, 0.56f, 0.95f, false); break;
-    case WX_OVERCAST: cloud(0.5f, 0.52f, 1.05f, true); break;
-    case WX_RAIN_LIGHT: cloud(0.5f, 0.4f, 0.9f, false); drops(4, 0.32f, 0.68f, 0.68f, 0.86f); break;
-    case WX_RAIN: cloud(0.5f, 0.4f, 0.9f, true); drops(6, 0.28f, 0.72f, 0.68f, 0.88f); break;
-    case WX_FOG: fogBars(0.5f, 0.5f, 1.0f); break;
-    case WX_SNOW_LIGHT: sun(0.6f, 0.3f, 0.08f); cloud(0.68f, 0.38f, 0.5f, false); flake(0.32f, 0.66f, 0.15f); break;
-    case WX_SNOW: flake(0.5f, 0.5f, 0.32f); break;
-    case WX_THUNDER: cloud(0.5f, 0.38f, 0.9f, true); drops(2, 0.3f, 0.36f, 0.68f, 0.86f); drops(2, 0.64f, 0.7f, 0.68f, 0.86f); bolt(0.5f, 0.76f, 0.5f); break;
-    case WX_BLIZZARD: windLines(0.08f, 0.38f, 0.45f); flake(0.6f, 0.5f, 0.26f); break;
-    case WX_DUST: dustCloud(0.5f, 0.52f, 1.0f, false); break;
-    case WX_DUSTSTORM: dustCloud(0.55f, 0.5f, 0.85f, true); windLines(0.06f, 0.36f, 0.35f); break;
-    case WX_GALE: windLines(0.16f, 0.32f, 0.9f); break;
-    case WX_STORM: cloud(0.5f, 0.32f, 0.8f, true); bolt(0.5f, 0.66f, 0.42f); waves(0.84f, 0.035f, 0.035f); break;
-    case WX_WIND: windLines(0.16f, 0.32f, 0.9f); break;
-    case WX_GUST: windLines(0.12f, 0.28f, 0.7f); windLines(0.3f, 0.58f, 0.55f); break;
-    case WX_SEA: waves(0.38f, 0.05f, 0.04f); waves(0.56f, 0.05f, 0.04f); waves(0.74f, 0.05f, 0.04f); break;
-    case WX_CLOCK: {
-        b.sector(P(0.5f, 0.5f), 0.31f * s, 0.36f * s, 0, 360, ink, ink);
-        b.line(P(0.5f, 0.5f), P(0.5f, 0.27f), 0.05f * s, ink);
-        b.line(P(0.5f, 0.5f), P(0.66f, 0.58f), 0.05f * s, ink);
-        b.disc(P(0.5f, 0.5f), 0.045f * s, ink, ink);
-        break;
+    b.disc(c, rr, col.raised, col.raised);
+    b.sector(c, rr - std::max(1.0f, 1.2f * k), rr, 0, 360, col.edge, col.edge);
+    for (int a = 0; a < 360; a += 10) {
+        const irr::f32 len = (a % 90 == 0) ? 9 * k : ((a % 30 == 0) ? 5 * k : 2.5f * k);
+        b.line(P((irr::f32)a, rr - 2 * k - len), P((irr::f32)a, rr - 2 * k), std::max(1.0f, (a % 90 == 0 ? 1.5f : 1.0f) * k), a % 30 == 0 ? col.dim : col.faint);
     }
-    case WX_FRONT: {
-        //Cold front: a line with its triangles, a cloud behind
-        cloud(0.55f, 0.32f, 0.6f, false);
-        b.line(P(0.1f, 0.72f), P(0.9f, 0.62f), 0.04f * s, ink);
-        for (int i = 0; i < 4; i++) {
-            const irr::f32 x = 0.18f + i * 0.19f;
-            const irr::f32 y = 0.72f - (x - 0.1f) * 0.125f;
-            b.tri(P(x, y), P(x + 0.12f, y - 0.015f), P(x + 0.065f, y - 0.11f), ink);
-        }
-        break;
-    }
-    case WX_COMPASS: {
-        b.sector(P(0.5f, 0.5f), 0.32f * s, 0.36f * s, 0, 360, ink, ink);
-        b.tri(P(0.5f, 0.16f), P(0.57f, 0.5f), P(0.43f, 0.5f), ink);
-        b.tri(P(0.5f, 0.84f), P(0.43f, 0.5f), P(0.57f, 0.5f), withAlpha(ink, 120));
-        break;
-    }
-    default: break;
-    }
+    //The wind: from where it comes, across the rose, the head downwind
+    const irr::f32 to = from + 180.0f;
+    const irr::core::vector2df tail = P(from, rr * 0.50f), tip = P(to, rr * 0.50f), base = P(to, rr * 0.50f - 12 * k);
+    b.line(tail, base, std::max(1.5f, 2.6f * k), col.accent);
+    const irr::f32 a = to * irr::core::DEGTORAD;
+    const irr::core::vector2df side(cosf(a) * 6.5f * k, sinf(a) * 6.5f * k);
+    b.tri(tip, base + side, base - side, col.accent);
+    b.disc(tail, 3.5f * k, col.accent, col.accent);
     b.flush();
+    const wchar_t* letters[4] = { L"N", L"E", L"S", L"W" };
+    for (int i = 0; i < 4; i++) {
+        const irr::core::vector2df q = P(i * 90.0f, rr - 20 * k);
+        f.small->drawIn(letters[i], Rect(q.X - 8 * k, q.Y - 8 * k, q.X + 8 * k, q.Y + 8 * k), col.dim, HudFont::Centre, 0, &clip);
+    }
 }
