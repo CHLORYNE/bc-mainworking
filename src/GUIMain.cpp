@@ -1773,6 +1773,34 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         addLine->setToolTipText(lwAddTxt.c_str());
         removeLine->setToolTipText(lwRemoveTxt.c_str());
     }
+    //The window itself is not shown any more: its widgets are the AMARRES page of CONTROLES
+    linesCombo = guienv->addComboBox(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_LINES_COMBO);
+    linesCombo->addItem(L"Aucune");
+    linesCombo->setSelected(0);
+    if (controlsPanel) {
+        const int tLines = controlsPanel->addTab(L"Amarres",
+            L"Amarres et remorques du navire propre. \u00AB Ajouter \u00BB, puis cliquer dans la vue 3D : d'abord le point sur le navire, "
+            L"ensuite le point \u00E0 terre ou sur l'autre navire. Choisir une amarre pour la garder mollie, la raidir ou la retirer.",
+            [this]() {
+                std::vector<ControlsPanel::Readout> out;
+                if (!this->model || !this->model->getLines()) { return out; }
+                const int n = this->model->getLines()->getNumberOfLines();
+                out.push_back({ L"Amarres", n > 0 ? std::to_wstring(n) : std::wstring(L"Aucune"), 0 });
+                const int sel = this->model->getLines()->getSelectedLine();
+                if (sel >= 0 && linesCombo && sel + 1 < (int)linesCombo->getItemCount()) {
+                    out.push_back({ L"Choisie", linesCombo->getItem(sel + 1), 1 });
+                }
+                return out;
+            });
+        controlsPanel->setGroup(tLines, L"Man\u0153uvre");
+        controlsPanel->addKeys(tLines, L"Amarre", L"Ajouter une amarre (puis cliquer ses deux points dans la vue 3D), ou retirer celle qui est choisie.",
+            { addLine, removeLine }, { L"Ajouter", L"Retirer" });
+        controlsPanel->addText(tLines, linesText, 2);
+        controlsPanel->addChoice(tLines, L"Amarre choisie", L"L'amarre que r\u00E8glent les lignes ci-dessous.", linesCombo);
+        controlsPanel->addToggle(tLines, L"Garder mollie", L"L'amarre choisie file \u00E0 la demande : elle ne se tend pas.", keepLineSlack);
+        controlsPanel->addToggle(tLines, L"Raidir", L"Le treuil reprend l'amarre choisie.", heaveLineIn);
+        controlsPanel->addToggle(tLines, L"Sur l'ancre", L"La prochaine amarre ajout\u00E9e part de l'ancre.", anchorLine);
+    }
 
     //add radar buttons
     //add tab control for radar
@@ -2704,9 +2732,9 @@ void GUIMain::updateVisibility()
     //weatherScrollbar->setVisible(showInterface);
     //rainScrollbar->setVisible(showInterface);
     //visibilityScrollbar->setVisible(showInterface);
-    pcLogButton->setVisible(showInterface);
+    pcLogButton->setVisible(false);
     showExtraControlsButton->setVisible(showInterface);
-    showLinesControlsButton->setVisible(showInterface);
+    showLinesControlsButton->setVisible(false);   //the lines are on the AMARRES page of CONTROLES
 
     exitButton->setVisible(showInterface);
 
@@ -2841,9 +2869,9 @@ void GUIMain::updateVisibility()
     // The rest of the bottom strip. On the command bar they stay with the bar in the full 3D view
     //(the first F hides the console only): the controls, lines, log and quit keys remain at hand
     const bool barKeys = showPrimary && (showInterface || commandBar);
-    if (pcLogButton) { pcLogButton->setVisible(barKeys); }
+    if (pcLogButton) { pcLogButton->setVisible(false); }   //the simulator's log is not for the trainees
     if (showExtraControlsButton) { showExtraControlsButton->setVisible(barKeys); }
-    if (showLinesControlsButton) { showLinesControlsButton->setVisible(barKeys); }
+    if (showLinesControlsButton) { showLinesControlsButton->setVisible(false); }   //AMARRES page of CONTROLES
     if (exitButton && commandBar) { exitButton->setVisible(showInterface || showDisplayControls); }
     if (pump1On) { pump1On->setVisible(showPrimary && showInterface && !instrumentPanel); }
     if (pump2On) { pump2On->setVisible(showPrimary && showInterface && !instrumentPanel); }
@@ -4071,6 +4099,28 @@ void GUIMain::drawGUI()
             linesList->addItem(irr::core::stringw(linesNames.at(i).c_str()).c_str());
         }
 
+        //The AMARRES page's choice: "Aucune", then the lines, numbered and named in French
+        if (linesCombo) {
+            auto label = [](unsigned int i, const std::string& name) {
+                std::wstring fr = L"Amarre";
+                if (name == "In progress") { fr = L"En cours de pose"; }
+                else if (name == "Line to vessel") { fr = L"Vers un navire"; }
+                else if (name == "Line to buoy") { fr = L"Vers une bou\u00E9e"; }
+                else if (name == "Line to land" || name == "Line to terrain") { fr = L"Vers la terre"; }
+                return std::to_wstring(i + 1) + L" \u00B7 " + fr;
+            };
+            bool same = linesCombo->getItemCount() == linesNames.size() + 1;
+            for (unsigned int i = 0; same && i < linesNames.size(); i++) {
+                same = label(i, linesNames.at(i)) == linesCombo->getItem(i + 1);
+            }
+            if (!same) {
+                linesCombo->clear();
+                linesCombo->addItem(L"Aucune");
+                for (unsigned int i = 0; i < linesNames.size(); i++) { linesCombo->addItem(label(i, linesNames.at(i)).c_str()); }
+            }
+            linesCombo->setSelected(linesList->getSelected() + 1);
+        }
+
         // Get 'keepSlack' & 'heaveIn' status of current line
         if (linesList->getSelected() > -1) {
             keepLineSlack->setChecked(model->getLines()->getKeepSlack(linesList->getSelected()));
@@ -4805,6 +4855,23 @@ void GUIMain::refreshLightsTab()
 void GUIMain::setLinesControlsText(std::string textToShow)
 {
     linesText->setText(irr::core::stringw(textToShow.c_str()).c_str());
+}
+
+void GUIMain::setLinesControlsText(const std::wstring& textToShow)
+{
+    linesText->setText(textToShow.c_str());
+}
+
+void GUIMain::selectLine(int index)
+{
+    if (!linesList || index < -1 || index >= (int)linesList->getItemCount()) { return; }
+    linesList->setSelected(index);
+    if (model && model->getLines()) { model->getLines()->setSelectedLine(index); }
+}
+
+bool GUIMain::ackKeyAt(irr::s32 x, irr::s32 y) const
+{
+    return ackAlarms && ackAlarms->isVisible() && ackAlarms->getAbsolutePosition().isPointInside(irr::core::position2di(x, y));
 }
 void GUIMain::togglePrimaryControls()
 {
@@ -6807,8 +6874,6 @@ void GUIMain::layoutCommandBar()
         separator(xr, true);
         key(detachConsoleButton, xr, true, consoleDetached ? L"RATTACHER" : L"D\u00C9TACHER", L"RATTACHER",
             bridge::ICON_DETACH, bridge::BridgeSkin::KEY_BAR);
-        key(pcLogButton, xr, true, L"JOURNAL", 0, bridge::ICON_LOG, bridge::BridgeSkin::KEY_BAR);
-        key(showLinesControlsButton, xr, true, L"AMARRES", 0, bridge::ICON_LINES, bridge::BridgeSkin::KEY_BAR);
         key(showExtraControlsButton, xr, true, L"CONTR\u00D4LES", 0, bridge::ICON_CONTROLS, bridge::BridgeSkin::KEY_BAR);
         key(stationButton, xr, true, L"PUPITRE", 0, bridge::ICON_INTERFACE, bridge::BridgeSkin::KEY_BAR);
         key(sonarButton, xr, true, L"SONAR", 0, bridge::ICON_SONAR, bridge::BridgeSkin::KEY_BAR);

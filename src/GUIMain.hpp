@@ -370,6 +370,7 @@ public:
         GUI_ID_WEATHER_BUTTON,
         GUI_ID_SONAR_BUTTON,
         GUI_ID_STATION_BUTTON,
+        GUI_ID_LINES_COMBO,              //the line chosen on the AMARRES page of CONTROLES
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
         //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
@@ -542,11 +543,16 @@ public:
     void cycleVRMColour() { vrmColourIndex = (vrmColourIndex + 1) % 6; }
 
     void showLogWindow();
+    //A line chosen on the AMARRES page (-1: none)
+    void selectLine(int index);
+    //The ACQUITTER key of the alert list is under the point (handled before the GUI sees the click)
+    bool ackKeyAt(irr::s32 x, irr::s32 y) const;
     void drawGUI();
     void setExtraControlsWindowVisible(bool windowVisible);
     void toggleExtraControlsWindow();
     void setLinesControlsWindowVisible(bool windowVisible);
     void setLinesControlsText(std::string textToShow);
+    void setLinesControlsText(const std::wstring& textToShow);
     bool getAnchorLine() const;
 
 private:
@@ -860,6 +866,7 @@ private:
     irr::gui::IGUICheckBox* heaveLineIn;
     irr::gui::IGUICheckBox* anchorLine;
     irr::gui::IGUIListBox* linesList;
+    irr::gui::IGUIComboBox* linesCombo = 0;   //"Aucune" then the lines: the choice on the AMARRES page
     irr::gui::IGUIStaticText* linesText;
 
     irr::gui::IGUIStaticText* pump1On;

@@ -135,6 +135,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         //On the large radar's picture: clicks track targets / draw parallel index lines, the wheel
         //changes the range
         if (gui->scopeMouseEvent(event)) { return true; }
+        //ACQUITTER on the alert list: acknowledged on the press itself, whatever the GUI's focus is on
+        if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN && gui->ackKeyAt(event.MouseInput.X, event.MouseInput.Y))
+        {
+            model->setAlarm(false);
+            model->getRadar().acknowledgeCPAAlarm();
+            model->acknowledgeAlerts();
+            return true;
+        }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
         {
             leftMouseDown = true;
@@ -1143,7 +1151,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 linesMode = 1;
                 model->addLine();
-                gui->setLinesControlsText("Click in 3d view to set start position for line (on own ship)"); // TODO: Add translation
+                gui->setLinesControlsText(std::wstring(L"Cliquer dans la vue 3D le point de d\u00E9part, sur le navire"));
             }
 
             if (id == GUIMain::GUI_ID_REMOVE_LINE_BUTTON)
@@ -1160,6 +1168,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_COMBO_BOX_CHANGED)
         {
+
+            //AMARRES page: the line the keys and switches act on (item 0 is "Aucune")
+            if (id == GUIMain::GUI_ID_LINES_COMBO)
+            {
+                gui->selectLine(((irr::gui::IGUIComboBox*)event.GUIEvent.Caller)->getSelected() - 1);
+            }
 
             //KYARA FEUX TAB: another vessel picked - show her state, change nothing
             if (id == GUIMain::GUI_ID_LIGHTS_VESSEL_COMBO)
@@ -2871,7 +2885,7 @@ void MyEventReceiver::handleMooringLines(irr::core::line3df rayForLines)
                 model->getLines()->setLineStart(contactNode, nodeType, nodeID, false, -1); // Start should always be on 'own ship' so nodeType = 1, and ID does not matter (leave as 0)
                 // Move on to end point
                 linesMode = 2;
-                gui->setLinesControlsText("Click in 3d view to set end position for line"); // TODO: Add translation
+                gui->setLinesControlsText(std::wstring(L"Cliquer dans la vue 3D le point d'arriv\u00E9e (\u00E0 terre ou sur l'autre navire)"));
 
                 // special case for 'anchoring', set end node at sea bed under the starting node
                 if (gui->getAnchorLine()) {
