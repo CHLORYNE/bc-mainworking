@@ -28,8 +28,10 @@ namespace bridge
     inline irr::video::SColor toRed(irr::video::SColor c)
     {
         const irr::u32 v = irr::core::max_(c.getRed(), irr::core::max_(c.getGreen(), c.getBlue()));
-        if (v < 48) { return irr::video::SColor(c.getAlpha(), v, (irr::u32)(v * 0.42f), (irr::u32)(v * 0.38f)); }
-        return irr::video::SColor(c.getAlpha(), irr::core::min_(255u, (irr::u32)(v * 1.06f)), (irr::u32)(v * 0.22f), (irr::u32)(v * 0.16f));
+        if (v < 64) { return irr::video::SColor(c.getAlpha(), (irr::u32)(v * 0.9f), (irr::u32)(v * 0.32f), (irr::u32)(v * 0.28f)); }
+        //Lit markings: the hot core of a backlit legend - a light red-orange that the eye reads at a
+        //glance; a pure red at the same strength looks far darker
+        return irr::video::SColor(c.getAlpha(), irr::core::min_(255u, 64u + v), (irr::u32)(v * 0.56f), (irr::u32)(v * 0.43f));
     }
 
     //The palette in use, shared by the skin, the console, the engine levers and the command bar
@@ -137,11 +139,11 @@ namespace bridge
             p[MODE_RED].raised = SColor(255, 9, 3, 3);
             p[MODE_RED].key = SColor(255, 20, 7, 6);
             p[MODE_RED].keyHover = SColor(255, 34, 11, 9);
-            p[MODE_RED].text = SColor(255, 226, 70, 54);
-            p[MODE_RED].textDim = SColor(255, 158, 46, 36);
-            p[MODE_RED].textFaint = SColor(255, 96, 28, 22);
-            p[MODE_RED].accent = SColor(255, 128, 26, 18);
-            p[MODE_RED].accentText = SColor(255, 255, 156, 132);
+            p[MODE_RED].text = SColor(255, 255, 104, 78);
+            p[MODE_RED].textDim = SColor(255, 214, 74, 56);
+            p[MODE_RED].textFaint = SColor(255, 132, 40, 30);
+            p[MODE_RED].accent = SColor(255, 150, 32, 22);
+            p[MODE_RED].accentText = SColor(255, 255, 182, 160);
             p[MODE_RED].field = SColor(255, 5, 2, 2);
             p[MODE_RED].danger = SColor(255, 150, 22, 16);
             p[MODE_RED].dangerText = SColor(255, 255, 196, 180);

@@ -113,15 +113,30 @@ namespace irr
                     { {18, 24, 20}, {255, 200, 72}, {250, 192, 84}, {242, 222, 72} }, //NAV_DEPTH
                 };
                 video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG, &NAV_BG, &NAV_EDGE, &NAV_DEPTH };
+                //Red night vision: the hardware (plate, bezels, faces, screws) from the night column, dark; the
+                //markings, needles and figures from the dusk column - white, as if backlit - then in red
                 const bool red = (mode == bridge::MODE_RED);
-                const int column = red ? (int)bridge::MODE_NIGHT : mode;
+                video::SColor* lit[] = { &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK,
+                    &ORDER_MARK, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB,
+                    &SHIP_HULL, &SHIP_HOUSE, &NAV_DEPTH };
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
+                    int column = mode;
+                    if (red) {
+                        column = bridge::MODE_NIGHT;
+                        for (size_t j = 0; j < sizeof(lit) / sizeof(lit[0]); j++) { if (lit[j] == target[i]) { column = bridge::MODE_DUSK; } }
+                    }
                     *target[i] = video::SColor(255, c[i][column][0], c[i][column][1], c[i][column][2]);
                     if (red) { *target[i] = bridge::toRed(*target[i]); }
                 }
-                if (red) { BAND_STBD = video::SColor(255, 130, 44, 34); }   //starboard: the dimmer band
+                if (red) {
+                    BAND_STBD = video::SColor(255, 150, 50, 36);   //starboard: the dimmer band
+                    TEXT_DIM = bridge::toRed(video::SColor(255, 200, 200, 200));
+                    //The backlight shows faintly through the dial face
+                    FACE_CENTRE = video::SColor(255, 40, 9, 6);
+                    FACE_EDGE = video::SColor(255, 12, 3, 2);
+                }
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
-                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : 1.0f);
+                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : (red ? 1.6f : 1.0f));
             }
 
             //Soft light around a stroke from p0 to p1 of width w: fades from 'strength' x GLOW alpha at
