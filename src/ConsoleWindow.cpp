@@ -216,6 +216,7 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
     closePending = false;
     opened = true;
     ShowWindow(window, SW_SHOWNOACTIVATE);
+    keepOnScreen();
     return true;
 }
 
@@ -331,6 +332,42 @@ void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
     RECT frame = { 0, 0, (LONG)w, (LONG)h };
     if (!borderless) { AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE); }
     SetWindowPos((HWND)hwnd, 0, 0, 0, frame.right - frame.left, frame.bottom - frame.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    keepOnScreen();
+}
+
+void ConsoleWindow::keepOnScreen()
+{
+    if (!opened || fullScreen || borderless) { return; }
+    HWND window = (HWND)hwnd;
+    RECT r;
+    if (!GetWindowRect(window, &r)) { return; }
+    MONITORINFO mi;
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &mi)) { return; }
+    const RECT& wa = mi.rcWork;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w > wa.right - wa.left) { w = wa.right - wa.left; }
+    if (h > wa.bottom - wa.top) { h = wa.bottom - wa.top; }
+    int x = r.left, y = r.top;
+    if (x + w > wa.right) { x = wa.right - w; }
+    if (y + h > wa.bottom) { y = wa.bottom - h; }
+    if (x < wa.left) { x = wa.left; }
+    if (y < wa.top) { y = wa.top; }
+    if (x != r.left || y != r.top || w != r.right - r.left || h != r.bottom - r.top) {
+        SetWindowPos(window, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
+{
+    if (!opened || fullScreen) { return; }
+    if (!(GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON) & 0x8000)) { return; } //already let go
+    POINT p = { clientX, clientY };
+    ClientToScreen((HWND)hwnd, &p);
+    //The system's own move, as from the title bar; it returns when the button is let go
+    ReleaseCapture();
+    SendMessageW((HWND)hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(p.x, p.y));
+    keepOnScreen();
 }
 
 //=================================================================================================
@@ -430,6 +467,7 @@ bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr:
     pending.clear();
     closePending = false;
     opened = true;
+    keepOnScreen();
     return true;
 }
 
@@ -553,6 +591,47 @@ void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
     if (!opened || fullScreen || w == 0 || h == 0) { return; }
     XResizeWindow((Display*)display, (Window)window, w, h);
     XFlush((Display*)display);
+    keepOnScreen();
+}
+
+void ConsoleWindow::keepOnScreen()
+{
+    if (!opened || fullScreen || borderless) { return; }
+    Display* dpy = (Display*)display;
+    irr::s32 x, y;
+    irr::u32 w, h;
+    if (!getPlacement(x, y, w, h)) { return; }
+    const irr::s32 sw = DisplayWidth(dpy, DefaultScreen(dpy)), sh = DisplayHeight(dpy, DefaultScreen(dpy));
+    const irr::u32 nw = irr::core::min_(w, (irr::u32)sw), nh = irr::core::min_(h, (irr::u32)sh);
+    const irr::s32 nx = irr::core::clamp(x, 0, sw - (irr::s32)nw), ny = irr::core::clamp(y, 0, sh - (irr::s32)nh);
+    if (nx != x || ny != y || nw != w || nh != h) {
+        XMoveResizeWindow(dpy, (Window)window, nx, ny, nw, nh);
+        XFlush(dpy);
+    }
+}
+
+void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
+{
+    if (!opened || fullScreen) { return; }
+    //Asked of the window manager (_NET_WM_MOVERESIZE, direction 8: move)
+    Display* dpy = (Display*)display;
+    Window child;
+    int rx = 0, ry = 0;
+    XTranslateCoordinates(dpy, (Window)window, DefaultRootWindow(dpy), clientX, clientY, &rx, &ry, &child);
+    XUngrabPointer(dpy, CurrentTime);
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = (Window)window;
+    ev.xclient.message_type = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = rx;
+    ev.xclient.data.l[1] = ry;
+    ev.xclient.data.l[2] = 8;
+    ev.xclient.data.l[3] = Button1;
+    ev.xclient.data.l[4] = 1;
+    XSendEvent(dpy, DefaultRootWindow(dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
 }
 
 void ConsoleWindow::openWithSystem(const std::string& path)

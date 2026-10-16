@@ -21,7 +21,16 @@
 
 namespace bridge
 {
-    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2, MODE_DIGITAL = 3, MODE_COUNT = 4 };
+    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2, MODE_DIGITAL = 3, MODE_RED = 4, MODE_COUNT = 5 };
+
+    //Red night vision (MODE_RED): a colour brought to red at the same brightness, as under the red
+    //lighting of a bridge or a cockpit at night. Near-blacks stay near-black, barely tinted.
+    inline irr::video::SColor toRed(irr::video::SColor c)
+    {
+        const irr::u32 v = irr::core::max_(c.getRed(), irr::core::max_(c.getGreen(), c.getBlue()));
+        if (v < 48) { return irr::video::SColor(c.getAlpha(), v, (irr::u32)(v * 0.42f), (irr::u32)(v * 0.38f)); }
+        return irr::video::SColor(c.getAlpha(), irr::core::min_(255u, (irr::u32)(v * 1.06f)), (irr::u32)(v * 0.22f), (irr::u32)(v * 0.16f));
+    }
 
     //The palette in use, shared by the skin, the console, the engine levers and the command bar
     inline int& currentMode()
@@ -120,6 +129,26 @@ namespace bridge
             p[MODE_NIGHT].error = SColor(255, 216, 104, 74);
             p[MODE_NIGHT].portText = SColor(255, 186, 66, 50);
             p[MODE_NIGHT].stbdText = SColor(255, 78, 150, 86);
+            //Red night vision: black, everything in dim red - the lighting of a bridge or a cockpit at night
+            p[MODE_RED].band = SColor(255, 4, 1, 1);
+            p[MODE_RED].panelTop = SColor(255, 15, 6, 5);
+            p[MODE_RED].panelBottom = SColor(255, 11, 4, 4);
+            p[MODE_RED].edge = SColor(255, 72, 22, 18);
+            p[MODE_RED].raised = SColor(255, 9, 3, 3);
+            p[MODE_RED].key = SColor(255, 20, 7, 6);
+            p[MODE_RED].keyHover = SColor(255, 34, 11, 9);
+            p[MODE_RED].text = SColor(255, 226, 70, 54);
+            p[MODE_RED].textDim = SColor(255, 158, 46, 36);
+            p[MODE_RED].textFaint = SColor(255, 96, 28, 22);
+            p[MODE_RED].accent = SColor(255, 128, 26, 18);
+            p[MODE_RED].accentText = SColor(255, 255, 156, 132);
+            p[MODE_RED].field = SColor(255, 5, 2, 2);
+            p[MODE_RED].danger = SColor(255, 150, 22, 16);
+            p[MODE_RED].dangerText = SColor(255, 255, 196, 180);
+            p[MODE_RED].ok = SColor(255, 236, 120, 96);
+            p[MODE_RED].error = SColor(255, 255, 52, 36);
+            p[MODE_RED].portText = SColor(255, 246, 74, 56);
+            p[MODE_RED].stbdText = SColor(255, 196, 120, 100);
             //Digital: the radar's colours - black, phosphor green, yellow captions
             p[MODE_DIGITAL].band = SColor(255, 0, 0, 0);
             p[MODE_DIGITAL].panelTop = SColor(255, 6, 13, 7);

@@ -53,6 +53,11 @@ public:
     void setFullScreen(bool on);
     //New size of the client area, the window's corner staying where it is (not in full screen)
     void resizeClient(irr::u32 w, irr::u32 h);
+    //Brings a framed window wholly inside the work area of its screen (title bar reachable), smaller if
+    //it is taller or wider than the screen. Done on opening and after resizeClient().
+    void keepOnScreen();
+    //Starts moving the window with the mouse, as a drag of its title bar would (button held down)
+    void beginMove(irr::s32 clientX, irr::s32 clientY);
     bool isFullScreen() const { return fullScreen; }
 
     //Pass to driver->beginScene() to draw into this window.

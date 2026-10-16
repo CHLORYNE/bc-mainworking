@@ -363,6 +363,7 @@ public:
         GUI_ID_PALETTE_DUSK,
         GUI_ID_PALETTE_NIGHT,
         GUI_ID_PALETTE_DIGITAL,
+        GUI_ID_PALETTE_RED,
         GUI_ID_PALETTE_AUTO,
         GUI_ID_GLOW_SCROLL_BAR,
         GUI_ID_WEATHER_BUTTON,
@@ -1007,8 +1008,8 @@ private:
     irr::core::rect<irr::s32> consoleArea;  //where the console and the command bar go
     bool sideScreensFree = false;           //side screens: 3D view to the bottom, nothing drawn over it
     int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
-    static const int PALETTE_KEYS = 5;
-    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, AUTO
+    static const int PALETTE_KEYS = 6;
+    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, ROUGE, AUTO
     irr::gui::IGUIScrollBar* glowScrollbar = 0;             //LUEUR
     irr::gui::IGUIButton* weatherButton = 0;                //METEO
     class WeatherPanel* weatherPanel = 0;

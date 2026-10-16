@@ -2037,7 +2037,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         irr::core::rect<irr::s32> br = b->getRelativePosition();
         irr::gui::IGUIRectangle* s = new irr::gui::IGUIRectangle(guienv, b,
             irr::core::rect<irr::s32>(0, 0, br.getWidth(), br.getHeight()), false);
-        s->setFillColour(irr::video::SColor(80, c.getRed(), c.getGreen(), c.getBlue()));
+        s->setFillColour(irr::video::SColor(40, c.getRed(), c.getGreen(), c.getBlue()));   //light: it lies over the caption too
         s->setClickThrough(true);
         };
     auto addRadarBtn = [&](irr::core::rect<irr::s32> r, irr::s32 id, const wchar_t* label, irr::video::SColor c) -> irr::gui::IGUIButton* {
@@ -2322,12 +2322,13 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
     //Command bar: the day / dusk / night switch, then every key in its place
     if (commandBar) {
-        const wchar_t* paletteNames[PALETTE_KEYS] = { L"JOUR", L"CR\u00C9P.", L"NUIT", L"DIGITAL", L"AUTO" };
+        const wchar_t* paletteNames[PALETTE_KEYS] = { L"JOUR", L"CR\u00C9P.", L"NUIT", L"DIGITAL", L"ROUGE", L"AUTO" };
         const wchar_t* paletteTips[PALETTE_KEYS] = {
             L"Couleurs de jour : cadrans clairs, lisibles au soleil",
             L"Couleurs de cr\u00E9puscule : cadrans sombres, graduations blanches",
             L"Couleurs de nuit : noir et ambre att\u00E9nu\u00E9, pour garder la vision de nuit",
             L"Couleurs digitales : noir et vert, comme l'\u00E9cran radar",
+            L"Vision nocturne : tout en rouge sur noir, comme l'\u00E9clairage rouge d'une passerelle ou d'un cockpit la nuit",
             L"Suit la lumi\u00E8re du sc\u00E9nario (jour, cr\u00E9puscule, nuit)" };
         for (int i = 0; i < PALETTE_KEYS; i++) {
             paletteButton[i] = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_PALETTE_DAY + i,
@@ -2359,7 +2360,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         glowScrollbar->setLargeStep(10);
         layoutCommandBar();
 
-        //Start-up colours and glow from bc5.ini: palette=jour|crepuscule|nuit|digital|auto, instrument_glow=0..100
+        //Start-up colours and glow from bc5.ini: palette=jour|crepuscule|nuit|digital|rouge|auto, instrument_glow=0..100
         //The colours only follow the daylight when AUTO is asked for; anything else keeps them fixed (JOUR by default)
         std::string startPalette = IniFile::iniFileToString(iniFilename, "palette");
         for (size_t k = 0; k < startPalette.size(); k++) { startPalette[k] = (char)tolower((unsigned char)startPalette[k]); }
@@ -2369,6 +2370,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         else if (startPalette == "crepuscule" || startPalette == "dusk") { choice = bridge::MODE_DUSK; }
         else if (startPalette == "nuit" || startPalette == "night") { choice = bridge::MODE_NIGHT; }
         else if (startPalette == "digital") { choice = bridge::MODE_DIGITAL; }
+        else if (startPalette == "rouge" || startPalette == "red") { choice = bridge::MODE_RED; }
         setPaletteChoice(choice);
         const std::string glowKey = IniFile::iniFileToString(iniFilename, "instrument_glow");
         setGlowLevel(glowKey.empty() ? 50 : (int)IniFile::iniFileTou32(iniFilename, "instrument_glow"));
@@ -2386,12 +2388,20 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //kyara - to control position for toggle controls
         irr::s32 cbY = radarTL.Y + (irr::s32)(0.040f * radarSu);
 
-        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY, cbX + cbW, cbY + cbH), 0, GUI_ID_RADAR_ARPA_BUOYS_CHECKBOX, L"Bou\u00E9es ARPA");
+        //On the radar's black background in every colour mode: the captions in light lettering of their
+        //own (the skin's text is dark by day), inside the box's area so a click on them still ticks it
+        auto radarCheck = [&](bool checked, irr::s32 top, irr::s32 id, const wchar_t* caption) {
+            irr::gui::IGUICheckBox* box = guienv->addCheckBox(checked, irr::core::rect<irr::s32>(cbX, top, cbX + cbW, top + cbH), 0, id, L"");
+            irr::gui::IGUIStaticText* text = guienv->addStaticText(caption, irr::core::rect<irr::s32>(cbH + 6, 0, cbW, cbH), false, false, box);
+            text->setOverrideColor(irr::video::SColor(255, 214, 224, 234));
+            text->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+        };
+        radarCheck(true, cbY, GUI_ID_RADAR_ARPA_BUOYS_CHECKBOX, L"Bou\u00E9es ARPA");
 
         //kyara: cases + combos couleur déplacés ici depuis le bas
-        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + cbPad, cbX + cbW, cbY + cbPad + cbH), 0, GUI_ID_RADAR_SHIP_TRAILS_CHECKBOX, L"Traces navires");
-        guienv->addCheckBox(false, irr::core::rect<irr::s32>(cbX, cbY + 2 * cbPad, cbX + cbW, cbY + 2 * cbPad + cbH), 0, GUI_ID_RADAR_OWN_SHIP_TRAILS_CHECKBOX, L"Trace navire propre");
-        guienv->addCheckBox(true, irr::core::rect<irr::s32>(cbX, cbY + 3 * cbPad, cbX + cbW, cbY + 3 * cbPad + cbH), 0, GUI_ID_RADAR_MMSI_CHECKBOX, L"Num\u00E9ros MMSI");
+        radarCheck(false, cbY + cbPad, GUI_ID_RADAR_SHIP_TRAILS_CHECKBOX, L"Traces navires");
+        radarCheck(false, cbY + 2 * cbPad, GUI_ID_RADAR_OWN_SHIP_TRAILS_CHECKBOX, L"Trace navire propre");
+        radarCheck(true, cbY + 3 * cbPad, GUI_ID_RADAR_MMSI_CHECKBOX, L"Num\u00E9ros MMSI");
         irr::s32 cbWcol = (irr::s32)(0.080f * radarSu);
         irr::s32 cbHcol = (irr::s32)(0.020f * sh);
 
@@ -3034,9 +3044,10 @@ void GUIMain::setButtonHighlight(irr::gui::IGUIButton* button, irr::video::SColo
         lbl->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
         button->setText(L"");   // masque le texte natif (clair uniquement) pour éviter le doublon
     }
-    lbl->setOverrideColor(bright ? irr::video::SColor(255, 0, 0, 0)         // noir sur orange/rouge
-        : irr::video::SColor(255, 236, 239, 244)); // clair sinon
-    lbl->enableOverrideColor(true);
+    //Black on a lit (orange, red, green) key; otherwise the skin's own key lettering, which follows
+    //the colour mode (dark on the light keys by day, light on the dark ones at night)
+    lbl->setOverrideColor(irr::video::SColor(255, 0, 0, 0));
+    lbl->enableOverrideColor(bright);
 }
 //kyara: variante qui rafraîchit aussi le libellé (boutons dont le texte change, ex. Écho)
 void GUIMain::setButtonHighlight(irr::gui::IGUIButton* button, irr::video::SColor colour, const wchar_t* labelText)
@@ -3400,12 +3411,16 @@ void GUIMain::updateGuiData(GUIData* guiData)
 
     //Update rudder pump indicators
     //Annunciator tiles: lit green while the pump runs, red when it is stopped
-    const irr::video::SColor tileRun(255, 30, 112, 58), tileStop(255, 146, 34, 28);
+    //(red night vision: a dim red tile running, a bright one stopped)
+    const bool redMode = (bridge::currentMode() == bridge::MODE_RED);
+    const irr::video::SColor tileRun = redMode ? irr::video::SColor(255, 70, 18, 14) : irr::video::SColor(255, 30, 112, 58);
+    const irr::video::SColor tileStop = redMode ? irr::video::SColor(255, 176, 30, 22) : irr::video::SColor(255, 146, 34, 28);
     pump1On->setBackgroundColor(guiData->pump1On ? tileRun : tileStop);
     pump2On->setBackgroundColor(guiData->pump2On ? tileRun : tileStop);
     // Light text on the green/red lamps, whatever the palette
-    pump1On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));
-    pump2On->setOverrideColor(irr::video::SColor(255, 235, 240, 235));
+    const irr::video::SColor tileText = redMode ? irr::video::SColor(255, 255, 150, 128) : irr::video::SColor(255, 235, 240, 235);
+    pump1On->setOverrideColor(tileText);
+    pump2On->setOverrideColor(tileText);
 }
 
 void GUIMain::showLogWindow()
@@ -5222,6 +5237,11 @@ void GUIMain::dispatchConsoleWindowInput()
                 }
             }
             if (!target && instrumentPanel->isPointInside(p)) { target = instrumentPanel; }   //rudder dial = helm
+            if (!target && left) {
+                //Anywhere else: the window moves with the mouse, as by its title bar
+                consoleWindow->beginMove(p.X, p.Y);
+                break;
+            }
             consoleInputTarget = target;
             if (target) { target->OnEvent(e); }
             break;

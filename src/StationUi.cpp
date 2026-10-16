@@ -43,6 +43,17 @@ namespace station
             c.key = rgb(10, 10, 11); c.hover = rgb(22, 18, 14); c.selRow = rgb(44, 28, 10);
             return c;
         }
+        Colours makeRed()
+        {
+            Colours c;
+            c.bg = rgb(8, 2, 2); c.nav = rgb(6, 1, 1); c.raised = rgb(4, 1, 1); c.navSel = rgb(28, 8, 7); c.rule = rgb(34, 10, 9);
+            c.edge = rgb(74, 22, 18); c.edge2 = rgb(46, 14, 12);
+            c.text = rgb(226, 72, 56); c.dim = rgb(160, 48, 38); c.faint = rgb(98, 30, 24);
+            c.accent = rgb(244, 92, 62); c.accentDim = rgb(72, 16, 10); c.accentText = rgb(255, 172, 146); c.tagText = rgb(14, 2, 2);
+            c.ok = rgb(236, 128, 100); c.warn = rgb(255, 144, 92); c.err = rgb(255, 46, 34); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(72, 30, 14);
+            c.key = rgb(12, 3, 3); c.hover = rgb(30, 8, 7); c.selRow = rgb(58, 14, 10);
+            return c;
+        }
         Colours makeDigital()
         {
             Colours c;
@@ -74,10 +85,11 @@ namespace station
 
     const Colours& colours()
     {
-        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital();
+        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital(), red = makeRed();
         switch (bridge::currentMode()) {
         case bridge::MODE_NIGHT: return night;
         case bridge::MODE_DIGITAL: return digital;
+        case bridge::MODE_RED: return red;
         default: return navy;
         }
     }

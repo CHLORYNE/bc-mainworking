@@ -69,7 +69,7 @@ namespace irr
             void applyPalette(int mode)
             {
                 if (mode < 0 || mode >= bridge::MODE_COUNT) { mode = bridge::MODE_DUSK; }
-                const u32 c[][bridge::MODE_COUNT][3] = {
+                const u32 c[][4][3] = {   //day, dusk, night, digital (red night vision: the night column, in red)
                     { {184, 188, 192}, {44, 48, 53}, {14, 14, 15}, {6, 13, 7} }, //PANEL_TOP
                     { {174, 179, 183}, {38, 42, 46}, {11, 11, 12}, {2, 6, 3} }, //PANEL_BOTTOM
                     { {212, 215, 218}, {72, 79, 86}, {34, 30, 26}, {24, 62, 30} }, //PANEL_EDGE_HI
@@ -113,9 +113,13 @@ namespace irr
                     { {18, 24, 20}, {255, 200, 72}, {250, 192, 84}, {242, 222, 72} }, //NAV_DEPTH
                 };
                 video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG, &NAV_BG, &NAV_EDGE, &NAV_DEPTH };
+                const bool red = (mode == bridge::MODE_RED);
+                const int column = red ? (int)bridge::MODE_NIGHT : mode;
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
-                    *target[i] = video::SColor(255, c[i][mode][0], c[i][mode][1], c[i][mode][2]);
+                    *target[i] = video::SColor(255, c[i][column][0], c[i][column][1], c[i][column][2]);
+                    if (red) { *target[i] = bridge::toRed(*target[i]); }
                 }
+                if (red) { BAND_STBD = video::SColor(255, 130, 44, 34); }   //starboard: the dimmer band
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
                 GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : 1.0f);
             }

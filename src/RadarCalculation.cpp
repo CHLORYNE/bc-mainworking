@@ -1,4 +1,5 @@
 #include "RadarCalculation.hpp"
+#include "BridgeSkin.hpp"   //the colour mode (red night vision)
 
 #include "Terrain.hpp"
 #include "OwnShip.hpp"
@@ -2700,22 +2701,17 @@ bool RadarCalculation::isPointInEllipse(irr::f32 pointX, irr::f32 pointZ, irr::f
 
 irr::video::SColor RadarCalculation::getRadarForegroundColour() const
 {
-    if (currentRadarColourChoice < radarForegroundColours.size()) {
-        return radarForegroundColours.at(currentRadarColourChoice);
-    }
-    else {
-        return irr::video::SColor(255, 255, 220, 0);
-    }
+    const irr::video::SColor c = (currentRadarColourChoice < radarForegroundColours.size()) ?
+        radarForegroundColours.at(currentRadarColourChoice) : irr::video::SColor(255, 255, 220, 0);
+    //Red night vision: the echoes in red too
+    return (bridge::currentMode() == bridge::MODE_RED) ? bridge::toRed(c) : c;
 }
 
 irr::video::SColor RadarCalculation::getRadarBackgroundColour() const
 {
-    if (currentRadarColourChoice < radarBackgroundColours.size()) {
-        return radarBackgroundColours.at(currentRadarColourChoice);
-    }
-    else {
-        return irr::video::SColor(255, 0, 0, 200);
-    }
+    const irr::video::SColor c = (currentRadarColourChoice < radarBackgroundColours.size()) ?
+        radarBackgroundColours.at(currentRadarColourChoice) : irr::video::SColor(255, 0, 0, 200);
+    return (bridge::currentMode() == bridge::MODE_RED) ? bridge::toRed(c) : c;
 }
 
 irr::video::SColor RadarCalculation::getRadarSurroundColour() const
