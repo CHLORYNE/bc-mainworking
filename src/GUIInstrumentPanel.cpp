@@ -66,6 +66,8 @@ namespace irr
             f32 GLOW_BASE = 0.0f;
             f32 GLOW = 0.0f;
 
+            void applyMarine();
+
             void applyPalette(int mode)
             {
                 if (mode < 0 || mode >= bridge::MODE_COUNT) { mode = bridge::MODE_DUSK; }
@@ -120,7 +122,7 @@ namespace irr
                     &ORDER_MARK, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB,
                     &SHIP_HULL, &SHIP_HOUSE, &NAV_DEPTH };
                 for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
-                    int column = mode;
+                    int column = (mode < 4) ? mode : bridge::MODE_NIGHT;   //the table has day, dusk, night, digital
                     if (red) {
                         column = bridge::MODE_NIGHT;
                         for (size_t j = 0; j < sizeof(lit) / sizeof(lit[0]); j++) { if (lit[j] == target[i]) { column = bridge::MODE_DUSK; } }
@@ -135,8 +137,50 @@ namespace irr
                     FACE_CENTRE = video::SColor(255, 40, 9, 6);
                     FACE_EDGE = video::SColor(255, 12, 3, 2);
                 }
+                if (mode == bridge::MODE_MARINE) { applyMarine(); }
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
-                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : (red ? 1.6f : 1.0f));
+                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : (red ? 1.6f : (mode == bridge::MODE_MARINE ? 1.3f : 1.0f)));
+            }
+
+            //Marine: the night hardware without its warm tint, black faces; scales, figures and values
+            //lit in starboard green, needles, dial names and labels in port red
+            void applyMarine()
+            {
+                video::SColor* hardware[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER,
+                    &HUB_OUTER, &HUB_INNER, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &HULL_MARK };
+                for (size_t i = 0; i < sizeof(hardware) / sizeof(hardware[0]); i++) {
+                    const u32 v = (hardware[i]->getRed() + hardware[i]->getGreen() + hardware[i]->getBlue()) / 3;
+                    *hardware[i] = video::SColor(255, v, v, v);
+                }
+                const video::SColor green(255, 116, 242, 148), greenDim(255, 80, 192, 112), red(255, 255, 72, 56), redSoft(255, 255, 104, 84);
+                FACE_CENTRE = video::SColor(255, 6, 12, 8);
+                FACE_EDGE = video::SColor(255, 1, 2, 1);
+                SCALE_WHITE = green;
+                TEXT_TITLE = redSoft;
+                TEXT_DIM = greenDim;
+                NEEDLE = red;
+                BAND_PORT = video::SColor(255, 236, 48, 38);
+                BAND_STBD = video::SColor(255, 60, 214, 100);
+                BAND_ASTERN = video::SColor(255, 236, 48, 38);
+                LUBBER = red;
+                COG_MARK = green;
+                ORDER_MARK = redSoft;
+                LCD_BG = video::SColor(255, 0, 3, 1);
+                LCD_EDGE = video::SColor(255, 30, 62, 40);
+                LCD_HEADER = video::SColor(255, 6, 14, 8);
+                DIGIT_WHITE = green;
+                DIGIT_RED = red;
+                DIGIT_GREEN = green;
+                DIGIT_AMBER = redSoft;
+                NAV_LABEL = redSoft;
+                NAV_VALUE = green;
+                NAV_DEPTH = green;
+                WIND_BARB = green;
+                SHIP_HULL = video::SColor(255, 64, 140, 86);
+                SHIP_HOUSE = green;
+                STATUS_BG = video::SColor(255, 0, 0, 0);
+                NAV_BG = video::SColor(255, 0, 3, 1);
+                NAV_EDGE = video::SColor(255, 30, 62, 40);
             }
 
             //Soft light around a stroke from p0 to p1 of width w: fades from 'strength' x GLOW alpha at
@@ -448,7 +492,7 @@ namespace irr
 
             if (orientation == 2) {
                 //A column of dials (two or three if that makes them bigger), the status keys in a strip under them
-                const f32 statusH = (statusWidth > 0) ? (f32)statusWidth * 0.75f : 0.0f;
+                const f32 statusH = (statusWidth > 0) ? core::max_(28.0f, (f32)statusWidth * 0.36f) : 0.0f;   //two lamps side by side
                 const f32 availH = H - 2.0f * pad - (statusH > 0 ? statusH + pad : 0.0f);
                 const f32 availWidth = W - 2.0f * pad;
                 const int n = (int)kinds.size();

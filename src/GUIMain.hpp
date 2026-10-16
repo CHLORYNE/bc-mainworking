@@ -364,6 +364,7 @@ public:
         GUI_ID_PALETTE_NIGHT,
         GUI_ID_PALETTE_DIGITAL,
         GUI_ID_PALETTE_RED,
+        GUI_ID_PALETTE_MARINE,
         GUI_ID_PALETTE_AUTO,
         GUI_ID_GLOW_SCROLL_BAR,
         GUI_ID_WEATHER_BUTTON,
@@ -712,7 +713,7 @@ private:
     bool consoleDetached = false;
     bool consoleWindowUsed = false;                  //the OpenGL drawable has been switched at least once
     irr::core::rect<irr::s32> consolePanelAttachedRect;
-    irr::core::rect<irr::s32> consoleStatusAttachedRect[4]; //RADAR, pump 1, pump 2, ack
+    irr::core::rect<irr::s32> consoleStatusAttachedRect[2]; //pump 1, pump 2
     irr::core::dimension2du consoleLaidOutSize;
     irr::gui::IGUIElement* consoleInputTarget = 0;   //element under a button press in the console window
     irr::gui::IGUIButton* detachConsoleButton = 0;
@@ -1008,8 +1009,8 @@ private:
     irr::core::rect<irr::s32> consoleArea;  //where the console and the command bar go
     bool sideScreensFree = false;           //side screens: 3D view to the bottom, nothing drawn over it
     int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
-    static const int PALETTE_KEYS = 6;
-    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, ROUGE, AUTO
+    static const int PALETTE_KEYS = 7;
+    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, ROUGE, MARINE, AUTO
     irr::gui::IGUIScrollBar* glowScrollbar = 0;             //LUEUR
     irr::gui::IGUIButton* weatherButton = 0;                //METEO
     class WeatherPanel* weatherPanel = 0;

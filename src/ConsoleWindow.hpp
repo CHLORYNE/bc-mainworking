@@ -56,6 +56,8 @@ public:
     //Brings a framed window wholly inside the work area of its screen (title bar reachable), smaller if
     //it is taller or wider than the screen. Done on opening and after resizeClient().
     void keepOnScreen();
+    //The usable part of the screen the window is on (without the taskbar), or 0 x 0 if unknown
+    irr::core::dimension2du workArea() const;
     //Starts moving the window with the mouse, as a drag of its title bar would (button held down)
     void beginMove(irr::s32 clientX, irr::s32 clientY);
     bool isFullScreen() const { return fullScreen; }

@@ -199,8 +199,8 @@ void GUIHelmLever::draw()
     IGUIFont* font = skin ? skin->getFont() : 0;
     const bridge::Palette& bp = bridge::palette();
     const int mode = bridge::currentMode();
-    const bool red = (mode == bridge::MODE_RED);
-    const bool day = (mode == bridge::MODE_DAY), night = (mode == bridge::MODE_NIGHT) || red, digital = (mode == bridge::MODE_DIGITAL);
+    const bool red = (mode == bridge::MODE_RED), marine = (mode == bridge::MODE_MARINE);   //marine: green lettering, red index
+    const bool day = (mode == bridge::MODE_DAY), night = (mode == bridge::MODE_NIGHT) || red || marine, digital = (mode == bridge::MODE_DIGITAL);
 
     const core::rect<s32>& r = AbsoluteRect;
     const f32 x0 = (f32)r.UpperLeftCorner.X, x1 = (f32)r.LowerRightCorner.X;
@@ -211,18 +211,18 @@ void GUIHelmLever::draw()
     //The engine levers' hardware colours, per palette
     const video::SColor slotDark = day ? video::SColor(255, 46, 52, 60) : video::SColor(255, 4, 6, 9);
     const video::SColor slotEdge = day ? video::SColor(255, 120, 130, 142) : bp.edge;
-    const video::SColor engrave = red ? bridge::toRed(day ? video::SColor(255, 40, 48, 58) : (night ? video::SColor(255, 150, 108, 58) :
+    const video::SColor engrave = marine ? video::SColor(255, 112, 236, 144) : red ? bridge::toRed(day ? video::SColor(255, 40, 48, 58) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 76, 220, 92) : video::SColor(255, 200, 208, 218)))) : (day ? video::SColor(255, 40, 48, 58) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 76, 220, 92) : video::SColor(255, 200, 208, 218))));
-    const video::SColor engraveDim = red ? bridge::toRed(day ? video::SColor(255, 110, 120, 132) : (night ? video::SColor(255, 92, 70, 44) :
+    const video::SColor engraveDim = marine ? video::SColor(255, 52, 136, 76) : red ? bridge::toRed(day ? video::SColor(255, 110, 120, 132) : (night ? video::SColor(255, 92, 70, 44) :
         (digital ? video::SColor(255, 34, 110, 44) : video::SColor(255, 112, 126, 144)))) : (day ? video::SColor(255, 110, 120, 132) : (night ? video::SColor(255, 92, 70, 44) :
         (digital ? video::SColor(255, 34, 110, 44) : video::SColor(255, 112, 126, 144))));
     const video::SColor gripTop = night ? video::SColor(255, 46, 44, 42) : video::SColor(255, 78, 82, 90);
     const video::SColor gripBottom = night ? video::SColor(255, 14, 13, 12) : video::SColor(255, 22, 24, 28);
-    const video::SColor gripShine = red ? bridge::toRed(night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186)) : (night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186));
-    const video::SColor indexCol = red ? bridge::toRed(night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250))) : (night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250)));
+    const video::SColor gripShine = marine ? video::SColor(255, 72, 72, 72) : red ? bridge::toRed(night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186)) : (night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186));
+    const video::SColor indexCol = marine ? video::SColor(255, 255, 72, 56) : red ? bridge::toRed(night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250))) : (night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250)));
     const video::SColor lcdBg = day ? video::SColor(255, 186, 199, 180) : video::SColor(255, 6, 8, 10);
-    const video::SColor lcdOff = red ? bridge::toRed(day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
+    const video::SColor lcdOff = marine ? video::SColor(255, 116, 242, 148) : red ? bridge::toRed(day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 96, 255, 116) : video::SColor(255, 150, 158, 170)))) : (day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 96, 255, 116) : video::SColor(255, 150, 158, 170))));
     const f32 dimK = night ? 0.6f : 1.0f;

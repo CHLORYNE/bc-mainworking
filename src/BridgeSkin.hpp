@@ -21,7 +21,7 @@
 
 namespace bridge
 {
-    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2, MODE_DIGITAL = 3, MODE_RED = 4, MODE_COUNT = 5 };
+    enum Mode { MODE_DAY = 0, MODE_DUSK = 1, MODE_NIGHT = 2, MODE_DIGITAL = 3, MODE_RED = 4, MODE_MARINE = 5, MODE_COUNT = 6 };
 
     //Red night vision (MODE_RED): a colour brought to red at the same brightness, as under the red
     //lighting of a bridge or a cockpit at night. Near-blacks stay near-black, barely tinted.
@@ -139,9 +139,9 @@ namespace bridge
             p[MODE_RED].raised = SColor(255, 9, 3, 3);
             p[MODE_RED].key = SColor(255, 20, 7, 6);
             p[MODE_RED].keyHover = SColor(255, 34, 11, 9);
-            p[MODE_RED].text = SColor(255, 255, 104, 78);
-            p[MODE_RED].textDim = SColor(255, 214, 74, 56);
-            p[MODE_RED].textFaint = SColor(255, 132, 40, 30);
+            p[MODE_RED].text = SColor(255, 255, 134, 104);
+            p[MODE_RED].textDim = SColor(255, 236, 98, 74);
+            p[MODE_RED].textFaint = SColor(255, 166, 56, 42);
             p[MODE_RED].accent = SColor(255, 150, 32, 22);
             p[MODE_RED].accentText = SColor(255, 255, 182, 160);
             p[MODE_RED].field = SColor(255, 5, 2, 2);
@@ -152,6 +152,26 @@ namespace bridge
             p[MODE_RED].portText = SColor(255, 246, 74, 56);
             p[MODE_RED].stbdText = SColor(255, 196, 120, 100);
             //Digital: the radar's colours - black, phosphor green, yellow captions
+            //Marine: black, lettering in starboard green, what is engaged and what is wrong in port red
+            p[MODE_MARINE].band = SColor(255, 0, 0, 0);
+            p[MODE_MARINE].panelTop = SColor(255, 10, 11, 11);
+            p[MODE_MARINE].panelBottom = SColor(255, 6, 7, 7);
+            p[MODE_MARINE].edge = SColor(255, 38, 66, 48);
+            p[MODE_MARINE].raised = SColor(255, 3, 4, 4);
+            p[MODE_MARINE].key = SColor(255, 13, 16, 14);
+            p[MODE_MARINE].keyHover = SColor(255, 20, 34, 25);
+            p[MODE_MARINE].text = SColor(255, 124, 240, 154);
+            p[MODE_MARINE].textDim = SColor(255, 90, 196, 120);
+            p[MODE_MARINE].textFaint = SColor(255, 54, 124, 76);
+            p[MODE_MARINE].accent = SColor(255, 156, 30, 24);
+            p[MODE_MARINE].accentText = SColor(255, 255, 216, 208);
+            p[MODE_MARINE].field = SColor(255, 0, 0, 0);
+            p[MODE_MARINE].danger = SColor(255, 176, 30, 24);
+            p[MODE_MARINE].dangerText = SColor(255, 255, 230, 224);
+            p[MODE_MARINE].ok = SColor(255, 120, 244, 150);
+            p[MODE_MARINE].error = SColor(255, 255, 72, 56);
+            p[MODE_MARINE].portText = SColor(255, 255, 76, 60);
+            p[MODE_MARINE].stbdText = SColor(255, 110, 240, 140);
             p[MODE_DIGITAL].band = SColor(255, 0, 0, 0);
             p[MODE_DIGITAL].panelTop = SColor(255, 6, 13, 7);
             p[MODE_DIGITAL].panelBottom = SColor(255, 2, 6, 3);

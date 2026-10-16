@@ -1358,9 +1358,11 @@ std::string launcherScreensFile()
 //Keeps a screen picker choice for next time: Bridge, Instruments or Repeater (the others are kept).
 bool saveLauncherScreen(const std::string& key, int value)
 {
-    const char* keys[7] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar", "Station", "StationLayout" };
-    std::string values[7];
-    for (int k = 0; k < 7; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
+    //StationLayoutIni: bc5.ini's station_layout when StationLayout was picked (a later change in the
+    //settings wins over the picker's choice)
+    const char* keys[8] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar", "Station", "StationLayout", "StationLayoutIni" };
+    std::string values[8];
+    for (int k = 0; k < 8; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
 
     //User folder, as the settings editor creates it.
     const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
@@ -1376,7 +1378,7 @@ bool saveLauncherScreen(const std::string& key, int value)
         }
     }
     std::ofstream out(launcherScreensFile().c_str(), std::ios::trunc);
-    for (int k = 0; k < 7; k++) {
+    for (int k = 0; k < 8; k++) {
         if (!values[k].empty()) { out << keys[k] << "=" << values[k] << "\n"; }
     }
     return out.good();
@@ -1429,8 +1431,11 @@ void startSimulator()
         int sonar = atoi(readIniNow(launcherScreensFile(), "Sonar").c_str());
         const std::string savedStation = readIniNow(launcherScreensFile(), "Station");
         int station = savedStation.empty() ? atoi(readIniNow(ini, "station_screen").c_str()) : atoi(savedStation.c_str());
+        //The layout last picked here, unless station_layout was changed in the settings since
         const std::string savedLayout = readIniNow(launcherScreensFile(), "StationLayout");
-        const int stationLayout = atoi((savedLayout.empty() ? readIniNow(ini, "station_layout") : savedLayout).c_str());
+        const int iniLayout = atoi(readIniNow(ini, "station_layout").c_str());
+        const bool settingsChanged = atoi(readIniNow(launcherScreensFile(), "StationLayoutIni").c_str()) != iniLayout;
+        const int stationLayout = (savedLayout.empty() || settingsChanged) ? iniLayout : atoi(savedLayout.c_str());
         if (bridge <= 0) {
             bridge = atoi(readIniNow(ini, "monitor").c_str());
             console = atoi(readIniNow(ini, "console_monitor").c_str());
@@ -2253,6 +2258,7 @@ int main(int argc, char** argv)
             saveLauncherScreen("Sonar", sonarScreen);
             saveLauncherScreen("Station", stationScreen);
             saveLauncherScreen("StationLayout", stationLayout);
+            saveLauncherScreen("StationLayoutIni", atoi(readIniNow(currentBc5Ini(), "station_layout").c_str()));
             showLaunchToast(g_simulatorTitle);
             launchSimulator(screen, consoleScreen, radarScreen, sonarScreen, stationScreen, stationLayout);
         },

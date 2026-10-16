@@ -335,6 +335,15 @@ void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
     keepOnScreen();
 }
 
+irr::core::dimension2du ConsoleWindow::workArea() const
+{
+    if (!opened) { return irr::core::dimension2du(0, 0); }
+    MONITORINFO mi;
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow((HWND)hwnd, MONITOR_DEFAULTTONEAREST), &mi)) { return irr::core::dimension2du(0, 0); }
+    return irr::core::dimension2du((irr::u32)(mi.rcWork.right - mi.rcWork.left), (irr::u32)(mi.rcWork.bottom - mi.rcWork.top));
+}
+
 void ConsoleWindow::keepOnScreen()
 {
     if (!opened || fullScreen || borderless) { return; }
@@ -589,9 +598,25 @@ void ConsoleWindow::setFullScreen(bool on)
 void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
 {
     if (!opened || fullScreen || w == 0 || h == 0) { return; }
-    XResizeWindow((Display*)display, (Window)window, w, h);
-    XFlush((Display*)display);
-    keepOnScreen();
+    //Moved and sized in one request: the server has not applied a resize yet when it is read back
+    Display* dpy = (Display*)display;
+    irr::s32 x = 0, y = 0;
+    irr::u32 ow, oh;
+    getPlacement(x, y, ow, oh);
+    const irr::s32 sw = DisplayWidth(dpy, DefaultScreen(dpy)), sh = DisplayHeight(dpy, DefaultScreen(dpy));
+    w = irr::core::min_(w, (irr::u32)sw);
+    h = irr::core::min_(h, (irr::u32)sh);
+    x = irr::core::clamp(x, 0, sw - (irr::s32)w);
+    y = irr::core::clamp(y, 0, sh - (irr::s32)h);
+    XMoveResizeWindow(dpy, (Window)window, x, y, w, h);
+    XFlush(dpy);
+}
+
+irr::core::dimension2du ConsoleWindow::workArea() const
+{
+    if (!opened) { return irr::core::dimension2du(0, 0); }
+    Display* dpy = (Display*)display;
+    return irr::core::dimension2du((irr::u32)DisplayWidth(dpy, DefaultScreen(dpy)), (irr::u32)DisplayHeight(dpy, DefaultScreen(dpy)));
 }
 
 void ConsoleWindow::keepOnScreen()

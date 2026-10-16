@@ -147,7 +147,7 @@ namespace station
         int hoveredPage = -1;
         bool hoveredClose = false;
         bool showKeys = true;        //dock and close keys (not on the instructor screen, where the window stays)
-        bool forceCompact = false;   //pages on top and boxes underneath whatever the shape
+        bool forceCompact = false;   //pages on top and boxes underneath unless the window is clearly wide
 
         //sideWidth: the side column; sideHeight: the strip under the pages when narrow (both
         //before scaling). Reloads the fonts when the scale changes.

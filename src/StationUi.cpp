@@ -48,10 +48,23 @@ namespace station
             Colours c;
             c.bg = rgb(8, 2, 2); c.nav = rgb(6, 1, 1); c.raised = rgb(4, 1, 1); c.navSel = rgb(28, 8, 7); c.rule = rgb(34, 10, 9);
             c.edge = rgb(74, 22, 18); c.edge2 = rgb(46, 14, 12);
-            c.text = rgb(255, 112, 84); c.dim = rgb(212, 76, 58); c.faint = rgb(140, 44, 34);
-            c.accent = rgb(255, 104, 70); c.accentDim = rgb(84, 20, 12); c.accentText = rgb(255, 190, 168); c.tagText = rgb(14, 2, 2);
+            //Lit as the dials are: a light red-orange that reads at a glance, not a deep red
+            c.text = rgb(255, 142, 110); c.dim = rgb(244, 108, 82); c.faint = rgb(184, 68, 50);
+            c.accent = rgb(255, 120, 84); c.accentDim = rgb(96, 24, 14); c.accentText = rgb(255, 206, 186); c.tagText = rgb(14, 2, 2);
             c.ok = rgb(236, 128, 100); c.warn = rgb(255, 144, 92); c.err = rgb(255, 46, 34); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(72, 30, 14);
             c.key = rgb(12, 3, 3); c.hover = rgb(30, 8, 7); c.selRow = rgb(58, 14, 10);
+            return c;
+        }
+        Colours makeMarine()
+        {
+            //Black; lettering in starboard green, selection and alarms in port red
+            Colours c;
+            c.bg = rgb(3, 4, 4); c.nav = rgb(2, 3, 3); c.raised = rgb(0, 0, 0); c.navSel = rgb(44, 10, 8); c.rule = rgb(16, 32, 20);
+            c.edge = rgb(38, 74, 48); c.edge2 = rgb(20, 42, 26);
+            c.text = rgb(130, 244, 160); c.dim = rgb(94, 204, 126); c.faint = rgb(58, 134, 82);
+            c.accent = rgb(255, 78, 60); c.accentDim = rgb(84, 16, 12); c.accentText = rgb(255, 218, 210); c.tagText = rgb(12, 0, 0);
+            c.ok = rgb(120, 244, 150); c.warn = rgb(255, 176, 70); c.err = rgb(255, 62, 48); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(70, 42, 10);
+            c.key = rgb(6, 9, 7); c.hover = rgb(14, 28, 18); c.selRow = rgb(60, 14, 10);
             return c;
         }
         Colours makeDigital()
@@ -85,11 +98,12 @@ namespace station
 
     const Colours& colours()
     {
-        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital(), red = makeRed();
+        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital(), red = makeRed(), marine = makeMarine();
         switch (bridge::currentMode()) {
         case bridge::MODE_NIGHT: return night;
         case bridge::MODE_DIGITAL: return digital;
         case bridge::MODE_RED: return red;
+        case bridge::MODE_MARINE: return marine;
         default: return navy;
         }
     }
@@ -128,7 +142,7 @@ namespace station
         const std::string regular = folder + "B612-Regular.ttf";
         const std::string medium = folder + "B612-Regular.ttf";
         const std::string semi = folder + "B612-Bold.ttf";
-        const irr::f32 s = 0.84f * k;   //a wide face: smaller than the condensed one it replaced
+        const irr::f32 s = 0.9f * k;   //a wide face: a little smaller than the condensed one it replaced
         title = new HudFont(driver, semi, 18 * s, fallback);
         tag = new HudFont(driver, semi, 15 * s, fallback);
         nav = new HudFont(driver, medium, 16 * s, fallback);
@@ -437,9 +451,11 @@ namespace station
         window = Rect((irr::f32)area.UpperLeftCorner.X, (irr::f32)area.UpperLeftCorner.Y, (irr::f32)area.LowerRightCorner.X, (irr::f32)area.LowerRightCorner.Y);
         const irr::f32 W = window.getWidth(), H = window.getHeight();
         if (W < 10 || H < 10) { return; }
-        compact = forceCompact || W < H * 1.15f;
-        const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 860.0f, W / 520.0f), 0.85f, 2.0f)
-                                      : irr::core::clamp(std::min(H / 660.0f, W / 1240.0f), 0.85f, 2.0f);
+        //Pages on top unless the window is clearly wide (on the instructor screen: wider still - a
+        //short wide place, such as half a landscape screen, reads better with the pages on the left)
+        compact = W < H * (forceCompact ? 1.6f : 1.15f);
+        const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 760.0f, W / 470.0f), 0.95f, 2.2f)
+                                      : irr::core::clamp(std::min(H / 540.0f, W / 1100.0f), 0.95f, 2.2f);
         if (fabsf(newK - k) > 0.01f || !fonts.title) {
             k = newK;
             fonts.load(env, k);
