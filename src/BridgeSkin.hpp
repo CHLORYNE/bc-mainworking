@@ -142,12 +142,12 @@ namespace bridge
             p[MODE_RED].text = SColor(255, 255, 134, 104);
             p[MODE_RED].textDim = SColor(255, 236, 98, 74);
             p[MODE_RED].textFaint = SColor(255, 166, 56, 42);
-            p[MODE_RED].accent = SColor(255, 150, 32, 22);
-            p[MODE_RED].accentText = SColor(255, 255, 182, 160);
+            p[MODE_RED].accent = SColor(255, 0, 0, 214);          //engaged keys: deep blue, yellow lettering
+            p[MODE_RED].accentText = SColor(255, 255, 216, 72);
             p[MODE_RED].field = SColor(255, 5, 2, 2);
             p[MODE_RED].danger = SColor(255, 150, 22, 16);
             p[MODE_RED].dangerText = SColor(255, 255, 196, 180);
-            p[MODE_RED].ok = SColor(255, 236, 120, 96);
+            p[MODE_RED].ok = SColor(255, 255, 208, 64);
             p[MODE_RED].error = SColor(255, 255, 52, 36);
             p[MODE_RED].portText = SColor(255, 246, 74, 56);
             p[MODE_RED].stbdText = SColor(255, 196, 120, 100);

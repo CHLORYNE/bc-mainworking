@@ -136,6 +136,23 @@ namespace irr
                     //The backlight shows faintly through the dial face
                     FACE_CENTRE = video::SColor(255, 40, 9, 6);
                     FACE_EDGE = video::SColor(255, 12, 3, 2);
+                    //Needles, readouts and values in yellow; readout frames, the GPS header and the
+                    //ship in deep blue; course and wind marks in a lighter blue
+                    const video::SColor yellow(255, 255, 212, 64), blue(255, 0, 0, 214), blueLight(255, 96, 128, 255);
+                    NEEDLE = yellow;
+                    ORDER_MARK = yellow;
+                    DIGIT_WHITE = yellow;
+                    DIGIT_AMBER = yellow;
+                    DIGIT_GREEN = yellow;
+                    NAV_VALUE = yellow;
+                    NAV_DEPTH = yellow;
+                    LCD_EDGE = blue;
+                    NAV_EDGE = blue;
+                    LCD_HEADER = video::SColor(255, 0, 0, 128);
+                    COG_MARK = blueLight;
+                    WIND_BARB = blueLight;
+                    SHIP_HULL = blue;
+                    SHIP_HOUSE = blueLight;
                 }
                 if (mode == bridge::MODE_MARINE) { applyMarine(); }
                 NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);

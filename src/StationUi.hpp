@@ -30,6 +30,7 @@ namespace station
         Colour edge, edge2;
         Colour text, dim, faint;
         Colour accent, accentDim, accentText, tagText;
+        Colour accentInk;   //the accent as lettering on the background (section names, the page in view)
         Colour ok, warn, err, errDim, warnDim;
         Colour key, hover, selRow;
     };

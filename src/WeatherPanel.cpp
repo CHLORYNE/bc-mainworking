@@ -1119,11 +1119,11 @@ void WeatherPanel::drawRose(irr::video::IVideoDriver* driver, const Rect& r, irr
     //The wind: from where it comes, across the rose, the head downwind
     const irr::f32 to = from + 180.0f;
     const irr::core::vector2df tail = P(from, rr * 0.50f), tip = P(to, rr * 0.50f), base = P(to, rr * 0.50f - 12 * k);
-    b.line(tail, base, std::max(1.5f, 2.6f * k), col.accent);
+    b.line(tail, base, std::max(1.5f, 2.6f * k), col.accentInk);
     const irr::f32 a = to * irr::core::DEGTORAD;
     const irr::core::vector2df side(cosf(a) * 6.5f * k, sinf(a) * 6.5f * k);
-    b.tri(tip, base + side, base - side, col.accent);
-    b.disc(tail, 3.5f * k, col.accent, col.accent);
+    b.tri(tip, base + side, base - side, col.accentInk);
+    b.disc(tail, 3.5f * k, col.accentInk, col.accentInk);
     b.flush();
     const wchar_t* letters[4] = { L"N", L"E", L"S", L"W" };
     for (int i = 0; i < 4; i++) {

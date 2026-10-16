@@ -713,7 +713,6 @@ private:
     bool consoleDetached = false;
     bool consoleWindowUsed = false;                  //the OpenGL drawable has been switched at least once
     irr::core::rect<irr::s32> consolePanelAttachedRect;
-    irr::core::rect<irr::s32> consoleStatusAttachedRect[2]; //pump 1, pump 2
     irr::core::dimension2du consoleLaidOutSize;
     irr::gui::IGUIElement* consoleInputTarget = 0;   //element under a button press in the console window
     irr::gui::IGUIButton* detachConsoleButton = 0;
@@ -723,7 +722,6 @@ private:
     irr::video::SExposedVideoData noVideoData;
     std::string consoleFontName;                     //bc5.ini font, for bigger lettering in a big console window
     irr::s32 consoleBaseFontSize = 12;
-    irr::s32 consoleBaseStatusW = 0;                 //status column width with the normal font
     irr::f32 consoleAttachedGaugeD = 0;              //dial diameter on the main screen
     void layoutDetachedConsole(const irr::core::dimension2du& size);
     //Detached console: how the dials are arranged (0 automatic, 1 a row, 2 a column), chosen with the key in
@@ -738,14 +736,12 @@ private:
     irr::core::rect<irr::s32> consoleOrientationKey() const;
     irr::core::rect<irr::s32> consoleMenuItem(int item) const;
     void drawConsoleWindowExtras();
-    irr::s32 consoleStatusWidthFor(irr::gui::IGUIFont* font) const;
     irr::s32 consolePlaceX = 80, consolePlaceY = 80;  //console window placement (consoleWindow.ini)
     irr::u32 consolePlaceW = 0, consolePlaceH = 0;
     irr::u32 consoleInstance = 1;                    //copy of the simulator: consoleWindow-N.ini from the second
     bool consoleOnScreen = false;                    //console given a screen of its own
     irr::core::rect<irr::s32> consoleScreen;
     void setConsoleDetached(bool detached);
-    void layoutConsoleStatusColumn();
     void dispatchConsoleWindowInput();
     void applyDetachedConsoleVisibility();
     void saveConsolePlacement(bool detached);

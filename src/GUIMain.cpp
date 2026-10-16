@@ -591,21 +591,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         const irr::f32 iniRotMax = IniFile::iniFileTof32(iniFilename, "instrument_rot_max");
         instrumentPanel->setScales(iniSpeedMax > 0 ? iniSpeedMax : 20.0f, iniRotMax > 0 ? iniRotMax : 60.0f, 35.0f);
 
-        //Status column: as wide as the widest label it holds (same rule as the Amarres window -
-        //size from the font, never from su, so it is right on Eyefinity too).
-        irr::gui::IGUIFont* scFont = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
-        const irr::s32 scCh = scFont ? (irr::s32)scFont->getDimension(L"X").Height : 16;
-        irr::s32 scW = scCh * 7;
-        if (scFont) {
-            const irr::core::stringw scLabels[2] = { language->translate("pump1").c_str(), language->translate("pump2").c_str() };
-            for (int i = 0; i < 2; i++) {
-                const irr::s32 w = (irr::s32)scFont->getDimension(scLabels[i].c_str()).Width + 2 * scCh;
-                if (w > scW) { scW = w; }
-            }
-        }
-        instrumentPanel->setStatusColumnWidth(scW);
+        //Only instruments in the console: the rudder pumps are set and read in CONTROLES (and a
+        //failed pump shows in the alert list), RADAR is on the command bar
+        instrumentPanel->setStatusColumnWidth(0);
         consolePanelAttachedRect = panelPos;
-        consoleBaseStatusW = scW;
         consoleAttachedGaugeD = instrumentPanel->getGaugeDiameter();
         consoleFontName = IniFile::iniFileToString(iniFilename, "font");
         const irr::f32 fontScale = IniFile::iniFileTof32(iniFilename, "font_scale");
@@ -706,15 +695,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         commandBar->drop();
     }
 
-    //Row i (0..1) of the status column: the rudder pump lamps (RADAR is on the command bar, the
-    //acknowledge key on the alert list). Only called when instrumentPanel exists.
-    auto statusRow = [&](int i) -> irr::core::rect<irr::s32> {
-        const irr::core::rect<irr::s32> col = instrumentPanel->getStatusColumnRect();
-        const irr::s32 gapY = col.getHeight() / 20;
-        const irr::s32 rowH = (col.getHeight() - gapY) / 2;
-        const irr::s32 top = col.UpperLeftCorner.Y + i * (rowH + gapY);
-        return irr::core::rect<irr::s32>(col.UpperLeftCorner.X, top, col.LowerRightCorner.X, top + rowH);
-        };
     //=============================================================================================
 
 
@@ -759,16 +739,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     ackAlarms = guienv->addButton(irr::core::rect<irr::s32>(0.35 * su + azimuthGUIOffsetR, 0.78 * sh, 0.44 * su + azimuthGUIOffsetR, 0.805 * sh), 0, GUI_ID_ACK_ALARMS_BUTTON, language->translate("ackAlarms").c_str());
     pump1On->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
     pump2On->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    pump1On->setWordWrap(true);   //on two lines when the lamp is narrow (vertical instrument window)
-    pump2On->setWordWrap(true);
     //The acknowledge key lives on the alert list and only shows while there is an alert to acknowledge
     ackAlarms->setText(L"ACQUITTER");
     ackAlarms->setVisible(false);
     if (bridgeSkin) { bridgeSkin->setKeyStyle(GUI_ID_ACK_ALARMS_BUTTON, bridge::BridgeSkin::KEY_DANGER); }
-    if (instrumentPanel) { //kyara: annunciator lamps + ack in the console's status column
-        pump1On->setRelativePosition(statusRow(0));
-        pump2On->setRelativePosition(statusRow(1));
-    }
 
     //Add an additional window for controls (will normally be hidden)
     //=============================================================================================
@@ -2331,7 +2305,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             L"Couleurs de cr\u00E9puscule : cadrans sombres, graduations blanches",
             L"Couleurs de nuit : noir et ambre att\u00E9nu\u00E9, pour garder la vision de nuit",
             L"Couleurs digitales : noir et vert, comme l'\u00E9cran radar",
-            L"Vision nocturne : tout en rouge sur noir, comme l'\u00E9clairage rouge d'une passerelle ou d'un cockpit la nuit",
+            L"Rouge : inscriptions r\u00E9tro\u00E9clair\u00E9es rouges sur noir, aiguilles et valeurs en jaune, s\u00E9lection en bleu",
             L"Marine : fond noir, inscriptions vert tribord, aiguilles et s\u00E9lection rouge b\u00E2bord",
             L"Suit la lumi\u00E8re du sc\u00E9nario (jour, cr\u00E9puscule, nuit)" };
         for (int i = 0; i < PALETTE_KEYS; i++) {
@@ -2428,8 +2402,6 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
     //Console window: put the console back where it was last session (its own window, if detached).
     if (instrumentPanel) {
-        consoleStatusAttachedRect[0] = pump1On->getRelativePosition();
-        consoleStatusAttachedRect[1] = pump2On->getRelativePosition();
         const irr::u32 fps = IniFile::iniFileTou32(iniFilename, "console_window_fps");
         if (fps > 0) { consoleFrameMs = 1000 / fps; }
         const std::string placement = consolePlacementFile(consoleInstance);
@@ -2740,8 +2712,8 @@ void GUIMain::updateVisibility()
 
 
 
-    pump1On->setVisible(showInterface);
-    pump2On->setVisible(showInterface);
+    pump1On->setVisible(showInterface && !instrumentPanel);   //not with the console (see load)
+    pump2On->setVisible(showInterface && !instrumentPanel);
 
     //Items not to show if we're on full screen radar
     //dataDisplay->setVisible(!radarLarge);
@@ -2873,8 +2845,8 @@ void GUIMain::updateVisibility()
     if (showExtraControlsButton) { showExtraControlsButton->setVisible(barKeys); }
     if (showLinesControlsButton) { showLinesControlsButton->setVisible(barKeys); }
     if (exitButton && commandBar) { exitButton->setVisible(showInterface || showDisplayControls); }
-    if (pump1On) { pump1On->setVisible(showPrimary && showInterface); }
-    if (pump2On) { pump2On->setVisible(showPrimary && showInterface); }
+    if (pump1On) { pump1On->setVisible(showPrimary && showInterface && !instrumentPanel); }
+    if (pump2On) { pump2On->setVisible(showPrimary && showInterface && !instrumentPanel); }
     //The acknowledge key shows on the alert list, when there is something to acknowledge (drawBridgeAlerts)
     if (bigRadarButton) { bigRadarButton->setVisible(showDisplayControls && !radarLarge && (showInterface || commandBar)); }
 
@@ -5007,49 +4979,6 @@ void GUIMain::saveConsolePlacement(bool detached)
     }
 }
 
-void GUIMain::layoutConsoleStatusColumn()
-{
-    //Same rows as in load(): the two rudder pump lamps.
-    const irr::core::rect<irr::s32> col = instrumentPanel->getStatusColumnRect();
-    irr::core::position2di origin(0, 0);
-    if (instrumentPanel->getParent()) { origin = instrumentPanel->getParent()->getAbsolutePosition().UpperLeftCorner; }
-    irr::gui::IGUIElement* keys[2] = { pump1On, pump2On };
-    if (col.getWidth() > col.getHeight() * 3 / 2) {
-        //A strip under the dials (column layout): the two lamps side by side
-        const irr::s32 gap = irr::core::max_(4, col.getHeight() / 12);
-        const irr::s32 cw = (col.getWidth() - gap) / 2;
-        for (int i = 0; i < 2; i++) {
-            if (!keys[i]) { continue; }
-            const irr::s32 cx = col.UpperLeftCorner.X + i * (cw + gap);
-            keys[i]->setRelativePosition(irr::core::rect<irr::s32>(cx, col.UpperLeftCorner.Y, cx + cw, col.LowerRightCorner.Y) - origin);
-        }
-        return;
-    }
-    const irr::s32 gapY = col.getHeight() / 20;
-    const irr::s32 rowH = (col.getHeight() - gapY) / 2;
-    irr::gui::IGUIElement* rows[2] = { pump1On, pump2On };
-    for (int i = 0; i < 2; i++) {
-        if (!rows[i]) { continue; }
-        const irr::s32 top = col.UpperLeftCorner.Y + i * (rowH + gapY);
-        rows[i]->setRelativePosition(irr::core::rect<irr::s32>(col.UpperLeftCorner.X, top, col.LowerRightCorner.X, top + rowH) - origin);
-    }
-}
-
-irr::s32 GUIMain::consoleStatusWidthFor(irr::gui::IGUIFont* font) const
-{
-    //As in load(): as wide as the widest label, at least seven characters.
-    if (!font) { return consoleBaseStatusW; }
-    const irr::s32 ch = (irr::s32)font->getDimension(L"X").Height;
-    irr::s32 w = ch * 7;
-    irr::gui::IGUIElement* labels[2] = { pump1On, pump2On };
-    for (int i = 0; i < 2; i++) {
-        if (!labels[i]) { continue; }
-        const irr::s32 lw = (irr::s32)font->getDimension(labels[i]->getText()).Width + 2 * ch;
-        if (lw > w) { w = lw; }
-    }
-    return w;
-}
-
 void GUIMain::layoutDetachedConsole(const irr::core::dimension2du& size)
 {
     const irr::core::rect<irr::s32> all(0, 0, (irr::s32)size.Width, (irr::s32)size.Height);
@@ -5059,7 +4988,6 @@ void GUIMain::layoutDetachedConsole(const irr::core::dimension2du& size)
     instrumentPanel->setOverrideFont(0);
     instrumentPanel->setMaxRows(4);
     instrumentPanel->setOrientation(consoleOrientation);
-    instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
     //Room for the layout key in the top right corner: a thin column beside a wide window, a band over a tall one
     irr::core::rect<irr::s32> panelArea = all;
     if (size.Width >= size.Height) { panelArea.LowerRightCorner.X -= 36; }
@@ -5078,24 +5006,14 @@ void GUIMain::layoutDetachedConsole(const irr::core::dimension2du& size)
             font = guienv->getFont(path.c_str());
         }
     }
-    if (font) {
-        instrumentPanel->setOverrideFont(font);
-        instrumentPanel->setStatusColumnWidth(consoleStatusWidthFor(font));
-    }
-    pump1On->setOverrideFont(font);
-    pump2On->setOverrideFont(font);
-    layoutConsoleStatusColumn();
+    if (font) { instrumentPanel->setOverrideFont(font); }
     consoleLaidOutSize = size;
 }
 
 void GUIMain::applyDetachedConsoleVisibility()
 {
-    //In the console window the panel is always there; the pump lamps follow the station's role (a
-    //secondary station shows no ship controls).
-    const bool controls = !controlsHidden;
+    //In the console window the panel is always there
     if (instrumentPanel) { instrumentPanel->setVisible(true); }
-    if (pump1On) { pump1On->setVisible(controls); }
-    if (pump2On) { pump2On->setVisible(controls); }
     //The console window shows heading and the ship's data: no need for the strip versions on the
     //bridge view (they stay on the full-screen radar, which hides the rest).
     if (!radarLarge) {
@@ -5107,7 +5025,7 @@ void GUIMain::applyDetachedConsoleVisibility()
 void GUIMain::setConsoleDetached(bool detached)
 {
     if (!instrumentPanel || detached == consoleDetached) { return; }
-    irr::gui::IGUIElement* consoleElements[3] = { instrumentPanel, pump1On, pump2On };
+    irr::gui::IGUIElement* consoleElements[1] = { instrumentPanel };
 
     if (detached) {
         if (!consoleWindow) { consoleWindow = new ConsoleWindow(); }
@@ -5132,7 +5050,7 @@ void GUIMain::setConsoleDetached(bool detached)
         }
         consoleWindowUsed = true;
         consoleHost = new ConsoleHostElement(guienv, device, irr::core::rect<irr::s32>(0, 0, (irr::s32)w, (irr::s32)h));
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 1; i++) {
             if (consoleElements[i]) { consoleHost->addChild(consoleElements[i]); }
         }
         consoleDetached = true;
@@ -5149,19 +5067,14 @@ void GUIMain::setConsoleDetached(bool detached)
         consoleInputTarget = 0;
         //Back into the main GUI tree, where they were.
         irr::gui::IGUIElement* root = guienv->getRootGUIElement();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 1; i++) {
             if (consoleElements[i]) { root->addChild(consoleElements[i]); }
         }
         //Main-screen layout: one strip, normal lettering.
         instrumentPanel->setOverrideFont(0);
-        pump1On->setOverrideFont(0);
-        pump2On->setOverrideFont(0);
         instrumentPanel->setMaxRows(1);
         instrumentPanel->setOrientation(0);   //the strip under the bridge view
-        instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
         instrumentPanel->setRelativePosition(consolePanelAttachedRect);
-        pump1On->setRelativePosition(consoleStatusAttachedRect[0]);
-        pump2On->setRelativePosition(consoleStatusAttachedRect[1]);
         if (consoleHost) {
             consoleHost->drop();
             consoleHost = 0;
@@ -5293,9 +5206,9 @@ void GUIMain::shutdownConsoleWindow()
     if (consoleDetached) {
         saveConsolePlacement(true);   //detached again next session
         //Put the elements back (they belong to the GUI tree for clean-up) without forgetting the state.
-        irr::gui::IGUIElement* consoleElements[3] = { instrumentPanel, pump1On, pump2On };
+        irr::gui::IGUIElement* consoleElements[1] = { instrumentPanel };
         irr::gui::IGUIElement* root = guienv->getRootGUIElement();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 1; i++) {
             if (consoleElements[i]) { root->addChild(consoleElements[i]); }
         }
         if (consoleHost) {

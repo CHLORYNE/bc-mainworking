@@ -30,6 +30,7 @@ namespace station
             c.accent = rgb(232, 163, 58); c.accentDim = rgb(74, 52, 20); c.accentText = rgb(255, 220, 166); c.tagText = rgb(26, 18, 6);
             c.ok = rgb(76, 200, 116); c.warn = rgb(240, 198, 74); c.err = rgb(226, 81, 63); c.errDim = rgb(91, 31, 25); c.warnDim = rgb(78, 64, 22);
             c.key = rgb(15, 22, 32); c.hover = rgb(24, 34, 47); c.selRow = rgb(58, 42, 16);
+            c.accentInk = c.accent;
             return c;
         }
         Colours makeNight()
@@ -41,18 +42,21 @@ namespace station
             c.accent = rgb(206, 124, 44); c.accentDim = rgb(60, 36, 12); c.accentText = rgb(240, 180, 100); c.tagText = rgb(12, 8, 4);
             c.ok = rgb(124, 170, 92); c.warn = rgb(214, 170, 70); c.err = rgb(204, 84, 62); c.errDim = rgb(64, 22, 16); c.warnDim = rgb(58, 44, 16);
             c.key = rgb(10, 10, 11); c.hover = rgb(22, 18, 14); c.selRow = rgb(44, 28, 10);
+            c.accentInk = c.accent;
             return c;
         }
         Colours makeRed()
         {
             Colours c;
-            c.bg = rgb(8, 2, 2); c.nav = rgb(6, 1, 1); c.raised = rgb(4, 1, 1); c.navSel = rgb(28, 8, 7); c.rule = rgb(34, 10, 9);
+            //Lettering lit red-orange as the dials are; what is chosen in a deep blue with yellow on it,
+            //states and values in yellow
+            c.bg = rgb(8, 2, 2); c.nav = rgb(6, 1, 1); c.raised = rgb(4, 1, 1); c.navSel = rgb(0, 0, 128); c.rule = rgb(34, 10, 9);
             c.edge = rgb(74, 22, 18); c.edge2 = rgb(46, 14, 12);
-            //Lit as the dials are: a light red-orange that reads at a glance, not a deep red
             c.text = rgb(255, 142, 110); c.dim = rgb(244, 108, 82); c.faint = rgb(184, 68, 50);
-            c.accent = rgb(255, 120, 84); c.accentDim = rgb(96, 24, 14); c.accentText = rgb(255, 206, 186); c.tagText = rgb(14, 2, 2);
-            c.ok = rgb(236, 128, 100); c.warn = rgb(255, 144, 92); c.err = rgb(255, 46, 34); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(72, 30, 14);
-            c.key = rgb(12, 3, 3); c.hover = rgb(30, 8, 7); c.selRow = rgb(58, 14, 10);
+            c.accent = rgb(0, 0, 214); c.accentDim = rgb(0, 0, 128); c.accentText = rgb(255, 216, 72); c.tagText = rgb(255, 226, 120);
+            c.ok = rgb(255, 208, 64); c.warn = rgb(255, 150, 40); c.err = rgb(255, 46, 34); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(72, 40, 8);
+            c.key = rgb(12, 3, 3); c.hover = rgb(30, 8, 7); c.selRow = rgb(0, 0, 128);
+            c.accentInk = rgb(255, 208, 64);
             return c;
         }
         Colours makeMarine()
@@ -65,6 +69,7 @@ namespace station
             c.accent = rgb(255, 78, 60); c.accentDim = rgb(84, 16, 12); c.accentText = rgb(255, 218, 210); c.tagText = rgb(12, 0, 0);
             c.ok = rgb(120, 244, 150); c.warn = rgb(255, 176, 70); c.err = rgb(255, 62, 48); c.errDim = rgb(84, 12, 8); c.warnDim = rgb(70, 42, 10);
             c.key = rgb(6, 9, 7); c.hover = rgb(14, 28, 18); c.selRow = rgb(60, 14, 10);
+            c.accentInk = c.accent;
             return c;
         }
         Colours makeDigital()
@@ -76,6 +81,7 @@ namespace station
             c.accent = rgb(220, 198, 60); c.accentDim = rgb(50, 46, 10); c.accentText = rgb(246, 230, 120); c.tagText = rgb(10, 10, 2);
             c.ok = rgb(96, 236, 110); c.warn = rgb(230, 200, 60); c.err = rgb(255, 100, 80); c.errDim = rgb(70, 20, 14); c.warnDim = rgb(52, 46, 10);
             c.key = rgb(2, 9, 4); c.hover = rgb(8, 26, 12); c.selRow = rgb(40, 38, 8);
+            c.accentInk = c.accent;
             return c;
         }
 
@@ -351,7 +357,7 @@ namespace station
         const irr::f32 y0 = r.LowerRightCorner.Y - 20 * k, y1 = r.LowerRightCorner.Y - 2 * k;
         const std::wstring text = hudUpper(label);
         const irr::f32 tw = f.section->width(text, 2.5f * k);
-        f.section->drawIn(text, Rect(r.UpperLeftCorner.X, y0, r.UpperLeftCorner.X + tw + 4 * k, y1), c.accent, HudFont::Left, 2.5f * k, &clip);
+        f.section->drawIn(text, Rect(r.UpperLeftCorner.X, y0, r.UpperLeftCorner.X + tw + 4 * k, y1), c.accentInk, HudFont::Left, 2.5f * k, &clip);
         irr::f32 x = r.UpperLeftCorner.X + tw + 10 * k;
         if (!count.empty()) {
             const irr::f32 cw = f.small->width(count, 1.0f * k);
@@ -648,7 +654,7 @@ namespace station
                 swprintf(num, 8, L"%02d", i + 1);
                 const Rect rr(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y + 1 * k);
                 fonts.navNum->drawIn(num, Rect(rr.UpperLeftCorner.X + 16 * k, rr.UpperLeftCorner.Y, rr.UpperLeftCorner.X + 46 * k, rr.LowerRightCorner.Y),
-                    sel ? c.accent : c.faint, HudFont::Left, 0.5f * k, &clip);
+                    sel ? c.accentInk : c.faint, HudFont::Left, 0.5f * k, &clip);
                 const irr::core::rect<irr::s32> nc = clipOf(Rect(rr.UpperLeftCorner.X, rr.UpperLeftCorner.Y, rr.LowerRightCorner.X - 30 * k, rr.LowerRightCorner.Y), clip);
                 fonts.nav->drawIn(hudUpper(pages[i].name), Rect(rr.UpperLeftCorner.X + 46 * k, rr.UpperLeftCorner.Y, rr.LowerRightCorner.X - 30 * k, rr.LowerRightCorner.Y),
                     (sel || hov) ? c.text : c.dim, HudFont::Left, 1.2f * k, &nc);
@@ -670,7 +676,7 @@ namespace station
                 swprintf(num, 8, L"%02d", i + 1);
                 const Rect rr(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y + 1 * k);
                 fonts.navNum->drawIn(num, Rect(rr.UpperLeftCorner.X + 8 * k, rr.UpperLeftCorner.Y, rr.UpperLeftCorner.X + 30 * k, rr.LowerRightCorner.Y),
-                    sel ? c.accent : c.faint, HudFont::Left, 0.5f * k, &clip);
+                    sel ? c.accentInk : c.faint, HudFont::Left, 0.5f * k, &clip);
                 const irr::f32 right = rr.LowerRightCorner.X - (pages[i].badge > 0 ? 20 * k : 6 * k);
                 const irr::core::rect<irr::s32> nc = clipOf(Rect(rr.UpperLeftCorner.X, rr.UpperLeftCorner.Y, right, rr.LowerRightCorner.Y), clip);
                 fonts.key->drawIn(hudUpper(pages[i].name), Rect(rr.UpperLeftCorner.X + 30 * k, rr.UpperLeftCorner.Y, right, rr.LowerRightCorner.Y),

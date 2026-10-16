@@ -220,9 +220,9 @@ void GUIHelmLever::draw()
     const video::SColor gripTop = night ? video::SColor(255, 46, 44, 42) : video::SColor(255, 78, 82, 90);
     const video::SColor gripBottom = night ? video::SColor(255, 14, 13, 12) : video::SColor(255, 22, 24, 28);
     const video::SColor gripShine = marine ? video::SColor(255, 72, 72, 72) : red ? bridge::toRed(night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186)) : (night ? video::SColor(255, 80, 70, 58) : video::SColor(255, 170, 176, 186));
-    const video::SColor indexCol = marine ? video::SColor(255, 255, 72, 56) : red ? bridge::toRed(night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250))) : (night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250)));
+    const video::SColor indexCol = marine ? video::SColor(255, 255, 72, 56) : red ? video::SColor(255, 255, 212, 64) : red ? bridge::toRed(night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250))) : (night ? video::SColor(255, 210, 150, 70) : (digital ? video::SColor(255, 252, 228, 72) : video::SColor(255, 245, 247, 250)));
     const video::SColor lcdBg = day ? video::SColor(255, 186, 199, 180) : video::SColor(255, 6, 8, 10);
-    const video::SColor lcdOff = marine ? video::SColor(255, 116, 242, 148) : red ? bridge::toRed(day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
+    const video::SColor lcdOff = marine ? video::SColor(255, 116, 242, 148) : red ? video::SColor(255, 255, 212, 64) : red ? bridge::toRed(day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 96, 255, 116) : video::SColor(255, 150, 158, 170)))) : (day ? video::SColor(255, 40, 48, 44) : (night ? video::SColor(255, 150, 108, 58) :
         (digital ? video::SColor(255, 96, 255, 116) : video::SColor(255, 150, 158, 170))));
     const f32 dimK = night ? 0.6f : 1.0f;

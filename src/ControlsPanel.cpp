@@ -600,10 +600,10 @@ void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::
             }
             else if (row.kind == ROW_TOGGLE) {
                 const bool on = enabled && row.box->isChecked();
-                if (on) { station::lamp(driver, c.state.UpperLeftCorner.X + 4 * k, c.state.getCenter().Y, 7 * k, col.accent, &clip); }
+                if (on) { station::lamp(driver, c.state.UpperLeftCorner.X + 4 * k, c.state.getCenter().Y, 7 * k, col.accentInk, &clip); }
                 const irr::f32 x = c.state.UpperLeftCorner.X + (on ? 14 * k : 0);
                 f.state->drawIn(hudUpper(state), Rect(x, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X, c.state.LowerRightCorner.Y + 1 * k),
-                    on ? col.accent : (enabled ? col.dim : col.faint), HudFont::Left, 1.4f * k, &clip);
+                    on ? col.accentInk : (enabled ? col.dim : col.faint), HudFont::Left, 1.4f * k, &clip);
             }
             else {
                 station::drawState(driver, f, k, Rect(c.state.UpperLeftCorner.X, c.state.UpperLeftCorner.Y, c.state.LowerRightCorner.X - 6 * k, c.state.LowerRightCorner.Y),
