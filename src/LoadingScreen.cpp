@@ -141,17 +141,19 @@ void LoadingScreen::loadFonts(irr::f32 s)
 {
     freeFonts();
     if (!driver) { return; }
-    const std::string folder = "media/fonts/barlow-condensed/";
-    fonts.hero = new HudFont(driver, folder + "BarlowCondensed-Bold.ttf", 92 * s, titleFont);
-    fonts.title = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 66 * s, titleFont);
-    fonts.titleSmall = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 50 * s, titleFont);
-    fonts.value = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 31 * s, textFont);
-    fonts.body = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 25 * s, textFont);
-    fonts.fact = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 40 * s, textFont);
-    fonts.factSmall = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 32 * s, textFont);
-    fonts.stage = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 27 * s, textFont);
-    fonts.kicker = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 19 * s, textFont);
-    fonts.small = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 17 * s, textFont);
+    const std::string folder = "media/fonts/b612/";
+    fonts.hero = new HudFont(driver, folder + "B612-Bold.ttf", 73.6f * s, titleFont);
+    fonts.title = new HudFont(driver, folder + "B612-Bold.ttf", 52.8f * s, titleFont);
+    fonts.titleSmall = new HudFont(driver, folder + "B612-Bold.ttf", 40.0f * s, titleFont);
+    fonts.value = new HudFont(driver, folder + "B612-Regular.ttf", 24.8f * s, textFont);
+    fonts.body = new HudFont(driver, folder + "B612-Regular.ttf", 20.0f * s, textFont);
+    fonts.fact = new HudFont(driver, folder + "B612-Regular.ttf", 32.0f * s, textFont);
+    fonts.factSmall = new HudFont(driver, folder + "B612-Regular.ttf", 25.6f * s, textFont);
+    fonts.stage = new HudFont(driver, folder + "B612-Bold.ttf", 21.6f * s, textFont);
+    fonts.kicker = new HudFont(driver, folder + "B612-Bold.ttf", 15.2f * s, textFont);
+    fonts.small = new HudFont(driver, folder + "B612-Regular.ttf", 13.6f * s, textFont);
+    HudFont* all[] = { fonts.hero, fonts.title, fonts.titleSmall, fonts.value, fonts.body, fonts.fact, fonts.factSmall, fonts.stage, fonts.kicker, fonts.small };
+    for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) { all[i]->setTrackingScale(0.45f); }
 }
 
 void LoadingScreen::freeFonts()

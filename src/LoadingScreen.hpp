@@ -31,7 +31,7 @@
 //
 //The page: the exercise on a card (title, conditions as tiles, briefing), the progress as a radar
 //scope whose sweep fills clockwise with the stages done listed under it, and a "Le saviez-vous ?"
-//card at the bottom. Lettering in Barlow Condensed (media/fonts/barlow-condensed), sized from the
+//card at the bottom. Lettering in B612 (media/fonts/b612), sized from the
 //screen height.
 //
 //Files (all optional - the page works without them):

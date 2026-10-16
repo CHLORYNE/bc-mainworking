@@ -19,6 +19,8 @@ public:
     ~HudFont();
 
     bool isTrueType() const { return texture != 0; }
+    //Every letter spacing asked of this font is multiplied by this (a wide face wants less than a narrow one)
+    void setTrackingScale(irr::f32 s) { trackingScale = s; }
 
     //Width of the text; tracking is extra space after every letter, in pixels.
     irr::f32 width(const std::wstring& text, irr::f32 tracking = 0) const;
@@ -54,6 +56,7 @@ private:
     std::map<wchar_t, Glyph> glyphs;
     void* face;                           //stbtt_fontinfo
     irr::f32 scale, ascent, descent, caps;
+    irr::f32 trackingScale = 1.0f;
 };
 
 //Upper case for HUD labels, accents included (Latin-1, oe ligature).

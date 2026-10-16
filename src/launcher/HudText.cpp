@@ -190,6 +190,7 @@ irr::f32 HudFont::kerning(int a, int b) const
 
 irr::f32 HudFont::width(const std::wstring& text, irr::f32 tracking) const
 {
+    tracking *= trackingScale;
     if (!texture) {
         return fallback ? (irr::f32)fallback->getDimension(text.c_str()).Width + tracking * text.size() : 0;
     }
@@ -207,6 +208,7 @@ irr::f32 HudFont::width(const std::wstring& text, irr::f32 tracking) const
 irr::f32 HudFont::draw(const std::wstring& text, irr::f32 x, irr::f32 y, irr::video::SColor col, irr::f32 tracking,
     const irr::core::rect<irr::s32>* clip) const
 {
+    tracking *= trackingScale;
     if (text.empty() || col.getAlpha() == 0) { return 0; }
     if (!texture) {
         if (!fallback) { return 0; }

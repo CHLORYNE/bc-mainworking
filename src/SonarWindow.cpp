@@ -242,11 +242,13 @@ void SonarWindow::loadFonts(irr::f32 scale)
     freeFonts();
     fontScale = scale;
     irr::gui::IGUIFont* fallback = device->getGUIEnvironment()->getSkin() ? device->getGUIEnvironment()->getSkin()->getFont() : 0;
-    const std::string folder = "media/fonts/barlow-condensed/";
-    fontTitle = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 28 * scale, fallback);
-    fontText = new HudFont(driver, folder + "BarlowCondensed-Medium.ttf", 19 * scale, fallback);
-    fontSmall = new HudFont(driver, folder + "BarlowCondensed-Regular.ttf", 15 * scale, fallback);
-    fontBig = new HudFont(driver, folder + "BarlowCondensed-SemiBold.ttf", 44 * scale, fallback);
+    const std::string folder = "media/fonts/b612/";   //cockpit-screen lettering, smaller as it is wider
+    fontTitle = new HudFont(driver, folder + "B612-Bold.ttf", 24 * scale, fallback);
+    fontText = new HudFont(driver, folder + "B612-Regular.ttf", 16 * scale, fallback);
+    fontSmall = new HudFont(driver, folder + "B612-Regular.ttf", 12.5f * scale, fallback);
+    fontBig = new HudFont(driver, folder + "B612-Bold.ttf", 37 * scale, fallback);
+    HudFont* all[] = { fontTitle, fontText, fontSmall, fontBig };
+    for (int i = 0; i < 4; i++) { all[i]->setTrackingScale(0.45f); }
 }
 
 void SonarWindow::freeFonts()

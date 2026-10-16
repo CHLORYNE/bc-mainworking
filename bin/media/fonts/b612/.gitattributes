@@ -1,0 +1,2 @@
+# Font atlases: ordinary files (small), not Git LFS
+*.png -filter -diff -merge binary
