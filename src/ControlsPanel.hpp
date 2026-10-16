@@ -62,6 +62,9 @@ public:
 
     //The dock key and the drag by the title bar (GUIMain says what a place means)
     bridge::PanelDock dock;
+    //On the instructor screen: no dock or close key (the window stays there), pages on top
+    void setEmbedded(bool on);
+    bool isEmbedded() const { return embedded; }
 
 private:
     enum RowKind { ROW_SECTION, ROW_SLIDER, ROW_TOGGLE, ROW_KEYS, ROW_CHOICE, ROW_TEXT };
@@ -126,6 +129,7 @@ private:
     StatusFn headerStatus;
     std::function<std::wstring()> clockText;
     irr::core::rect<irr::s32> laidOutRect;
+    bool embedded = false;
 };
 
 #endif

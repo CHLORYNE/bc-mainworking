@@ -355,15 +355,16 @@ class ScreenPicker : public LauncherOverlay
 {
 public:
     //Bridge view screen (1..n); instrument console screen (1..n, or 0: in the bridge view); large radar
-    //screen (1..n, or 0: none); sonar screen (1..n, or 0: none).
-    typedef std::function<void(int, int, int, int)> LaunchFn;
+    //screen (1..n, or 0: none); sonar screen (1..n, or 0: none); instructor screen (1..n, or 0: none) and
+    //its layout (0 from the screen's shape, 1 portrait, 2 landscape).
+    typedef std::function<void(int, int, int, int, int, int)> LaunchFn;
     //Gyro repeater screen (1..n).
     typedef std::function<void(int)> RepeaterFn;
 
     ScreenPicker(irr::gui::IGUIEnvironment* env, bool french, irr::gui::IGUIFont* bigFont, irr::gui::IGUIFont* titleFont,
         irr::gui::IGUIFont* textFont, irr::gui::IGUIFont* smallFont, LaunchFn launch, RepeaterFn launchRepeater)
         : LauncherOverlay(env), french(french), bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont),
-        launch(launch), launchRepeater(launchRepeater), repeaterMode(false), selected(0), consoleScreen(-1), radarScreen(-1), sonarScreen(-1), lastClickMs(0), lastClickScreen(-1)
+        launch(launch), launchRepeater(launchRepeater), repeaterMode(false), selected(0), consoleScreen(-1), radarScreen(-1), sonarScreen(-1), stationScreen(-1), stationLayout(0), lastClickMs(0), lastClickScreen(-1)
     {
     }
 
@@ -382,12 +383,14 @@ public:
         consoleScreen = -1;
         radarScreen = -1;
         sonarScreen = -1;
+        stationScreen = -1;
         lastClickScreen = -1;
         show();
     }
 
-    //lastBridge, lastConsole, lastRadar, lastSonar: the last choice (1..n, 0 for none), offered again if it fits this desk.
-    void open(const std::vector<ScreenInfo>& list, int lastBridge, int lastConsole, int lastRadar, int lastSonar)
+    //lastBridge, lastConsole, lastRadar, lastSonar, lastStation: the last choice (1..n, 0 for none), offered again if it
+    //fits this desk; lastLayout: the instructor screen's layout.
+    void open(const std::vector<ScreenInfo>& list, int lastBridge, int lastConsole, int lastRadar, int lastSonar, int lastStation, int lastLayout)
     {
         repeaterMode = false;
         screens = list;
@@ -405,6 +408,9 @@ public:
         sonarScreen = (lastSonar >= 1 && lastSonar <= n) ? lastSonar - 1 : -1;
         if (sonarScreen == selected || sonarScreen == consoleScreen || sonarScreen == radarScreen ||
             (sonarScreen >= 0 && !screens[sonarScreen].inUse.empty())) { sonarScreen = -1; }
+        stationScreen = (lastStation >= 1 && lastStation <= n) ? lastStation - 1 : -1;
+        if (stationScreen == selected || stationScreen == consoleScreen || stationScreen == radarScreen || stationScreen == sonarScreen) { stationScreen = -1; }
+        stationLayout = irr::core::clamp(lastLayout, 0, 2);
         lastClickScreen = -1;
         show();
     }
@@ -426,12 +432,13 @@ public:
             const bool instruments = ((int)i == consoleScreen);
             const bool radar = ((int)i == radarScreen);
             const bool sonar = ((int)i == sonarScreen);
+            const bool station = ((int)i == stationScreen);
             const bool hov = over(r);
             irr::core::rect<irr::f32> s = r;
             s.UpperLeftCorner.Y += 5; s.LowerRightCorner.Y += 5;
             roundRect(b, s, 10, irr::video::SColor(90, 0, 0, 0), irr::video::SColor(90, 0, 0, 0));
-            if (bridge || instruments || radar || sonar) {
-                const irr::video::SColor glowCol = bridge ? irr::video::SColor(70, 120, 190, 255)
+            if (bridge || instruments || radar || sonar || station) {
+                const irr::video::SColor glowCol = station ? irr::video::SColor(70, 255, 120, 110) : bridge ? irr::video::SColor(70, 120, 190, 255)
                     : (radar ? irr::video::SColor(70, 255, 180, 70) : (sonar ? irr::video::SColor(70, 170, 130, 255) : irr::video::SColor(70, 90, 220, 200)));
                 irr::core::rect<irr::f32> glow = r;
                 glow.UpperLeftCorner -= irr::core::vector2df(4, 4);
@@ -440,8 +447,9 @@ public:
                 if (bridge) { roundRect(b, r, 10, Theme::primaryTop, Theme::primaryBottom); }
                 else if (radar) { roundRect(b, r, 10, radarTop, radarBottom); }
                 else if (sonar) { roundRect(b, r, 10, sonarColTop, sonarColBottom); }
+                else if (station) { roundRect(b, r, 10, stationColTop, stationColBottom); }
                 else { roundRect(b, r, 10, consoleTop, consoleBottom); }
-                roundRectOutline(b, r, 10, 1.0f, bridge ? irr::video::SColor(255, 200, 230, 255)
+                roundRectOutline(b, r, 10, 1.0f, station ? irr::video::SColor(255, 255, 204, 196) : bridge ? irr::video::SColor(255, 200, 230, 255)
                     : (radar ? irr::video::SColor(255, 255, 222, 160) : (sonar ? irr::video::SColor(255, 214, 196, 255) : irr::video::SColor(255, 170, 245, 232))));
             }
             else {
@@ -495,6 +503,29 @@ public:
                 roundRectOutline(b, sonarChips[c].area, rad, 1.0f, hov ? irr::video::SColor(220, 190, 160, 255) : Theme::border);
             }
         }
+        //Instructor screen: none, or one of the other screens; then how it is laid out.
+        for (size_t c = 0; c < stationChips.size(); c++) {
+            const bool on = (stationChips[c].screen == stationScreen);
+            const bool hov = over(stationChips[c].area);
+            const irr::f32 rad = stationChips[c].area.getHeight() * 0.5f;
+            if (on) {
+                roundRect(b, stationChips[c].area, rad, stationColTop, stationColBottom);
+                roundRectOutline(b, stationChips[c].area, rad, 1.0f, irr::video::SColor(255, 255, 204, 196));
+            }
+            else {
+                roundRect(b, stationChips[c].area, rad, hov ? irr::video::SColor(220, 36, 58, 88) : irr::video::SColor(200, 20, 34, 56),
+                    hov ? irr::video::SColor(220, 28, 46, 72) : irr::video::SColor(200, 16, 28, 46));
+                roundRectOutline(b, stationChips[c].area, rad, 1.0f, hov ? irr::video::SColor(220, 255, 170, 160) : Theme::border);
+            }
+        }
+        for (int l = 0; l < 3 && !repeaterMode; l++) {
+            const bool on = (l == stationLayout);
+            const bool hov = over(layoutChips[l]);
+            const irr::f32 rad = layoutChips[l].getHeight() * 0.5f;
+            roundRect(b, layoutChips[l], rad, on ? irr::video::SColor(255, 60, 80, 110) : (hov ? irr::video::SColor(220, 36, 58, 88) : irr::video::SColor(200, 20, 34, 56)),
+                on ? irr::video::SColor(255, 44, 62, 90) : (hov ? irr::video::SColor(220, 28, 46, 72) : irr::video::SColor(200, 16, 28, 46)));
+            roundRectOutline(b, layoutChips[l], rad, 1.0f, on ? irr::video::SColor(255, 200, 220, 245) : Theme::border);
+        }
         drawPillButton(b, cancelButton, false, over(cancelButton));
         drawPillButton(b, launchButton, true, over(launchButton));
         b.flush();
@@ -505,8 +536,8 @@ public:
             : (french ? L"Choisir les \u00E9crans du simulateur" : L"Choose the simulator screens"),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 22, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 52), Theme::text, false);
         drawTextIn(textFont, repeaterMode ? (french ? L"Cliquez sur l'\u00E9cran o\u00F9 afficher le r\u00E9p\u00E9titeur." : L"Click the screen the repeater should be shown on.")
-            : (french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Les instruments, le grand radar et le sonar peuvent aller sur d'autres \u00E9crans."
-            : L"Click the screen for the bridge view. The instruments, the large radar and the sonar can go on other screens."),
+            : (french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Pupitre, instruments, grand radar et sonar peuvent aller sur d'autres \u00E9crans."
+            : L"Click the screen for the bridge view. The instructor screen, instruments, large radar and sonar can go on other screens."),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 54, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 78), Theme::textDim, false);
 
         for (size_t i = 0; i < screens.size(); i++) {
@@ -515,8 +546,9 @@ public:
             const bool instruments = ((int)i == consoleScreen);
             const bool radar = ((int)i == radarScreen);
             const bool sonar = ((int)i == sonarScreen);
-            const irr::video::SColor main = (bridge || instruments || radar || sonar) ? irr::video::SColor(255, 255, 255, 255) : Theme::text;
-            const irr::video::SColor sub = bridge ? irr::video::SColor(255, 214, 232, 252)
+            const bool station = ((int)i == stationScreen);
+            const irr::video::SColor main = (bridge || instruments || radar || sonar || station) ? irr::video::SColor(255, 255, 255, 255) : Theme::text;
+            const irr::video::SColor sub = station ? irr::video::SColor(255, 255, 226, 222) : bridge ? irr::video::SColor(255, 214, 232, 252)
                 : (instruments ? irr::video::SColor(255, 206, 246, 238) : (radar ? irr::video::SColor(255, 255, 236, 200)
                 : (sonar ? irr::video::SColor(255, 232, 222, 255) : Theme::textDim)));
             const irr::core::rect<irr::s32> clip = toIntRect(r);
@@ -532,6 +564,7 @@ public:
             if (instruments) { Line role = { L"Instruments", textFont, sub }; lines.push_back(role); }
             if (radar) { Line role = { french ? L"Radar (grand)" : L"Radar (large)", textFont, sub }; lines.push_back(role); }
             if (sonar) { Line role = { L"Sonar", textFont, sub }; lines.push_back(role); }
+            if (station) { Line role = { french ? L"Pupitre instructeur" : L"Instructor screen", textFont, sub }; lines.push_back(role); }
             Line size = { std::to_wstring(screens[i].area.getWidth()) + L" \u00D7 " + std::to_wstring(screens[i].area.getHeight()), smallFont, sub };
             lines.push_back(size);
             std::wstring tags;
@@ -573,13 +606,25 @@ public:
             const bool on = (sonarChips[c].screen == sonarScreen);
             drawTextIn(textFont, sonarChips[c].label, sonarChips[c].area, on ? irr::video::SColor(255, 255, 255, 255) : Theme::text, true);
         }
+        if (!repeaterMode) { drawTextIn(textFont, french ? L"Pupitre :" : L"Instructor:", stationLabel, Theme::text, false); }
+        for (size_t c = 0; c < stationChips.size(); c++) {
+            const bool on = (stationChips[c].screen == stationScreen);
+            drawTextIn(textFont, stationChips[c].label, stationChips[c].area, on ? irr::video::SColor(255, 255, 255, 255) : Theme::text, true);
+        }
+        if (!repeaterMode) {
+            const wchar_t* layoutFr[3] = { L"Auto", L"Portrait", L"Paysage" };
+            const wchar_t* layoutEn[3] = { L"Auto", L"Portrait", L"Landscape" };
+            for (int l = 0; l < 3; l++) {
+                drawTextIn(smallFont, french ? layoutFr[l] : layoutEn[l], layoutChips[l], l == stationLayout ? irr::video::SColor(255, 255, 255, 255) : Theme::textDim, true);
+            }
+        }
         drawTextIn(smallFont, french ? L"Le choix est propos\u00E9 \u00E0 nouveau au prochain lancement. Les fen\u00EAtres d\u00E9j\u00E0 ouvertes sont indiqu\u00E9es sur les \u00E9crans."
             : L"The choice is offered again next time. Windows already open are shown on the screens.",
             infoRow, Theme::textDim, false);
 
         //Key hints: as many as fit before the buttons.
-        const wchar_t* hintsFr[6] = { L"1 \u00E0 9 : vue passerelle", L"I : instruments", L"R : radar", L"S : sonar", L"Entr\u00E9e : lancer", L"\u00C9chap : annuler" };
-        const wchar_t* hintsEn[6] = { L"1 to 9: bridge view", L"I: instruments", L"R: radar", L"S: sonar", L"Enter: launch", L"Esc: cancel" };
+        const wchar_t* hintsFr[6] = { L"1 \u00E0 9 : vue passerelle", L"P : pupitre", L"I : instruments", L"R : radar", L"S : sonar", L"Entr\u00E9e : lancer" };
+        const wchar_t* hintsEn[6] = { L"1 to 9: bridge view", L"P: instructor", L"I: instruments", L"R: radar", L"S: sonar", L"Enter: launch" };
         if (repeaterMode) {
             hintsFr[0] = L"1 \u00E0 9 : \u00E9cran"; hintsFr[1] = L"Entr\u00E9e : lancer"; hintsFr[2] = L"\u00C9chap : annuler"; hintsFr[3] = L""; hintsFr[4] = L""; hintsFr[5] = L"";
             hintsEn[0] = L"1 to 9: screen"; hintsEn[1] = L"Enter: launch"; hintsEn[2] = L"Esc: cancel"; hintsEn[3] = L""; hintsEn[4] = L""; hintsEn[5] = L"";
@@ -613,6 +658,7 @@ protected:
                         consoleScreen = (consoleScreen == (int)i) ? -1 : (int)i;
                         if (consoleScreen >= 0 && consoleScreen == radarScreen) { radarScreen = -1; }
                         if (consoleScreen >= 0 && consoleScreen == sonarScreen) { sonarScreen = -1; }
+                        if (consoleScreen >= 0 && consoleScreen == stationScreen) { stationScreen = -1; }
                     }
                     return;
                 }
@@ -632,6 +678,7 @@ protected:
                 consoleScreen = chips[c].screen;
                 if (consoleScreen >= 0 && consoleScreen == radarScreen) { radarScreen = -1; } //one screen, one use
                 if (consoleScreen >= 0 && consoleScreen == sonarScreen) { sonarScreen = -1; }
+                if (consoleScreen >= 0 && consoleScreen == stationScreen) { stationScreen = -1; }
                 return;
             }
         }
@@ -640,6 +687,7 @@ protected:
                 radarScreen = radarChips[c].screen;
                 if (radarScreen >= 0 && radarScreen == consoleScreen) { consoleScreen = -1; }
                 if (radarScreen >= 0 && radarScreen == sonarScreen) { sonarScreen = -1; }
+                if (radarScreen >= 0 && radarScreen == stationScreen) { stationScreen = -1; }
                 return;
             }
         }
@@ -648,8 +696,21 @@ protected:
                 sonarScreen = sonarChips[c].screen;
                 if (sonarScreen >= 0 && sonarScreen == consoleScreen) { consoleScreen = -1; }
                 if (sonarScreen >= 0 && sonarScreen == radarScreen) { radarScreen = -1; }
+                if (sonarScreen >= 0 && sonarScreen == stationScreen) { stationScreen = -1; }
                 return;
             }
+        }
+        for (size_t c = 0; c < stationChips.size(); c++) {
+            if (over(stationChips[c].area)) {
+                stationScreen = stationChips[c].screen;
+                if (stationScreen >= 0 && stationScreen == consoleScreen) { consoleScreen = -1; }
+                if (stationScreen >= 0 && stationScreen == radarScreen) { radarScreen = -1; }
+                if (stationScreen >= 0 && stationScreen == sonarScreen) { sonarScreen = -1; }
+                return;
+            }
+        }
+        for (int l = 0; l < 3 && !repeaterMode; l++) {
+            if (over(layoutChips[l])) { stationLayout = l; return; }
         }
         if (over(launchButton)) { confirm(); return; }
         if (over(cancelButton) || !over(panel)) { hide(); return; }
@@ -673,6 +734,7 @@ protected:
             }
             if (consoleScreen >= 0 && consoleScreen == radarScreen) { radarScreen = -1; }
             if (consoleScreen >= 0 && consoleScreen == sonarScreen) { sonarScreen = -1; }
+            if (consoleScreen >= 0 && consoleScreen == stationScreen) { stationScreen = -1; }
         }
         if (k.Key == irr::KEY_KEY_R && !repeaterMode) { //next choice for the radar
             layout();
@@ -681,6 +743,16 @@ protected:
             }
             if (radarScreen >= 0 && radarScreen == consoleScreen) { consoleScreen = -1; }
             if (radarScreen >= 0 && radarScreen == sonarScreen) { sonarScreen = -1; }
+            if (radarScreen >= 0 && radarScreen == stationScreen) { stationScreen = -1; }
+        }
+        if (k.Key == irr::KEY_KEY_P && !repeaterMode) { //next choice for the instructor screen
+            layout();
+            for (size_t c = 0; c < stationChips.size(); c++) {
+                if (stationChips[c].screen == stationScreen) { stationScreen = stationChips[(c + 1) % stationChips.size()].screen; break; }
+            }
+            if (stationScreen >= 0 && stationScreen == consoleScreen) { consoleScreen = -1; }
+            if (stationScreen >= 0 && stationScreen == radarScreen) { radarScreen = -1; }
+            if (stationScreen >= 0 && stationScreen == sonarScreen) { sonarScreen = -1; }
         }
         if (k.Key == irr::KEY_KEY_S && !repeaterMode) { //next choice for the sonar
             layout();
@@ -689,6 +761,7 @@ protected:
             }
             if (sonarScreen >= 0 && sonarScreen == consoleScreen) { consoleScreen = -1; }
             if (sonarScreen >= 0 && sonarScreen == radarScreen) { radarScreen = -1; }
+            if (sonarScreen >= 0 && sonarScreen == stationScreen) { stationScreen = -1; }
         }
     }
 
@@ -706,6 +779,7 @@ private:
         if (i == consoleScreen) { consoleScreen = selected; }
         if (i == radarScreen) { radarScreen = selected; }
         if (i == sonarScreen) { sonarScreen = selected; }
+        if (i == stationScreen) { stationScreen = selected; }
         selected = i;
     }
 
@@ -718,7 +792,7 @@ private:
         }
         else if (launch) {
             launch(selected + 1, consoleScreen >= 0 ? consoleScreen + 1 : 0, radarScreen >= 0 ? radarScreen + 1 : 0,
-                sonarScreen >= 0 ? sonarScreen + 1 : 0);
+                sonarScreen >= 0 ? sonarScreen + 1 : 0, stationScreen >= 0 ? stationScreen + 1 : 0, stationLayout);
         }
     }
 
@@ -746,7 +820,7 @@ private:
     void layout()
     {
         const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
-        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(repeaterMode ? 624.0f : 668.0f, H - 48);
+        const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(repeaterMode ? 624.0f : 712.0f, H - 48);
         panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
         const irr::f32 left = panel.UpperLeftCorner.X + 36, right = panel.LowerRightCorner.X - 36;
         const irr::f32 bottom = panel.LowerRightCorner.Y;
@@ -830,8 +904,43 @@ private:
             }
         }
 
-        //Desk drawn to scale in the space between the title and the sonar row (or the note below).
-        const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, (repeaterMode ? chipTop : sonarRowTop) - 22);
+        //Instructor screen row (simulator only), over the sonar row: none, or one of the other screens,
+        //then its layout at the end of the row.
+        const irr::f32 stationRowTop = sonarRowTop - 44, stationRowBottom = sonarRowTop - 10;
+        stationLabel = irr::core::rect<irr::f32>(left, stationRowTop, left + textWidth(textFont, french ? L"Instruments :" : L"Instruments:") + 8, stationRowBottom);
+        stationChips.clear();
+        if (!repeaterMode) {
+            //Layout chips from the right
+            const wchar_t* layoutWords[3] = { L"Auto", L"Portrait", french ? L"Paysage" : L"Landscape" };
+            irr::f32 lx = right;
+            for (int l = 2; l >= 0; l--) {
+                const irr::f32 w = textWidth(smallFont, layoutWords[l]) + 26;
+                layoutChips[l] = irr::core::rect<irr::f32>(lx - w, stationRowTop + 3, lx, stationRowBottom - 3);
+                lx -= w + 6;
+            }
+            const irr::f32 chipsRight = lx - 12;
+            Chip none;
+            none.screen = -1;
+            none.label = french ? L"Aucun" : L"None";
+            stationChips.push_back(none);
+            for (size_t i = 0; i < screens.size(); i++) {
+                if ((int)i == selected) { continue; }
+                Chip c;
+                c.screen = (int)i;
+                c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
+                stationChips.push_back(c);
+            }
+            irr::f32 cx = stationLabel.LowerRightCorner.X + 6;
+            for (size_t c = 0; c < stationChips.size(); c++) {
+                const irr::f32 w = textWidth(textFont, stationChips[c].label) + 34;
+                if (c > 0 && cx + w > chipsRight) { stationChips.resize(c); break; }
+                stationChips[c].area = irr::core::rect<irr::f32>(cx, stationRowTop, cx + w, stationRowBottom);
+                cx += w + 8;
+            }
+        }
+
+        //Desk drawn to scale in the space between the title and the instructor row (or the note below).
+        const irr::core::rect<irr::f32> area(left, panel.UpperLeftCorner.Y + 100, right, (repeaterMode ? chipTop : stationRowTop) - 22);
         screenRects.clear();
         if (screens.empty()) { return; }
         irr::core::rect<irr::s32> desk = screens[0].area;
@@ -856,6 +965,8 @@ private:
     const irr::video::SColor radarBottom = irr::video::SColor(255, 140, 84, 18);
     const irr::video::SColor sonarColTop = irr::video::SColor(255, 120, 84, 210);
     const irr::video::SColor sonarColBottom = irr::video::SColor(255, 78, 52, 150);
+    const irr::video::SColor stationColTop = irr::video::SColor(255, 188, 70, 62);
+    const irr::video::SColor stationColBottom = irr::video::SColor(255, 132, 42, 38);
 
     bool french;
     irr::gui::IGUIFont* bigFont;
@@ -870,11 +981,15 @@ private:
     std::vector<Chip> chips;
     std::vector<Chip> radarChips;
     std::vector<Chip> sonarChips;
-    irr::core::rect<irr::f32> panel, launchButton, cancelButton, infoRow, instrumentsLabel, radarLabel, sonarLabel;
+    std::vector<Chip> stationChips;
+    irr::core::rect<irr::f32> layoutChips[3];
+    irr::core::rect<irr::f32> panel, launchButton, cancelButton, infoRow, instrumentsLabel, radarLabel, sonarLabel, stationLabel;
     int selected;          //bridge view screen (index)
     int consoleScreen;     //instruments screen (index), -1: in the bridge view
     int radarScreen;       //large radar screen (index), -1: none
     int sonarScreen;       //sonar screen (index), -1: none
+    int stationScreen;     //instructor screen (index), -1: none
+    int stationLayout;     //0 auto, 1 portrait, 2 landscape
     irr::u32 lastClickMs;
     int lastClickScreen;
 };
@@ -1243,9 +1358,9 @@ std::string launcherScreensFile()
 //Keeps a screen picker choice for next time: Bridge, Instruments or Repeater (the others are kept).
 bool saveLauncherScreen(const std::string& key, int value)
 {
-    const char* keys[5] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar" };
-    std::string values[5];
-    for (int k = 0; k < 5; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
+    const char* keys[7] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar", "Station", "StationLayout" };
+    std::string values[7];
+    for (int k = 0; k < 7; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
 
     //User folder, as the settings editor creates it.
     const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
@@ -1261,7 +1376,7 @@ bool saveLauncherScreen(const std::string& key, int value)
         }
     }
     std::ofstream out(launcherScreensFile().c_str(), std::ios::trunc);
-    for (int k = 0; k < 5; k++) {
+    for (int k = 0; k < 7; k++) {
         if (!values[k].empty()) { out << keys[k] << "=" << values[k] << "\n"; }
     }
     return out.good();
@@ -1269,15 +1384,19 @@ bool saveLauncherScreen(const std::string& key, int value)
 
 //Starts the simulator. When screens were picked: the bridge view's (1..n) as "-monitor N", the
 //instrument console's as "-console M" (0: in the bridge view), the large radar's as "-radar R" (0: none),
-//the sonar's as "-sonar S" (0: none).
-void launchSimulator(int screen, int consoleScreen, int radarScreen, int sonarScreen)
+//the sonar's as "-sonar S" (0: none), the instructor screen's as "-station P" (0: none) with its layout
+//as "-stationlayout L".
+void launchSimulator(int screen, int consoleScreen, int radarScreen, int sonarScreen, int stationScreen, int stationLayout)
 {
+    const std::string stationArg = std::to_string(stationScreen);
+    const std::string layoutArg = std::to_string(stationLayout);
     const std::string screenArg = std::to_string(screen);
     const std::string consoleArg = std::to_string(consoleScreen);
     const std::string radarArg = std::to_string(radarScreen);
     const std::string sonarArg = std::to_string(sonarScreen);
 #ifdef _WIN32
-    const std::string params = "-monitor " + screenArg + " -console " + consoleArg + " -radar " + radarArg + " -sonar " + sonarArg;
+    const std::string params = "-monitor " + screenArg + " -console " + consoleArg + " -radar " + radarArg + " -sonar " + sonarArg +
+        " -station " + stationArg + " -stationlayout " + layoutArg;
     ShellExecute(NULL, NULL, "Simulator-nav.exe", screen > 0 ? params.c_str() : NULL, NULL, SW_SHOW);
 #else
     const int pid = fork(); // posix only (GNU/Linux, MacOS)
@@ -1286,10 +1405,10 @@ void launchSimulator(int screen, int consoleScreen, int radarScreen, int sonarSc
     if (chdir("/usr/bin") != 0) {} //the applications are installed there
 #endif
 #ifdef __APPLE__
-    if (screen > 0) { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), "-radar", radarArg.c_str(), "-sonar", sonarArg.c_str(), (char*)NULL); }
+    if (screen > 0) { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), "-radar", radarArg.c_str(), "-sonar", sonarArg.c_str(), "-station", stationArg.c_str(), "-stationlayout", layoutArg.c_str(), (char*)NULL); }
     else { execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", (char*)NULL); }
 #else
-    if (screen > 0) { execl("./Simulator-bc", "Simulator-bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), "-radar", radarArg.c_str(), "-sonar", sonarArg.c_str(), (char*)NULL); }
+    if (screen > 0) { execl("./Simulator-bc", "Simulator-bc", "-monitor", screenArg.c_str(), "-console", consoleArg.c_str(), "-radar", radarArg.c_str(), "-sonar", sonarArg.c_str(), "-station", stationArg.c_str(), "-stationlayout", layoutArg.c_str(), (char*)NULL); }
     else { execl("./Simulator-bc", "Simulator-bc", (char*)NULL); }
 #endif
     _exit(EXIT_FAILURE); //only reached if the simulator could not be started: never run a second launcher
@@ -1308,17 +1427,21 @@ void startSimulator()
         int console = atoi(readIniNow(launcherScreensFile(), "Instruments").c_str());
         int radar = atoi(readIniNow(launcherScreensFile(), "Radar").c_str());
         int sonar = atoi(readIniNow(launcherScreensFile(), "Sonar").c_str());
+        const std::string savedStation = readIniNow(launcherScreensFile(), "Station");
+        int station = savedStation.empty() ? atoi(readIniNow(ini, "station_screen").c_str()) : atoi(savedStation.c_str());
+        const std::string savedLayout = readIniNow(launcherScreensFile(), "StationLayout");
+        const int stationLayout = atoi((savedLayout.empty() ? readIniNow(ini, "station_layout") : savedLayout).c_str());
         if (bridge <= 0) {
             bridge = atoi(readIniNow(ini, "monitor").c_str());
             console = atoi(readIniNow(ini, "console_monitor").c_str());
             radar = atoi(readIniNow(ini, "radar_screen").c_str());
             sonar = atoi(readIniNow(ini, "sonar_screen").c_str());
         }
-        g_screenPicker->open(screens, bridge, console, radar, sonar);
+        g_screenPicker->open(screens, bridge, console, radar, sonar, station, stationLayout);
         return;
     }
     showLaunchToast(g_simulatorTitle);
-    launchSimulator(0, 0, 0, 0);
+    launchSimulator(0, 0, 0, 0, 0, 0);
 }
 
 std::wstring g_repeaterTitle; //the repeater card's title, for the toast once a screen has been picked
@@ -2123,13 +2246,15 @@ int main(int argc, char** argv)
     g_keySheet = new KeySheet(env, titleFont, textFont, smallFont);
     g_keySheet->drop();
     g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
-        [](int screen, int consoleScreen, int radarScreen, int sonarScreen) {
+        [](int screen, int consoleScreen, int radarScreen, int sonarScreen, int stationScreen, int stationLayout) {
             saveLauncherScreen("Bridge", screen);
             saveLauncherScreen("Instruments", consoleScreen);
             saveLauncherScreen("Radar", radarScreen);
             saveLauncherScreen("Sonar", sonarScreen);
+            saveLauncherScreen("Station", stationScreen);
+            saveLauncherScreen("StationLayout", stationLayout);
             showLaunchToast(g_simulatorTitle);
-            launchSimulator(screen, consoleScreen, radarScreen, sonarScreen);
+            launchSimulator(screen, consoleScreen, radarScreen, sonarScreen, stationScreen, stationLayout);
         },
         [](int screen) {
             saveLauncherScreen("Repeater", screen);

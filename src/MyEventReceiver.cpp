@@ -689,6 +689,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 gui->toggleSonar();
             }
+            if (id == GUIMain::GUI_ID_STATION_BUTTON)
+            {
+                gui->toggleStation();
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
 
             if (id == GUIMain::GUI_ID_WEATHER_BUTTON)
             {

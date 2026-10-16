@@ -51,6 +51,8 @@ public:
     bool getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const;
     //Full screen on the screen the window is on (no frame), and back to the window it was.
     void setFullScreen(bool on);
+    //New size of the client area, the window's corner staying where it is (not in full screen)
+    void resizeClient(irr::u32 w, irr::u32 h);
     bool isFullScreen() const { return fullScreen; }
 
     //Pass to driver->beginScene() to draw into this window.

@@ -38,6 +38,7 @@
 class SimulationModel;
 class ConsoleWindow;
 class SonarWindow;
+class StationScreen;
 
 namespace bridge { class BridgeSkin; class CommandBar; }
 
@@ -366,6 +367,7 @@ public:
         GUI_ID_GLOW_SCROLL_BAR,
         GUI_ID_WEATHER_BUTTON,
         GUI_ID_SONAR_BUTTON,
+        GUI_ID_STATION_BUTTON,
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
         //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
@@ -443,6 +445,17 @@ public:
     void toggleSonar();
     void renderSonar();
     void shutdownSonarWindow();
+    //Instructor screen: the controls and weather windows together, in a window of their own (a
+    //second monitor, portrait or landscape). Call before load(): the screen given to it (launcher
+    //-station N, bc5.ini station_screen) - it opens there at the start, filling it - and how the
+    //two windows share it (0 from its shape, 1 one over the other, 2 side by side).
+    void setStationScreen(const irr::core::rect<irr::s32>& area) { stationScreenArea = area; stationOnScreen = true; }
+    void setStationLayout(int layout) { stationLayout = layout; }
+    void toggleStation();
+    bool isStationOpen() const;
+    //Once per frame, after the other windows: its input, then its frame
+    void renderStation();
+    void shutdownStationWindow();
     //Saves the radar window placement and closes it. Call before the device is dropped.
     void shutdownRadarWindow();
 
@@ -711,6 +724,18 @@ private:
     irr::s32 consoleBaseStatusW = 0;                 //status column width with the normal font
     irr::f32 consoleAttachedGaugeD = 0;              //dial diameter on the main screen
     void layoutDetachedConsole(const irr::core::dimension2du& size);
+    //Detached console: how the dials are arranged (0 automatic, 1 a row, 2 a column), chosen with the key in
+    //the window's corner or its right-click menu, and kept in consoleWindow.ini
+    int consoleOrientation = 0;
+    bool consoleMenuOpen = false;
+    irr::core::position2di consoleMenuAt;
+    int consoleMenuHover = -1;
+    bool consoleKeyHover = false;
+    void setConsoleOrientation(int orientation);
+    bool consoleLooksVertical() const;
+    irr::core::rect<irr::s32> consoleOrientationKey() const;
+    irr::core::rect<irr::s32> consoleMenuItem(int item) const;
+    void drawConsoleWindowExtras();
     irr::s32 consoleStatusWidthFor(irr::gui::IGUIFont* font) const;
     irr::s32 consolePlaceX = 80, consolePlaceY = 80;  //console window placement (consoleWindow.ini)
     irr::u32 consolePlaceW = 0, consolePlaceH = 0;
@@ -756,6 +781,32 @@ private:
     bool sonarOnScreen = false;
     irr::core::rect<irr::s32> sonarScreenArea;
     irr::gui::IGUIButton* sonarButton = 0;
+    //Instructor screen
+    ConsoleWindow* stationWindow = 0;
+    StationScreen* stationHost = 0;
+    irr::gui::IGUIButton* stationButton = 0;
+    bool stationWindowUsed = false;
+    bool stationAllowed = false;                           //not on a secondary display, in VR or as a spectator
+    bool stationOnScreen = false;
+    irr::core::rect<irr::s32> stationScreenArea;
+    int stationLayout = 0;
+    irr::gui::IGUIElement* stationInputTarget = 0;         //window under a button press
+    irr::gui::IGUIElement* stationHovered = 0;             //window under the mouse
+    irr::u32 stationLastRenderMs = 0, stationFrameMs = 33;
+    irr::u32 stationRenderCount = 0, stationRateStartMs = 0, stationRenderRate = 0;
+    irr::u32 stationLastClickMs = 0;
+    irr::core::position2di stationLastClick;
+    irr::s32 stationPlaceX = 60, stationPlaceY = 60;       //placement (stationWindow.ini)
+    irr::u32 stationPlaceW = 0, stationPlaceH = 0;
+    bool stationPlaceFullScreen = false;
+    void openStation();
+    void closeStation();
+    void saveStationPlacement(bool open);
+    void dispatchStationInput();
+    bool panelOnStation(irr::gui::IGUIElement* panel) const;
+    //A window of the instructor screen shown on the bridge screen for a while, and back
+    void lendPanelToBridge(irr::gui::IGUIElement* panel);
+    void returnPanelToStation(irr::gui::IGUIElement* panel);
     irr::gui::IGUIButton* detachRadarButton = 0;
     irr::gui::IGUIButton* radarFullScreenButton = 0;
     //Large radar tools

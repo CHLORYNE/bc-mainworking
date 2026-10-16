@@ -115,6 +115,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClCompile Include="..\GUIHelmLever.cpp" />
     <ClCompile Include="..\PanelDock.cpp" />
     <ClCompile Include="..\StationUi.cpp" />
+    <ClCompile Include="..\StationScreen.cpp" />
     <ClCompile Include="..\GUIMain.cpp" />
     <ClCompile Include="..\GUIRectangle.cpp" />
     <ClCompile Include="..\GUIInstrumentPanel.cpp" />
@@ -210,6 +211,7 @@ copy /Y "$(TargetPath)" "$(ProjectDir)..\..\bin\$(TargetFileName)"</Command>
     <ClInclude Include="..\GUIHelmLever.hpp" />
     <ClInclude Include="..\PanelDock.hpp" />
     <ClInclude Include="..\StationUi.hpp" />
+    <ClInclude Include="..\StationScreen.hpp" />
     <ClInclude Include="..\GUIMain.hpp" />
     <ClInclude Include="..\GUIPanelDraw.hpp" />
     <ClInclude Include="..\GUIInstrumentPanel.hpp" />

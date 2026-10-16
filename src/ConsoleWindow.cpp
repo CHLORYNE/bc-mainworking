@@ -325,6 +325,14 @@ void ConsoleWindow::setFullScreen(bool on)
     }
 }
 
+void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
+{
+    if (!opened || fullScreen || w == 0 || h == 0) { return; }
+    RECT frame = { 0, 0, (LONG)w, (LONG)h };
+    if (!borderless) { AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE); }
+    SetWindowPos((HWND)hwnd, 0, 0, 0, frame.right - frame.left, frame.bottom - frame.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 //=================================================================================================
 #else // X11
 
@@ -538,6 +546,13 @@ void ConsoleWindow::setFullScreen(bool on)
     }
     XFlush(dpy);
     fullScreen = on;
+}
+
+void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
+{
+    if (!opened || fullScreen || w == 0 || h == 0) { return; }
+    XResizeWindow((Display*)display, (Window)window, w, h);
+    XFlush((Display*)display);
 }
 
 void ConsoleWindow::openWithSystem(const std::string& path)

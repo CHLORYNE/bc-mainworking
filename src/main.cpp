@@ -1346,8 +1346,40 @@ int main(int argc, char** argv)
                 std::cerr << "Sonar: screen " << sonarMonitor + 1 << " is not connected, or shows the bridge view, the console or the radar." << std::endl;
             }
         }
+
+        //Instructor screen (controls and weather) on a screen of its own: launcher -station N (0: none),
+        //else bc5.ini station_screen=N. Not on the bridge view's, the console's, the radar's or the sonar's screen.
+        int stationMonitor = (int)IniFile::iniFileTou32(iniFilename, "station_screen") - 1;
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-station") == 0) {
+                stationMonitor = atoi(argv[arg + 1]) - 1;
+            }
+        }
+        if (stationMonitor >= 0) {
+            cMonitorsVec monitors;
+            const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
+            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
+            if (stationMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[stationMonitor] != bridgeMonitor &&
+                stationMonitor != consoleMonitor && stationMonitor != radarMonitor && stationMonitor != sonarMonitor) {
+                const RECT& r = monitors.rcMonitors[stationMonitor];
+                guiMain.setStationScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                std::cout << "Instructor screen on screen " << stationMonitor + 1 << std::endl;
+            }
+            else {
+                std::cerr << "Instructor screen: screen " << stationMonitor + 1 << " is not connected, or shows the bridge view, the console, the radar or the sonar." << std::endl;
+            }
+        }
     }
 #endif
+    //How the instructor screen shares its room between controls and weather: launcher -stationlayout L,
+    //else bc5.ini station_layout (0 from the screen's shape, 1 portrait: one over the other, 2 landscape: side by side)
+    {
+        int stationLayout = (int)IniFile::iniFileTou32(iniFilename, "station_layout");
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-stationlayout") == 0) { stationLayout = atoi(argv[arg + 1]); }
+        }
+        guiMain.setStationLayout(stationLayout);
+    }
 
     //Set up networking (this will get a pointer to the model later)
     //Create networking, linked to model, choosing whether to use main or secondary network mode
@@ -1854,6 +1886,8 @@ int main(int argc, char** argv)
         guiMain.renderDetachedRadar();
         //Sonar station in its own window (if open)
         guiMain.renderSonar();
+        //Instructor screen in its own window (if open)
+        guiMain.renderStation();
 
         //KYARA FRAME PACING --------------------------------------------------------------------
       //Removing the 10ms enet block gave the frames back, but that block was also accidentally
@@ -1895,6 +1929,7 @@ int main(int argc, char** argv)
     guiMain.shutdownConsoleWindow();
     guiMain.shutdownRadarWindow();
     guiMain.shutdownSonarWindow();
+    guiMain.shutdownStationWindow();
 
     //Exercise report for the debrief (user folder, Bilans/)
     {

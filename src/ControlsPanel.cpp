@@ -149,6 +149,14 @@ void ControlsPanel::addText(int t, irr::gui::IGUIStaticText* text, int lines, st
 //Layout
 //-------------------------------------------------------------------------------------------------
 
+void ControlsPanel::setEmbedded(bool on)
+{
+    embedded = on;
+    frame.showKeys = !on;
+    frame.forceCompact = on;
+    laidOutRect = irr::core::rect<irr::s32>();   //laid out again at the next frame
+}
+
 void ControlsPanel::updateAbsolutePosition()
 {
     IGUIElement::updateAbsolutePosition();
@@ -202,8 +210,9 @@ ControlsPanel::Cells ControlsPanel::cells(const Row& row, const Rect& r) const
         c.control = Rect(x0 - 4 * k, r.UpperLeftCorner.Y, x1, r.LowerRightCorner.Y);
         return c;
     }
-    const irr::f32 labelW = W * (frame.compact ? 0.36f : 0.30f);
-    const irr::f32 stateW = frame.compact ? 0 : W * 0.21f;
+    //A state column when the row is wide enough for it (and its keys)
+    const irr::f32 stateW = (W >= 600 * k) ? W * 0.21f : 0;
+    const irr::f32 labelW = W * (stateW > 0 ? 0.30f : 0.36f);
     c.label = Rect(x0, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW - 6 * k, r.LowerRightCorner.Y);
     c.state = Rect(r.UpperLeftCorner.X + labelW, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + labelW + stateW, r.LowerRightCorner.Y);
     c.control = Rect(r.UpperLeftCorner.X + labelW + stateW, r.UpperLeftCorner.Y, x1, r.LowerRightCorner.Y);
@@ -255,7 +264,7 @@ Rect ControlsPanel::sliderTrack(const Cells& c) const
 {
     const irr::f32 k = frame.k;
     //Narrow: no state column, the value is written at the start of the cell
-    const irr::f32 x0 = c.control.UpperLeftCorner.X + (frame.compact ? 76 : 14) * k;
+    const irr::f32 x0 = c.control.UpperLeftCorner.X + (c.state.getWidth() > 0 ? 14 : 76) * k;
     const irr::f32 cy = c.control.getCenter().Y;
     return Rect(x0, cy - 2 * k, c.control.LowerRightCorner.X - 10 * k, cy + 2 * k);
 }
@@ -382,7 +391,7 @@ bool ControlsPanel::OnEvent(const irr::SEvent& event)
     const irr::SEvent::SMouseInput& m = event.MouseInput;
     const irr::core::position2di p(m.X, m.Y);
     const irr::core::vector2df pf((irr::f32)m.X, (irr::f32)m.Y);
-    if (draggedRow < 0 && (dock.isDragging() || AbsoluteRect.isPointInside(p)) &&
+    if (!embedded && draggedRow < 0 && (dock.isDragging() || AbsoluteRect.isPointInside(p)) &&
         dock.onMouse(this, Environment, m, frame.header, frame.dockRect(dock.place), frame.closeRect())) {
         return true;
     }
@@ -520,7 +529,7 @@ void ControlsPanel::draw()
     foot.push_back({ frame.code, L"", 0 });
     if (tab < (int)tabs.size()) { foot.push_back({ L"Onglet", tabs[tab].name, 0 }); }
     foot.push_back({ L"Derni\u00E8re action", lastAction.empty() ? std::wstring(L"\u2014") : lastAction, 0 });
-    frame.drawFooter(driver, foot, L"Molette : d\u00E9filer  \u00B7  glisser le titre : d\u00E9placer", clip);
+    frame.drawFooter(driver, foot, (embedded ? L"Molette : d\u00E9filer" : L"Molette : d\u00E9filer  \u00B7  glisser le titre : d\u00E9placer"), clip);
 }
 
 void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::rect<irr::s32>& clip)
@@ -605,7 +614,7 @@ void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::
         //Control
         if (row.kind == ROW_SLIDER) {
             const Rect track = sliderTrack(c);
-            if (frame.compact) {
+            if (c.state.getWidth() <= 0) {
                 f.state->drawIn(hudUpper(state), Rect(c.control.UpperLeftCorner.X, c.control.UpperLeftCorner.Y, track.UpperLeftCorner.X - 8 * k, c.control.LowerRightCorner.Y + 1 * k),
                     col.text, HudFont::Left, 1.0f * k, &clip);
             }

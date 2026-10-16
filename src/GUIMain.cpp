@@ -25,6 +25,7 @@
 #include "WeatherPanel.hpp"
 #include "ControlsPanel.hpp"
 #include <cctype>
+#include <cstdlib>
 
 #include "Constants.hpp"
 #include "Utilities.hpp"
@@ -42,6 +43,7 @@
 #include "IniFile.hpp"
 #include "ConsoleWindow.hpp"
 #include "SonarWindow.hpp"
+#include "StationScreen.hpp"
 
 namespace {
 //Parent of the console's elements while the console is in its own window. It has no parent itself,
@@ -68,6 +70,12 @@ std::string consolePlacementFile(irr::u32 instance)
 {
     if (instance > 1) { return Utilities::getUserDir() + "consoleWindow-" + std::to_string(instance) + ".ini"; }
     return Utilities::getUserDir() + "consoleWindow.ini";
+}
+
+std::string stationPlacementFile(irr::u32 instance)
+{
+    if (instance > 1) { return Utilities::getUserDir() + "stationWindow-" + std::to_string(instance) + ".ini"; }
+    return Utilities::getUserDir() + "stationWindow.ini";
 }
 
 std::string radarPlacementFile(irr::u32 instance)
@@ -2339,6 +2347,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //The sonar station's key
         sonarButton = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_SONAR_BUTTON, L"SONAR",
             L"Sonar 360\u00B0 et sondeur de p\u00EAche, dans une fen\u00EAtre \u00E0 part (second \u00E9cran)");
+        //The instructor screen's key
+        stationButton = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_STATION_BUTTON, L"PUPITRE",
+            L"Pupitre instructeur : contr\u00F4les et m\u00E9t\u00E9o ensemble, dans une fen\u00EAtre \u00E0 part (second \u00E9cran)");
+        stationButton->setIsPushButton(true);
         //Glow of the lit instruments
         glowScrollbar = guienv->addScrollBar(true, irr::core::rect<irr::s32>(0, 0, 10, 10), 0, GUI_ID_GLOW_SCROLL_BAR);
         glowScrollbar->setMin(0);
@@ -2411,6 +2423,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         consolePlaceX = IniFile::iniFileTos32(placement, "X", consolePlaceX);
         consolePlaceY = IniFile::iniFileTos32(placement, "Y", consolePlaceY);
         consolePlaceW = IniFile::iniFileTou32(placement, "Width");
+        consoleOrientation = irr::core::clamp((int)IniFile::iniFileTou32(placement, "Orientation"), 0, 2);
         consolePlaceH = IniFile::iniFileTou32(placement, "Height");
         if (consoleOnScreen || IniFile::iniFileTou32(placement, "Detached") == 1) {
             setConsoleDetached(true);
@@ -2437,6 +2450,19 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     sonarWindow->setFrameRate(IniFile::iniFileTou32(iniFilename, "sonar_window_fps"));
     if (sonarOnScreen) { sonarWindow->setScreen(sonarScreenArea); }
     if (!vr3dMode && !(model && model->isSpectator())) { sonarWindow->restore(); }
+
+    //Instructor screen: on the screen given to it, or open again if it was open last session
+    stationAllowed = !vr3dMode && !controlsHidden && !(model && model->isSpectator()) && (controlsPanel || weatherPanel);
+    {
+        const std::string placement = stationPlacementFile(consoleInstance);
+        stationPlaceX = IniFile::iniFileTos32(placement, "X", stationPlaceX);
+        stationPlaceY = IniFile::iniFileTos32(placement, "Y", stationPlaceY);
+        stationPlaceW = IniFile::iniFileTou32(placement, "Width");
+        stationPlaceH = IniFile::iniFileTou32(placement, "Height");
+        stationPlaceFullScreen = IniFile::iniFileTou32(placement, "FullScreen") == 1;
+        if (stationAllowed && (stationOnScreen || IniFile::iniFileTou32(placement, "Open") == 1)) { openStation(); }
+    }
+    if (stationButton) { stationButton->setVisible(stationAllowed && (!commandBar || commandBar->isVisible())); }
 }
 
 GUIMain::~GUIMain()
@@ -2871,6 +2897,7 @@ void GUIMain::updateVisibility()
         if (glowScrollbar) { glowScrollbar->setVisible(ownSettings); }
         if (weatherButton) { weatherButton->setVisible(ownSettings); }
         if (sonarButton) { sonarButton->setVisible(showDisplayControls); }
+        if (stationButton) { stationButton->setVisible(showDisplayControls && stationAllowed); }
     }
     if (consoleDetached) {
         applyDetachedConsoleVisibility();
@@ -4669,6 +4696,14 @@ void GUIMain::setExtraControlsWindowVisible(bool windowVisible)
 {
     //The old window stays hidden: the controls window is drawn by controlsPanel
     if (!controlsPanel) { return; }
+    //With the instructor screen open, the window lives there: shown here only for a while
+    if (isStationOpen() && stationHost->panel(StationScreen::SLOT_CONTROLS) == controlsPanel) {
+        if (windowVisible) {
+            if (panelOnStation(controlsPanel)) { lendPanelToBridge(controlsPanel); }
+        }
+        else if (!panelOnStation(controlsPanel)) { returnPanelToStation(controlsPanel); }
+        return;
+    }
     if (windowVisible) {
         refreshLightsTab();
         placeOverView(controlsPanel);
@@ -4680,6 +4715,10 @@ void GUIMain::setExtraControlsWindowVisible(bool windowVisible)
 
 void GUIMain::toggleExtraControlsWindow()
 {
+    if (isStationOpen() && controlsPanel) {
+        setExtraControlsWindowVisible(panelOnStation(controlsPanel));
+        return;
+    }
     setExtraControlsWindowVisible(!(controlsPanel && controlsPanel->isVisible()));
 }
 
@@ -4821,6 +4860,7 @@ const irr::video::SExposedVideoData& GUIMain::getMainVideoData() const
 #else
     if (consoleWindowUsed && consoleWindow) { return consoleWindow->mainVideoData(); }
     if (radarWindowUsed && radarWindow) { return radarWindow->mainVideoData(); }
+    if (stationWindowUsed && stationWindow) { return stationWindow->mainVideoData(); }
     const irr::video::SExposedVideoData* sonarMain = sonarWindow ? sonarWindow->mainVideoData() : 0;
     return sonarMain ? *sonarMain : noVideoData;
 #endif
@@ -4831,13 +4871,101 @@ irr::u32 GUIMain::mainWindowFPS() const
     //Every endScene() counts as a frame for the driver, the console window's included.
     const irr::s32 fps = device->getVideoDriver()->getFPS();
     const irr::s32 own = (consoleDetached ? (irr::s32)consoleRenderRate : 0) + (radarDetached ? (irr::s32)radarRenderRate : 0)
-        + (sonarWindow ? (irr::s32)sonarWindow->renderRate() : 0);
+        + (sonarWindow ? (irr::s32)sonarWindow->renderRate() : 0) + (isStationOpen() ? (irr::s32)stationRenderRate : 0);
     return (irr::u32)((fps > own) ? fps - own : fps);
 }
 
 void GUIMain::toggleConsoleDetached()
 {
     setConsoleDetached(!consoleDetached);
+}
+
+bool GUIMain::consoleLooksVertical() const
+{
+    if (consoleOrientation != 0) { return consoleOrientation == 2; }
+    return consoleLaidOutSize.Height > consoleLaidOutSize.Width;
+}
+
+void GUIMain::setConsoleOrientation(int orientation)
+{
+    consoleOrientation = irr::core::clamp(orientation, 0, 2);
+    //A window of its own (not a whole screen): turned to suit the new arrangement
+    if (consoleWindow && consoleWindow->isOpen() && !consoleOnScreen && !consoleWindow->isFullScreen()) {
+        const irr::core::dimension2du size = consoleWindow->getClientSize();
+        const irr::core::dimension2du screen = device->getVideoDriver()->getScreenSize();
+        if (consoleOrientation == 2 && size.Width > size.Height) {
+            const irr::u32 w = irr::core::clamp((irr::u32)(size.Height * 1.25f), 240u, 520u);
+            const irr::u32 h = irr::core::max_(irr::core::min_((irr::u32)(screen.Height * 0.92f), w * 4u), 400u);
+            consoleWindow->resizeClient(w, h);
+        }
+        else if (consoleOrientation == 1 && size.Height > size.Width) {
+            const irr::u32 w = irr::core::max_(irr::core::min_((irr::u32)(screen.Width * 0.92f), size.Height * 2u), 600u);
+            const irr::u32 h = irr::core::max_(w / 6u, 160u);
+            consoleWindow->resizeClient(w, h);
+        }
+    }
+    consoleLaidOutSize = irr::core::dimension2du();   //laid out again at the next frame
+    saveConsolePlacement(consoleDetached);
+}
+
+irr::core::rect<irr::s32> GUIMain::consoleOrientationKey() const
+{
+    const irr::core::dimension2du size = consoleWindow ? consoleWindow->getClientSize() : irr::core::dimension2du(0, 0);
+    const irr::s32 s = 26;
+    return irr::core::rect<irr::s32>((irr::s32)size.Width - s - 6, 6, (irr::s32)size.Width - 6, 6 + s);
+}
+
+irr::core::rect<irr::s32> GUIMain::consoleMenuItem(int item) const
+{
+    const irr::core::dimension2du size = consoleWindow ? consoleWindow->getClientSize() : irr::core::dimension2du(0, 0);
+    const irr::s32 w = 270, h = 30;
+    irr::s32 x = consoleMenuAt.X, y = consoleMenuAt.Y;
+    if (x + w > (irr::s32)size.Width - 4) { x = (irr::s32)size.Width - 4 - w; }
+    if (y + 4 * h + 8 > (irr::s32)size.Height - 4) { y = (irr::s32)size.Height - 4 - 4 * h - 8; }
+    if (x < 4) { x = 4; }
+    if (y < 4) { y = 4; }
+    const irr::s32 top = y + 4 + item * h + (item == 3 ? 4 : 0);
+    return irr::core::rect<irr::s32>(x + 4, top, x + w - 4, top + h - (item == 3 ? 4 : 0));
+}
+
+void GUIMain::drawConsoleWindowExtras()
+{
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const bridge::Palette& pal = bridge::palette();
+    irr::gui::IGUIFont* font = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
+
+    //The layout key: three small squares, in a column or a row - the arrangement it turns to
+    const irr::core::rect<irr::s32> k = consoleOrientationKey();
+    driver->draw2DRectangle(consoleKeyHover ? pal.keyHover : pal.key, k);
+    driver->draw2DRectangleOutline(k, consoleKeyHover ? pal.accent : pal.edge);
+    const bool toVertical = !consoleLooksVertical();
+    for (int i = 0; i < 3; i++) {
+        const irr::s32 d = 5;
+        const irr::s32 cx = toVertical ? k.getCenter().X : k.UpperLeftCorner.X + 5 + i * 6 + d / 2;
+        const irr::s32 cy = toVertical ? k.UpperLeftCorner.Y + 5 + i * 6 + d / 2 : k.getCenter().Y;
+        driver->draw2DRectangle(pal.accent, irr::core::rect<irr::s32>(cx - d / 2, cy - d / 2, cx - d / 2 + d, cy - d / 2 + d));
+    }
+
+    if (!consoleMenuOpen || !font) { return; }
+    const wchar_t* items[4] = { L"Disposition automatique", L"Disposition horizontale", L"Disposition verticale",
+        L"Rattacher \u00E0 l'\u00E9cran principal" };
+    irr::core::rect<irr::s32> box = consoleMenuItem(0);
+    box.addInternalPoint(consoleMenuItem(3).LowerRightCorner);
+    box.UpperLeftCorner -= irr::core::position2di(4, 4);
+    box.LowerRightCorner += irr::core::position2di(4, 4);
+    driver->draw2DRectangle(pal.raised, box);
+    driver->draw2DRectangleOutline(box, pal.edge);
+    for (int m = 0; m < 4; m++) {
+        const irr::core::rect<irr::s32> r = consoleMenuItem(m);
+        if (m == consoleMenuHover) { driver->draw2DRectangle(pal.keyHover, r); }
+        if (m == 3) { driver->draw2DRectangle(pal.edge, irr::core::rect<irr::s32>(r.UpperLeftCorner.X, r.UpperLeftCorner.Y - 3, r.LowerRightCorner.X, r.UpperLeftCorner.Y - 2)); }
+        //The arrangement in force: an accent mark before it
+        if (m == consoleOrientation) {
+            driver->draw2DRectangle(pal.accent, irr::core::rect<irr::s32>(r.UpperLeftCorner.X + 8, r.getCenter().Y - 3, r.UpperLeftCorner.X + 14, r.getCenter().Y + 3));
+        }
+        font->draw(items[m], irr::core::rect<irr::s32>(r.UpperLeftCorner.X + 22, r.UpperLeftCorner.Y, r.LowerRightCorner.X, r.LowerRightCorner.Y),
+            pal.text, false, true);
+    }
 }
 
 void GUIMain::saveConsolePlacement(bool detached)
@@ -4849,6 +4977,7 @@ void GUIMain::saveConsolePlacement(bool detached)
     std::ofstream f(consolePlacementFile(consoleInstance).c_str());
     if (!f) { return; }
     f << "Detached=" << (detached ? 1 : 0) << std::endl;
+    f << "Orientation=" << consoleOrientation << std::endl;
     f << "X=" << consolePlaceX << std::endl;
     f << "Y=" << consolePlaceY << std::endl;
     if (consolePlaceW > 0 && consolePlaceH > 0) {
@@ -4863,6 +4992,22 @@ void GUIMain::layoutConsoleStatusColumn()
     const irr::core::rect<irr::s32> col = instrumentPanel->getStatusColumnRect();
     irr::core::position2di origin(0, 0);
     if (instrumentPanel->getParent()) { origin = instrumentPanel->getParent()->getAbsolutePosition().UpperLeftCorner; }
+    irr::gui::IGUIElement* keys[4] = { bigRadarButton, pump1On, pump2On, ackAlarms };
+    if (col.getWidth() > col.getHeight() * 3 / 2) {
+        //A strip under the dials (column layout): the four keys in a row, or two rows of two
+        const irr::s32 rowsN = (col.getWidth() / 4 >= col.getHeight() * 2) ? 1 : 2;
+        const irr::s32 colsN = 4 / rowsN;
+        const irr::s32 gap = irr::core::max_(4, col.getHeight() / 12);
+        const irr::s32 cw = (col.getWidth() - (colsN - 1) * gap) / colsN;
+        const irr::s32 ch = (col.getHeight() - (rowsN - 1) * gap) / rowsN;
+        for (int i = 0; i < 4; i++) {
+            if (!keys[i]) { continue; }
+            const irr::s32 cx = col.UpperLeftCorner.X + (i % colsN) * (cw + gap);
+            const irr::s32 cy = col.UpperLeftCorner.Y + (i / colsN) * (ch + gap);
+            keys[i]->setRelativePosition(irr::core::rect<irr::s32>(cx, cy, cx + cw, cy + ch) - origin);
+        }
+        return;
+    }
     const irr::s32 gapY = col.getHeight() / 20;
     const irr::s32 rowH = (col.getHeight() - 3 * gapY) / 4;
     irr::gui::IGUIElement* rows[4] = { bigRadarButton, pump1On, pump2On, ackAlarms };
@@ -4896,8 +5041,13 @@ void GUIMain::layoutDetachedConsole(const irr::core::dimension2du& size)
     //First pass with the normal lettering: as many rows as make the dials biggest.
     instrumentPanel->setOverrideFont(0);
     instrumentPanel->setMaxRows(4);
+    instrumentPanel->setOrientation(consoleOrientation);
     instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
-    instrumentPanel->setRelativePosition(all);
+    //Room for the layout key in the top right corner: a thin column beside a wide window, a band over a tall one
+    irr::core::rect<irr::s32> panelArea = all;
+    if (size.Width >= size.Height) { panelArea.LowerRightCorner.X -= 36; }
+    else { panelArea.UpperLeftCorner.Y += 36; }
+    instrumentPanel->setRelativePosition(panelArea);
 
     //Lettering in proportion to the dials (from the main-screen size), within the fonts on disk.
     irr::gui::IGUIFont* font = 0;
@@ -4996,6 +5146,7 @@ void GUIMain::setConsoleDetached(bool detached)
         pump2On->setOverrideFont(0);
         ackAlarms->setOverrideFont(0);
         instrumentPanel->setMaxRows(1);
+        instrumentPanel->setOrientation(0);   //the strip under the bridge view
         instrumentPanel->setStatusColumnWidth(consoleBaseStatusW);
         instrumentPanel->setRelativePosition(consolePanelAttachedRect);
         bigRadarButton->setRelativePosition(consoleStatusAttachedRect[0]);
@@ -5026,6 +5177,39 @@ void GUIMain::dispatchConsoleWindowInput()
     for (size_t i = 0; i < events.size() && consoleDetached; i++) {
         const irr::SEvent& e = events[i];
         const irr::core::position2di p(e.MouseInput.X, e.MouseInput.Y);
+        //The layout key in the corner, and the right-click menu, before the console's own elements
+        if (e.MouseInput.Event == irr::EMIE_MOUSE_MOVED) {
+            consoleKeyHover = consoleOrientationKey().isPointInside(p);
+            consoleMenuHover = -1;
+            for (int m = 0; m < 4 && consoleMenuOpen; m++) { if (consoleMenuItem(m).isPointInside(p)) { consoleMenuHover = m; } }
+        }
+        if (e.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN && !consoleInputTarget) {
+            if (consoleMenuOpen) {
+                consoleMenuOpen = false;
+                int chosen = -1;
+                for (int m = 0; m < 4; m++) { if (consoleMenuItem(m).isPointInside(p)) { chosen = m; } }
+                if (chosen == 3) {
+                    setConsoleDetached(false);   //back on the main screen
+                    return;
+                }
+                if (chosen >= 0) { setConsoleOrientation(chosen); }
+                continue;
+            }
+            if (consoleOrientationKey().isPointInside(p)) {
+                setConsoleOrientation(consoleLooksVertical() ? 1 : 2);
+                continue;
+            }
+        }
+        if (e.MouseInput.Event == irr::EMIE_RMOUSE_PRESSED_DOWN && !consoleInputTarget) {
+            //The rudder dial takes the right button too (helm); anywhere else: the menu
+            if (!instrumentPanel->isPointInside(p)) {
+                consoleMenuOpen = true;
+                consoleMenuAt = p;
+                consoleMenuHover = -1;
+                continue;
+            }
+        }
+        if (consoleMenuOpen && e.MouseInput.Event != irr::EMIE_MOUSE_MOVED) { continue; }
         switch (e.MouseInput.Event) {
         case irr::EMIE_LMOUSE_PRESSED_DOWN:
         case irr::EMIE_RMOUSE_PRESSED_DOWN: {
@@ -5090,6 +5274,7 @@ void GUIMain::renderDetachedConsole()
     driver->OnResize(size);
     driver->beginScene(irr::video::ECBF_COLOR, irr::video::SColor(255, 24, 27, 33), 1.0f, 0, consoleWindow->videoData());
     consoleHost->draw();
+    drawConsoleWindowExtras();
     driver->endScene();
     driver->OnResize(mainSize);
 }
@@ -5453,6 +5638,263 @@ void GUIMain::shutdownSonarWindow()
     sonarWindow->shutdown();
     delete sonarWindow;
     sonarWindow = 0;
+}
+
+//=================================================================================================
+//Instructor screen
+//=================================================================================================
+
+bool GUIMain::isStationOpen() const
+{
+    return stationHost && stationWindow && stationWindow->isOpen();
+}
+
+bool GUIMain::panelOnStation(irr::gui::IGUIElement* panel) const
+{
+    return stationHost && panel && panel->getParent() == stationHost;
+}
+
+void GUIMain::toggleStation()
+{
+    if (isStationOpen()) { closeStation(); }
+    else { openStation(); }
+}
+
+void GUIMain::saveStationPlacement(bool open)
+{
+    if (stationWindow && stationWindow->isOpen() && !stationOnScreen) {
+        stationWindow->getPlacement(stationPlaceX, stationPlaceY, stationPlaceW, stationPlaceH);
+        stationPlaceFullScreen = stationWindow->isFullScreen();
+    }
+    std::ofstream f(stationPlacementFile(consoleInstance).c_str());
+    if (!f) { return; }
+    f << "Open=" << (open ? 1 : 0) << std::endl;
+    f << "X=" << stationPlaceX << std::endl;
+    f << "Y=" << stationPlaceY << std::endl;
+    if (stationPlaceW > 0 && stationPlaceH > 0) {
+        f << "Width=" << stationPlaceW << std::endl;
+        f << "Height=" << stationPlaceH << std::endl;
+    }
+    f << "FullScreen=" << (stationPlaceFullScreen ? 1 : 0) << std::endl;
+}
+
+void GUIMain::openStation()
+{
+    if (!stationAllowed || isStationOpen()) { return; }
+    if (!stationWindow) { stationWindow = new ConsoleWindow(); }
+    irr::s32 x = stationPlaceX, y = stationPlaceY;
+    irr::u32 w = stationPlaceW, h = stationPlaceH;
+    if (stationOnScreen) {
+        x = stationScreenArea.UpperLeftCorner.X;
+        y = stationScreenArea.UpperLeftCorner.Y;
+        w = (irr::u32)stationScreenArea.getWidth();
+        h = (irr::u32)stationScreenArea.getHeight();
+    }
+    else if (w < 400 || h < 300) {
+        //A portrait window, as on a monitor turned on its side
+        const irr::core::dimension2du main = device->getVideoDriver()->getScreenSize();
+        h = irr::core::max_((irr::u32)(main.Height * 0.9f), 600u);
+        w = irr::core::max_((irr::u32)(h * 0.62f), 480u);
+    }
+    if (!stationWindow->open(device, L"NAUTITECH - Pupitre instructeur", x, y, w, h, stationOnScreen)) {
+        std::cerr << "Could not open the instructor screen window (OpenGL driver needed)." << std::endl;
+        return;
+    }
+    if (!stationOnScreen && stationPlaceFullScreen) { stationWindow->setFullScreen(true); }
+    stationWindowUsed = true;
+    stationHost = new StationScreen(guienv, device, irr::core::rect<irr::s32>(0, 0, (irr::s32)w, (irr::s32)h));
+    stationHost->setLayout(stationLayout);
+    stationHost->setPanel(StationScreen::SLOT_CONTROLS, controlsPanel);
+    stationHost->setPanel(StationScreen::SLOT_WEATHER, weatherPanel);
+    if (controlsPanel) { returnPanelToStation(controlsPanel); }
+    if (weatherPanel) { returnPanelToStation(weatherPanel); }
+    stationHost->layoutFor(irr::core::dimension2du(w, h));
+    stationInputTarget = stationHovered = 0;
+    stationRenderCount = stationRenderRate = 0;
+    stationRateStartMs = device->getTimer()->getRealTime();
+    if (stationButton) { stationButton->setPressed(true); }
+    saveStationPlacement(true);
+    std::cout << "Instructor screen open (" << w << " x " << h << ")" << std::endl;
+}
+
+void GUIMain::closeStation()
+{
+    if (!stationHost) { return; }
+    saveStationPlacement(false);
+    //The windows go back to the bridge screen, closed, as they were before the instructor screen
+    irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+    if (controlsPanel) {
+        if (panelOnStation(controlsPanel)) { root->addChild(controlsPanel); controlsPanel->setVisible(false); }
+        controlsPanel->setEmbedded(false);
+    }
+    if (weatherPanel) {
+        if (panelOnStation(weatherPanel)) { root->addChild(weatherPanel); weatherPanel->setVisible(false); }
+        weatherPanel->setEmbedded(false);
+    }
+    stationInputTarget = stationHovered = 0;
+    stationHost->drop();
+    stationHost = 0;
+    if (stationWindow) { stationWindow->close(); }
+    if (stationButton) { stationButton->setPressed(false); }
+}
+
+void GUIMain::lendPanelToBridge(irr::gui::IGUIElement* panel)
+{
+    if (!panel || !panelOnStation(panel)) { return; }
+    if (stationInputTarget == panel) { stationInputTarget = 0; }
+    if (stationHovered == panel) { stationHovered = 0; }
+    //One window at a time over the bridge view: the other one goes back first
+    irr::gui::IGUIElement* other = (panel == controlsPanel) ? (irr::gui::IGUIElement*)weatherPanel : (irr::gui::IGUIElement*)controlsPanel;
+    if (other && !panelOnStation(other) && other->isVisible()) { returnPanelToStation(other); }
+    guienv->getRootGUIElement()->addChild(panel);
+    if (panel == controlsPanel) { controlsPanel->setEmbedded(false); refreshLightsTab(); }
+    if (panel == weatherPanel) { weatherPanel->setEmbedded(false); }
+    placeOverView(panel);
+    panel->setVisible(true);
+    guienv->getRootGUIElement()->bringToFront(panel);
+}
+
+void GUIMain::returnPanelToStation(irr::gui::IGUIElement* panel)
+{
+    if (!stationHost || !panel) { return; }
+    if (guienv->getFocus() == panel) { guienv->removeFocus(panel); }
+    if (!panelOnStation(panel)) { stationHost->addChild(panel); }
+    if (panel == controlsPanel) { controlsPanel->setEmbedded(true); refreshLightsTab(); }
+    if (panel == weatherPanel) { weatherPanel->setEmbedded(true); }
+    panel->setVisible(true);
+    if (stationWindow && stationWindow->isOpen()) { stationHost->layoutFor(stationWindow->getClientSize()); }
+}
+
+void GUIMain::dispatchStationInput()
+{
+    std::vector<irr::SEvent> events;
+    bool closeRequested = false;
+    stationWindow->poll(events, closeRequested);
+    if (closeRequested) {
+        closeStation();
+        return;
+    }
+    //Straight to the window under the press: the GUI environment only knows the main window's elements
+    for (size_t i = 0; i < events.size() && isStationOpen(); i++) {
+        const irr::SEvent& e = events[i];
+        const irr::core::position2di p(e.MouseInput.X, e.MouseInput.Y);
+        switch (e.MouseInput.Event) {
+        case irr::EMIE_LMOUSE_PRESSED_DOWN:
+        case irr::EMIE_RMOUSE_PRESSED_DOWN: {
+            const bool left = (e.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN);
+            if (left) {
+                const int recall = stationHost->recallAt(p);
+                if (recall >= 0) {
+                    returnPanelToStation(stationHost->panel(recall));
+                    break;
+                }
+            }
+            irr::gui::IGUIElement* target = stationHost->panelAt(p);
+            stationInputTarget = target;
+            if (!target) { break; }
+            target->OnEvent(e);
+            //Double click (a preset applied at once): the window reports single presses only
+            if (left) {
+                const irr::u32 now = device->getTimer()->getRealTime();
+                if (now - stationLastClickMs < 450 && abs(p.X - stationLastClick.X) < 6 && abs(p.Y - stationLastClick.Y) < 6) {
+                    irr::SEvent d = e;
+                    d.MouseInput.Event = irr::EMIE_LMOUSE_DOUBLE_CLICK;
+                    target->OnEvent(d);
+                    stationLastClickMs = 0;
+                }
+                else {
+                    stationLastClickMs = now;
+                    stationLastClick = p;
+                }
+            }
+            break;
+        }
+        case irr::EMIE_MOUSE_MOVED: {
+            stationHost->setHoveredRecall(stationHost->recallAt(p));
+            if (stationInputTarget) {
+                stationInputTarget->OnEvent(e);
+                break;
+            }
+            irr::gui::IGUIElement* over = stationHost->panelAt(p);
+            if (stationHovered && stationHovered != over && panelOnStation(stationHovered)) {
+                irr::SEvent away = e;   //the mouse has left it: no hover any more
+                away.MouseInput.X = away.MouseInput.Y = -10000;
+                stationHovered->OnEvent(away);
+            }
+            stationHovered = over;
+            if (over) { over->OnEvent(e); }
+            break;
+        }
+        case irr::EMIE_LMOUSE_LEFT_UP:
+        case irr::EMIE_RMOUSE_LEFT_UP: {
+            irr::gui::IGUIElement* target = stationInputTarget ? stationInputTarget : stationHost->panelAt(p);
+            stationInputTarget = 0;
+            if (target) {
+                target->OnEvent(e);
+                //No keyboard focus left on it: Space/Enter in the bridge view must not reach it
+                if (guienv->getFocus() == target) { guienv->removeFocus(target); }
+            }
+            break;
+        }
+        case irr::EMIE_MOUSE_WHEEL: {
+            irr::gui::IGUIElement* over = stationHost->panelAt(p);
+            if (over) { over->OnEvent(e); }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+void GUIMain::renderStation()
+{
+    if (!isStationOpen()) { return; }
+    //A window lent to the bridge screen and closed there comes back
+    if (controlsPanel && !panelOnStation(controlsPanel) && !controlsPanel->isVisible()) { returnPanelToStation(controlsPanel); }
+    if (weatherPanel && !panelOnStation(weatherPanel) && !weatherPanel->isVisible()) { returnPanelToStation(weatherPanel); }
+    dispatchStationInput();
+    if (!isStationOpen()) { return; }
+    stationWindow->keepAboveSimulator();
+
+    const irr::u32 now = device->getTimer()->getRealTime();
+    if (now - stationRateStartMs >= 1000) {
+        stationRenderRate = stationRenderCount * 1000 / (now - stationRateStartMs);
+        stationRenderCount = 0;
+        stationRateStartMs = now;
+    }
+    if (now - stationLastRenderMs < stationFrameMs) { return; }
+
+    const irr::core::dimension2du size = stationWindow->getClientSize();
+    if (size.Width < 64 || size.Height < 64) { return; }   //minimised
+    const irr::core::dimension2di laid = stationHost->getRelativePosition().getSize();
+    if ((irr::u32)laid.Width != size.Width || (irr::u32)laid.Height != size.Height) { stationHost->layoutFor(size); }
+    stationLastRenderMs = now;
+    stationRenderCount++;
+
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    const irr::core::dimension2du mainSize = driver->getScreenSize();
+    driver->OnResize(size);
+    driver->beginScene(irr::video::ECBF_COLOR, irr::video::SColor(255, 8, 12, 18), 1.0f, 0, stationWindow->videoData());
+    stationHost->draw();
+    driver->endScene();
+    driver->OnResize(mainSize);
+}
+
+void GUIMain::shutdownStationWindow()
+{
+    if (!stationWindow) { return; }
+    if (isStationOpen()) {
+        saveStationPlacement(true);   //open again next session
+        irr::gui::IGUIElement* root = guienv->getRootGUIElement();
+        if (controlsPanel && panelOnStation(controlsPanel)) { root->addChild(controlsPanel); controlsPanel->setVisible(false); }
+        if (weatherPanel && panelOnStation(weatherPanel)) { root->addChild(weatherPanel); weatherPanel->setVisible(false); }
+        stationHost->drop();
+        stationHost = 0;
+    }
+    stationWindow->close();
+    delete stationWindow;
+    stationWindow = 0;
 }
 
 void GUIMain::shutdownRadarWindow()
@@ -6432,6 +6874,7 @@ void GUIMain::layoutCommandBar()
         key(pcLogButton, xr, true, L"JOURNAL", 0, bridge::ICON_LOG, bridge::BridgeSkin::KEY_BAR);
         key(showLinesControlsButton, xr, true, L"AMARRES", 0, bridge::ICON_LINES, bridge::BridgeSkin::KEY_BAR);
         key(showExtraControlsButton, xr, true, L"CONTR\u00D4LES", 0, bridge::ICON_CONTROLS, bridge::BridgeSkin::KEY_BAR);
+        key(stationButton, xr, true, L"PUPITRE", 0, bridge::ICON_INTERFACE, bridge::BridgeSkin::KEY_BAR);
         key(sonarButton, xr, true, L"SONAR", 0, bridge::ICON_SONAR, bridge::BridgeSkin::KEY_BAR);
         key(weatherButton, xr, true, L"M\u00C9T\u00C9O", 0, bridge::ICON_WEATHER, bridge::BridgeSkin::KEY_BAR);
 
@@ -6461,7 +6904,7 @@ void GUIMain::placeWeatherPanel()
 
 void GUIMain::placeOverView(irr::gui::IGUIElement* panel)
 {
-    if (!panel) { return; }
+    if (!panel || panelOnStation(panel)) { return; }   //on the instructor screen, its place is there
     //Over the bridge view, on the middle screen (Surround), as large as the view allows
     const irr::s32 viewH = (irr::s32)(sh * viewProportion3D());
     irr::s32 w = irr::core::min_(1260, (irr::s32)(consoleArea.getWidth() * 0.92f));
@@ -6535,6 +6978,11 @@ void GUIMain::savePanelPlace() const
 void GUIMain::toggleWeatherPanel()
 {
     if (!weatherPanel) { return; }
+    if (isStationOpen() && stationHost->panel(StationScreen::SLOT_WEATHER) == weatherPanel) {
+        if (panelOnStation(weatherPanel)) { lendPanelToBridge(weatherPanel); }
+        else { returnPanelToStation(weatherPanel); }
+        return;
+    }
     if (weatherPanel->isVisible()) {
         weatherPanel->setVisible(false);
         return;

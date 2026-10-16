@@ -43,6 +43,9 @@ public:
 
     //The dock key and the drag by the title bar (GUIMain says what a place means)
     bridge::PanelDock dock;
+    //On the instructor screen: no dock or close key (the window stays there), pages on top
+    void setEmbedded(bool on);
+    bool isEmbedded() const { return embedded; }
 
 private:
     enum Tab { TAB_PRESETS = 0, TAB_WIND, TAB_VISIBILITY, TAB_CURRENT, TAB_EVOLUTION, TAB_TIME, TAB_COUNT };
@@ -137,6 +140,7 @@ private:
     irr::f32 scroll[TAB_COUNT];
     std::wstring lastAction;
     irr::core::rect<irr::s32> laidOutRect;
+    bool embedded = false;
 };
 
 #endif

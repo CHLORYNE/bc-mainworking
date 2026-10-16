@@ -111,23 +111,27 @@ namespace station
         free();
         irr::video::IVideoDriver* driver = env->getVideoDriver();
         irr::gui::IGUIFont* fallback = env->getSkin() ? env->getSkin()->getFont() : 0;
-        const std::string folder = "media/fonts/barlow-condensed/";
-        const std::string regular = folder + "BarlowCondensed-Regular.ttf";
-        const std::string medium = folder + "BarlowCondensed-Medium.ttf";
-        const std::string semi = folder + "BarlowCondensed-SemiBold.ttf";
-        title = new HudFont(driver, semi, 18 * k, fallback);
-        tag = new HudFont(driver, semi, 15 * k, fallback);
-        nav = new HudFont(driver, medium, 16 * k, fallback);
-        navNum = new HudFont(driver, medium, 13.5f * k, fallback);
-        label = new HudFont(driver, medium, 16 * k, fallback);
-        state = new HudFont(driver, semi, 14 * k, fallback);
-        key = new HudFont(driver, medium, 14 * k, fallback);
-        section = new HudFont(driver, semi, 13 * k, fallback);
-        small = new HudFont(driver, semi, 12 * k, fallback);
-        big = new HudFont(driver, semi, 25 * k, fallback);
-        unit = new HudFont(driver, medium, 13.5f * k, fallback);
-        text = new HudFont(driver, regular, 15 * k, fallback);
-        strong = new HudFont(driver, semi, 15 * k, fallback);
+        //B612: the lettering Airbus drew for cockpit screens, made to be read at a glance
+        const std::string folder = "media/fonts/b612/";
+        const std::string regular = folder + "B612-Regular.ttf";
+        const std::string medium = folder + "B612-Regular.ttf";
+        const std::string semi = folder + "B612-Bold.ttf";
+        const irr::f32 s = 0.84f * k;   //a wide face: smaller than the condensed one it replaced
+        title = new HudFont(driver, semi, 18 * s, fallback);
+        tag = new HudFont(driver, semi, 15 * s, fallback);
+        nav = new HudFont(driver, medium, 16 * s, fallback);
+        navNum = new HudFont(driver, medium, 13.5f * s, fallback);
+        label = new HudFont(driver, medium, 16 * s, fallback);
+        state = new HudFont(driver, semi, 14 * s, fallback);
+        key = new HudFont(driver, medium, 14 * s, fallback);
+        section = new HudFont(driver, semi, 13 * s, fallback);
+        small = new HudFont(driver, semi, 12 * s, fallback);
+        big = new HudFont(driver, semi, 25 * s, fallback);
+        unit = new HudFont(driver, medium, 13.5f * s, fallback);
+        text = new HudFont(driver, regular, 15 * s, fallback);
+        strong = new HudFont(driver, semi, 15 * s, fallback);
+        HudFont* all[] = { title, tag, nav, navNum, label, state, key, section, small, big, unit, text, strong };
+        for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) { all[i]->setTrackingScale(0.45f); }
     }
 
     void Fonts::free()
@@ -421,7 +425,7 @@ namespace station
         window = Rect((irr::f32)area.UpperLeftCorner.X, (irr::f32)area.UpperLeftCorner.Y, (irr::f32)area.LowerRightCorner.X, (irr::f32)area.LowerRightCorner.Y);
         const irr::f32 W = window.getWidth(), H = window.getHeight();
         if (W < 10 || H < 10) { return; }
-        compact = W < H * 1.15f;
+        compact = forceCompact || W < H * 1.15f;
         const irr::f32 newK = compact ? irr::core::clamp(std::min(H / 860.0f, W / 520.0f), 0.85f, 2.0f)
                                       : irr::core::clamp(std::min(H / 660.0f, W / 1240.0f), 0.85f, 2.0f);
         if (fabsf(newK - k) > 0.01f || !fonts.title) {
@@ -480,6 +484,7 @@ namespace station
 
     Rect Frame::closeRect() const
     {
+        if (!showKeys) { return Rect(-100, -100, -90, -90); }
         const irr::f32 s = floorf(24 * k);
         const irr::f32 xr = header.LowerRightCorner.X - floorf(10 * k);
         const irr::f32 yt = floorf(header.getCenter().Y - s * 0.5f);
@@ -488,6 +493,7 @@ namespace station
 
     Rect Frame::dockRect(int place) const
     {
+        if (!showKeys) { return Rect(-100, -100, -90, -90); }
         const Rect cr = closeRect();
         const irr::f32 tw = fonts.key ? fonts.key->width(bridge::dockCaption(place), 1.5f * k) : 70 * k;
         const irr::f32 xr = cr.UpperLeftCorner.X - floorf(8 * k);
@@ -518,7 +524,7 @@ namespace station
         const Rect hb(tx, header.UpperLeftCorner.Y, header.LowerRightCorner.X, header.LowerRightCorner.Y + 1 * k);
         const Rect cr = closeRect();
         const Rect dr = dockRect(dock.place);
-        if (!compact) {
+        if (!compact || window.getWidth() >= 860 * k) {
             const std::wstring t1 = hudUpper(title);
             const irr::f32 w1 = fonts.title->width(t1, 2.5f * k);
             fonts.title->drawIn(t1, hb, c.text, HudFont::Left, 2.5f * k, &clip);
@@ -534,40 +540,43 @@ namespace station
         }
 
         //Close key
-        fill(d, cr, hoveredClose ? c.err : c.key, &clip);
-        frame(d, cr, hoveredClose ? c.err : c.edge, &clip);
-        {
-            const Colour xc = hoveredClose ? c.text : c.dim;
-            const irr::f32 in = cr.getWidth() * 0.33f;
-            irr::gui::PanelBatch b;
-            b.begin(d);
-            b.line(irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.LowerRightCorner.X - in, cr.LowerRightCorner.Y - in), std::max(1.2f, 1.6f * k), xc);
-            b.line(irr::core::vector2df(cr.LowerRightCorner.X - in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.LowerRightCorner.Y - in), std::max(1.2f, 1.6f * k), xc);
-            b.flush();
-        }
+        if (showKeys) {
+            fill(d, cr, hoveredClose ? c.err : c.key, &clip);
+            frame(d, cr, hoveredClose ? c.err : c.edge, &clip);
+            {
+                const Colour xc = hoveredClose ? c.text : c.dim;
+                const irr::f32 in = cr.getWidth() * 0.33f;
+                irr::gui::PanelBatch b;
+                b.begin(d);
+                b.line(irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.LowerRightCorner.X - in, cr.LowerRightCorner.Y - in), std::max(1.2f, 1.6f * k), xc);
+                b.line(irr::core::vector2df(cr.LowerRightCorner.X - in, cr.UpperLeftCorner.Y + in), irr::core::vector2df(cr.UpperLeftCorner.X + in, cr.LowerRightCorner.Y - in), std::max(1.2f, 1.6f * k), xc);
+                b.flush();
+            }
 
-        //Dock key: a small screen showing where the window goes next, and the words
-        {
-            const bool hov = dock.isHovered();
-            fill(d, dr, hov ? c.hover : c.key, &clip);
-            frame(d, dr, hov ? c.dim : c.edge, &clip);
-            const irr::f32 iw = 16 * k, ih = 11 * k;
-            const irr::f32 ix = dr.UpperLeftCorner.X + 9 * k, iy = floorf(dr.getCenter().Y - ih * 0.5f);
-            frame(d, Rect(ix, iy, ix + iw, iy + ih), hov ? c.text : c.dim, &clip);
-            Rect win;
-            const int next = bridge::nextPanelPlace(dock.place);
-            if (next == bridge::PLACE_RIGHT) { win = Rect(ix + iw * 0.6f, iy + 2 * k, ix + iw - 2 * k, iy + ih - 2 * k); }
-            else if (next == bridge::PLACE_LEFT) { win = Rect(ix + 2 * k, iy + 2 * k, ix + iw * 0.4f, iy + ih - 2 * k); }
-            else { win = Rect(ix + iw * 0.25f, iy + 3 * k, ix + iw * 0.75f, iy + ih - 3 * k); }
-            fill(d, win, c.accent, &clip);
-            fonts.key->drawIn(bridge::dockCaption(dock.place), Rect(ix + iw + 8 * k, dr.UpperLeftCorner.Y, dr.LowerRightCorner.X - 6 * k, dr.LowerRightCorner.Y + 1 * k),
-                hov ? c.text : c.dim, HudFont::Left, 1.5f * k, &clip);
+            //Dock key: a small screen showing where the window goes next, and the words
+            {
+                const bool hov = dock.isHovered();
+                fill(d, dr, hov ? c.hover : c.key, &clip);
+                frame(d, dr, hov ? c.dim : c.edge, &clip);
+                const irr::f32 iw = 16 * k, ih = 11 * k;
+                const irr::f32 ix = dr.UpperLeftCorner.X + 9 * k, iy = floorf(dr.getCenter().Y - ih * 0.5f);
+                frame(d, Rect(ix, iy, ix + iw, iy + ih), hov ? c.text : c.dim, &clip);
+                Rect win;
+                const int next = bridge::nextPanelPlace(dock.place);
+                if (next == bridge::PLACE_RIGHT) { win = Rect(ix + iw * 0.6f, iy + 2 * k, ix + iw - 2 * k, iy + ih - 2 * k); }
+                else if (next == bridge::PLACE_LEFT) { win = Rect(ix + 2 * k, iy + 2 * k, ix + iw * 0.4f, iy + ih - 2 * k); }
+                else { win = Rect(ix + iw * 0.25f, iy + 3 * k, ix + iw * 0.75f, iy + ih - 3 * k); }
+                fill(d, win, c.accent, &clip);
+                fonts.key->drawIn(bridge::dockCaption(dock.place), Rect(ix + iw + 8 * k, dr.UpperLeftCorner.Y, dr.LowerRightCorner.X - 6 * k, dr.LowerRightCorner.Y + 1 * k),
+                    hov ? c.text : c.dim, HudFont::Left, 1.5f * k, &clip);
+            }
         }
+        const irr::f32 keysLeft = showKeys ? dr.UpperLeftCorner.X : header.LowerRightCorner.X - 8 * k;
 
         //States, the first ones first when there is not room for all, the last one nearest the dock key
         std::vector<irr::f32> widths;
         irr::f32 used = 0;
-        const irr::f32 room = dr.UpperLeftCorner.X - 18 * k - (tx + 24 * k);
+        const irr::f32 room = keysLeft - 18 * k - (tx + 24 * k);
         for (size_t i = 0; i < states.size(); i++) {
             const Status& s = states[i];
             const irr::f32 lw = s.label.empty() ? 0 : fonts.key->width(hudUpper(s.label), 1.5f * k) + 6 * k;
@@ -576,7 +585,7 @@ namespace station
             widths.push_back(w);
             used += w + 18 * k;
         }
-        irr::f32 sx = dr.UpperLeftCorner.X - 18 * k - (used > 0 ? used - 18 * k : 0);
+        irr::f32 sx = keysLeft - 18 * k - (used > 0 ? used - 18 * k : 0);
         for (size_t i = 0; i < widths.size(); i++) {
             const Status& s = states[i];
             const std::wstring label = hudUpper(s.label), value = hudUpper(s.value);

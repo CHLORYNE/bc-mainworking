@@ -426,6 +426,65 @@ namespace irr
             for (size_t i = 0; i < kinds.size(); i++) { sumWeights += weightOf(kinds[i]); }
 
             const f32 pad = core::max_(4.0f, core::min_(H, W * 0.25f) * 0.045f);
+
+            if (orientation == 2) {
+                //A column of dials (two or three if that makes them bigger), the status keys in a strip under them
+                const f32 statusH = (statusWidth > 0) ? (f32)statusWidth * 0.75f : 0.0f;
+                const f32 availH = H - 2.0f * pad - (statusH > 0 ? statusH + pad : 0.0f);
+                const f32 availWidth = W - 2.0f * pad;
+                const int n = (int)kinds.size();
+                auto widestIn = [&](int from, int to) {
+                    f32 widest = 0;
+                    for (int i = from; i < to; i++) { widest = core::max_(widest, weightOf(kinds[i])); }
+                    return widest;
+                };
+                int cols = 1;
+                f32 best = 0;
+                for (int c = 1; c <= core::min_(3, n); c++) {
+                    const int per = (n + c - 1) / c;
+                    f32 units = GAP_K * (f32)(c - 1);
+                    for (int k = 0; k < c; k++) { units += widestIn(k * per, core::min_(n, (k + 1) * per)); }
+                    const f32 d = core::min_(availWidth / units, availH / ((f32)per + 0.10f * (f32)(per - 1)));
+                    if (d > best * 1.02f) { best = d; cols = c; }
+                }
+                const f32 Dv = core::max_(40.0f, best);
+                gaugeD = Dv;
+                const int per = (n + cols - 1) / cols;
+                const f32 gapV = GAP_K * Dv, rowGapV = 0.10f * Dv;
+                std::vector<f32> colW(cols, 0.0f);
+                f32 groupW = gapV * (f32)(cols - 1);
+                for (int k = 0; k < cols; k++) { colW[k] = widestIn(k * per, core::min_(n, (k + 1) * per)) * Dv; groupW += colW[k]; }
+                const f32 blockH = Dv * (f32)per + rowGapV * (f32)(per - 1);
+                const f32 totalH = blockH + (statusH > 0 ? pad + statusH : 0.0f);
+                const f32 x0 = (f32)AbsoluteRect.UpperLeftCorner.X + ((f32)W - groupW) * 0.5f;
+                const f32 y0 = (f32)AbsoluteRect.UpperLeftCorner.Y + core::max_(pad, ((f32)H - totalH) * 0.5f);
+                f32 x = x0;
+                for (int k = 0; k < cols; k++) {
+                    f32 y = y0;
+                    for (int i = k * per; i < core::min_(n, (k + 1) * per); i++) {
+                        Slot sl;
+                        sl.kind = kinds[i];
+                        const f32 w = weightOf(kinds[i]) * Dv;
+                        const f32 bx = x + (colW[k] - w) * 0.5f;
+                        sl.box = core::rect<f32>(bx, y, bx + w, y + Dv);
+                        sl.c = core::vector2df(bx + w * 0.5f, y + Dv * 0.5f);
+                        sl.R = Dv * 0.5f;
+                        slots.push_back(sl);
+                        y += Dv + rowGapV;
+                    }
+                    x += colW[k] + gapV;
+                }
+                if (statusH > 0) {
+                    const f32 sw = core::min_(availWidth, core::max_(groupW, (f32)statusWidth * 2.2f));
+                    const f32 sx = (f32)AbsoluteRect.getCenter().X - sw * 0.5f;
+                    const f32 sy = y0 + blockH + pad;
+                    statusRect = core::rect<s32>((s32)sx, (s32)sy, (s32)(sx + sw), (s32)(sy + statusH));
+                }
+                else {
+                    statusRect = core::rect<s32>(0, 0, 0, 0);
+                }
+                return;
+            }
             const f32 statusSpace = (statusWidth > 0) ? (f32)statusWidth + 1.5f * pad : 0.0f;
             const f32 availW = W - 2.0f * pad - statusSpace;
 
@@ -433,7 +492,7 @@ namespace irr
             //keep the row count that gives the biggest diameter. One row unless setMaxRows allows more.
             std::vector<size_t> bestStarts(1, 0);
             f32 D = 0;
-            const int rowLimit = core::max_(1, core::min_(maxRows, (int)kinds.size()));
+            const int rowLimit = (orientation == 1) ? 1 : core::max_(1, core::min_(maxRows, (int)kinds.size()));
             for (int rows = 1; rows <= rowLimit; rows++) {
                 std::vector<size_t> starts(1, 0);
                 f32 acc = 0;
@@ -515,6 +574,12 @@ namespace irr
             else {
                 statusRect = core::rect<s32>(0, 0, 0, 0);
             }
+        }
+
+        void GUIInstrumentPanel::setOrientation(int o)
+        {
+            orientation = core::clamp(o, 0, 2);
+            layout();
         }
 
         void GUIInstrumentPanel::setMaxRows(int rows)
