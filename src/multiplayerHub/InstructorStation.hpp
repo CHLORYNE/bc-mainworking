@@ -40,6 +40,8 @@ public:
         irr::f32 gyroError = 0, gpsError = 0;
         int scheduled = 0;
         bool weatherLocked = false;
+        bool controlsLocked = false;
+        bool hasLocks = false;              //reports its locks (a simulator that knows them)
     };
     //A command for the students' simulators: station -1 = every station
     struct Command { int station; std::string text; };
@@ -59,6 +61,9 @@ public:
         const std::vector<Station>& stations, irr::u32 lines);
     //What the instructor asked for since the last call
     std::vector<Command> takeCommands();
+    //A speed chosen for the exercise (x1, x2, x5, x10) since the last call, else 0
+    irr::f32 takeSpeed() { const irr::f32 s = speedRequest; speedRequest = 0; return s; }
+    void setSpeed(irr::f32 s) { speed = s; }
 
     virtual void draw();
     virtual bool OnEvent(const irr::SEvent& event);
@@ -66,7 +71,9 @@ public:
 private:
     //Clickable zones of the last frame
     enum ZoneKind { Z_PRESET, Z_WINDDIR, Z_TRANSITION, Z_HOUR, Z_SEND_WEATHER, Z_RELEASE_WEATHER, Z_STATION, Z_DELAY, Z_FAILURE,
-        Z_REPAIR, Z_MOB, Z_SEND_MESSAGE, Z_CHART_FIT, Z_CHART_STYLE };
+        Z_REPAIR, Z_MOB, Z_SEND_MESSAGE, Z_CHART_FIT, Z_CHART_STYLE, Z_WEATHER_PAGE, Z_STEP, Z_STREAM_MODE, Z_STREAM_DIR, Z_LOCK, Z_SPEED };
+    //The values of the "fine" weather page (a preset fills them in)
+    enum Fine { F_WIND = 0, F_GUST, F_VIS, F_SEA, F_RAIN, F_CLOUD, F_STREAM, F_COUNT };
     struct Zone { irr::core::rect<irr::f32> r; ZoneKind kind; int value; };
     struct Label { irr::gui::IGUIFont* font; std::wstring text; irr::core::rect<irr::f32> r; irr::video::SColor col; int align; bool clip; };
     struct Preset { std::wstring name; irr::f32 cloud, windKn, windVariation, gustKn, visibilityNm, rain, snow, dust, sea; int significant; };
@@ -82,6 +89,9 @@ private:
     void fitChartToShips();
     void click(const Zone& z);
     void sendToTargets(const std::string& text);
+    void drawAccess(irr::gui::PanelBatch& b, irr::f32 y);
+    void stepFine(int which, int direction);
+    std::wstring fineText(int which) const;
     void sendMessage();
     int stationAt(irr::core::position2di p) const;
     std::wstring targetName() const;
@@ -131,6 +141,14 @@ private:
     int hourIndex;           //0: unchanged
     int delayIndex;
     std::wstring weatherSent; //what was last sent, for the status line
+    int weatherPage;          //0: presets, 1: fine settings
+    irr::f32 fine[F_COUNT];   //wind kn, gusts kn, visibility NM, sea state, rain 0-10, cloud 0-1, current kn
+    irr::f32 fineSnow, fineDust;
+    int fineSignificant;
+    int streamMode;           //-1: unchanged, 0: the area's tide, 1: imposed
+    int streamDirIndex;       //0..7: the current sets towards N, NE...
+    irr::f32 speed;           //the exercise's speed when running
+    irr::f32 speedRequest;
 
     std::vector<Zone> zones;
     std::vector<Label> labels;

@@ -512,6 +512,9 @@ public:
     void instructorFailure(int action, int level, irr::f32 delaySeconds);
     void setWeatherByInstructor(bool on) { weatherByInstructor = on; }
     bool getWeatherByInstructor() const { return weatherByInstructor; }
+    //Multiplayer: the instructor's pages of CONTROLES (failures, other ships' lights, sizes) locked
+    void setControlsByInstructor(bool on) { controlsByInstructor = on; }
+    bool getControlsByInstructor() const { return controlsByInstructor; }
     void showInstructorMessage(const std::wstring& text);
     std::string instructorStatus();
 
@@ -1005,6 +1008,7 @@ private:
     bool lastFailureReported = true;
     std::vector<BridgeAlert> bridgeAlerts;
     bool weatherByInstructor = false;
+    bool controlsByInstructor = false;
     int spectatorTarget = 0;
     int spectatorView = SPECTATOR_OUTSIDE;
     bool spectatorViewApplied = false;

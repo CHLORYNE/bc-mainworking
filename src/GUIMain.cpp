@@ -1362,6 +1362,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             });
 
         cp->setGroup(tRudder, L"Exercice");
+        cp->setInstructorTab(tRudder);   //(multiplayer: the instructor's, unless he hands it over)
         cp->addSection(tRudder, L"D\u00E9clenchement");
         if (trainDelayKey[0] && trainDelayKey[4]) {
             cp->addKeys(tRudder, L"Quand", L"Quand les pannes choisies ensuite se d\u00E9clenchent : tout de suite, dans 1, 3 ou 5 minutes, ou au hasard entre 2 et 10 minutes. "
@@ -1540,6 +1541,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
                     out.push_back({ L"Feux attendus", expected, (lights && lights->hasOverrides()) ? 2 : 0 });
                     return out;
                 });
+            cp->setInstructorTab(tLights);
             cp->addChoice(tLights, L"Navire", L"Le navire dont on r\u00E8gle les feux : le navire propre ou un autre navire de l'exercice.", lightsVesselBox);
             //What each situation shows, in plain words (the card on the right reads the key's tip)
             const wchar_t* sitHelp[] = {
@@ -1620,6 +1622,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         //Size and waterline
         if (sizeVesselBox) {
             const int tSize = cp->addTab(L"Taille", ecSizeHelp ? textOf(ecSizeHelp) : std::wstring());
+            cp->setInstructorTab(tSize);
             cp->addChoice(tSize, L"Navire", L"Le navire \u00E0 r\u00E9gler : le navire propre ou un autre navire de l'exercice.", sizeVesselBox);
             if (ecSizeEditKey) { cp->addKeys(tSize, L"", L"", { ecSizeEditKey }, { L"Taille et flottaison" }); }
         }
@@ -4078,6 +4081,12 @@ void GUIMain::drawGUI()
     }
     if (instrEditWindow) {
         refreshInstrumentEditor();
+    }
+
+    //Multiplayer: what the instructor keeps for himself (see SimulationModel::getControlsByInstructor)
+    if (model) {
+        if (controlsPanel) { controlsPanel->setLocked(model->getControlsByInstructor()); }
+        if (lightingTimeBox) { lightingTimeBox->setEnabled(!model->getWeatherByInstructor()); }
     }
 
     // Update lines display

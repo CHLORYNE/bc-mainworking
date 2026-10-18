@@ -1244,6 +1244,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 event.GUIEvent.EventType == irr::gui::EGET_ELEMENT_FOCUS_LOST))
         {
             irr::core::stringc text(((irr::gui::IGUIEditBox*)event.GUIEvent.Caller)->getText());
+            if (model->getWeatherByInstructor()) { return false; }   //multiplayer: the lighting is the instructor's
 
             irr::f32 hours = 12.0f;
             int hh = 0, mm = 0;

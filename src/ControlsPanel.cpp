@@ -48,6 +48,11 @@ void ControlsPanel::setTitle(const std::wstring& code, const std::wstring& name)
 //Building
 //-------------------------------------------------------------------------------------------------
 
+void ControlsPanel::setInstructorTab(int t)
+{
+    if (t >= 0 && t < (int)tabs.size()) { tabs[t].instructor = true; }
+}
+
 int ControlsPanel::addTab(const std::wstring& name, const std::wstring& help, StatusFn status)
 {
     Tab t;
@@ -419,6 +424,7 @@ bool ControlsPanel::OnEvent(const irr::SEvent& event)
         const int row = rowAt(pf);
         if (row < 0) { return true; }
         selectedRow = row;
+        if (tabLocked()) { lastAction = L"R\u00E9serv\u00E9 \u00E0 l'instructeur"; return true; }   //(read only)
         const Row& r = tabs[tab].rows[row];
         const Rect rr = rowRect(row);
         const Cells c = cells(r, rr);
@@ -506,6 +512,7 @@ void ControlsPanel::draw()
         frame.pages[t].badge = faults;
         if (t == tab) { status = st; }
     }
+    if (tabLocked()) { status.insert(status.begin(), { L"Acc\u00E8s", L"R\u00E9serv\u00E9 \u00E0 l'instructeur", station::TONE_WARN }); }
 
     std::vector<station::Status> head;
     if (headerStatus) {
@@ -578,7 +585,7 @@ void ControlsPanel::drawRows(irr::video::IVideoDriver* driver, const irr::core::
 
         const bool active = (i == selectedRow) || (i == draggedRow);
         const bool hover = (i == hoveredRow);
-        const bool enabled = !(row.kind == ROW_TOGGLE && !row.box->isEnabled());
+        const bool enabled = !tabLocked() && !(row.kind == ROW_TOGGLE && !row.box->isEnabled());
         station::drawRowBack(driver, k, r, shade, hover, active, clip);
         const Cells c = cells(row, r);
 

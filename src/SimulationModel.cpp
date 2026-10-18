@@ -6268,12 +6268,13 @@ std::string SimulationModel::instructorStatus()
         if (!bridgeAlerts[i].acked) { unacked++; oldest = std::max(oldest, failureClock - bridgeAlerts[i].since); }
     }
     char buf[256];
-    snprintf(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%d,%d,%d,%.1f,%d,%.1f,%.0f,%d,%d",
+    snprintf(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.0f,%d,%d,%d,%.1f,%d,%.1f,%.0f,%d,%d,%d",
         failureLevel[0], failureLevel[1], failureLevel[2], failureLevel[3], failureLevel[4],
         getRudderPumpState(1) ? 1 : 0, getRudderPumpState(2) ? 1 : 0, getFollowUpRudderWorking() ? 1 : 0,
         (int)bridgeAlerts.size(), unacked, oldest,
         exerciseLog.count(ExerciseLog::EV_COLLISION), exerciseLog.count(ExerciseLog::EV_GROUNDING), exerciseLog.count(ExerciseLog::EV_CONTACT),
-        ownShip.getDepth(), depthAlarmActive ? 1 : 0, gyroError, getGpsErrorMetres(), (int)scheduledFailures.size(), weatherByInstructor ? 1 : 0);
+        ownShip.getDepth(), depthAlarmActive ? 1 : 0, gyroError, getGpsErrorMetres(), (int)scheduledFailures.size(), weatherByInstructor ? 1 : 0,
+        controlsByInstructor ? 1 : 0);
     return buf;
 }
 

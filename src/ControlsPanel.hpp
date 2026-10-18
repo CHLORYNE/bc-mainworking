@@ -55,6 +55,10 @@ public:
         const std::vector<std::wstring>& names, std::function<int()> selected = std::function<int()>());
     void addChoice(int tab, const std::wstring& label, const std::wstring& help, irr::gui::IGUIComboBox* combo);
     void addText(int tab, irr::gui::IGUIStaticText* text, int lines, std::function<bool()> alert = std::function<bool()>());
+    //A page of the instructor's (failures, other ships' lights...): in a multiplayer exercise the
+    //student may read it but not use it, unless the instructor hands it over (setLocked)
+    void setInstructorTab(int tab);
+    void setLocked(bool on) { locked = on; }
 
     virtual void draw();
     virtual bool OnEvent(const irr::SEvent& event);
@@ -87,6 +91,7 @@ private:
     {
         std::wstring name, help, group;
         StatusFn status;
+        bool instructor = false;
         std::vector<Row> rows;
         irr::f32 scroll;
         Tab() : scroll(0) {}
@@ -130,6 +135,8 @@ private:
     std::function<std::wstring()> clockText;
     irr::core::rect<irr::s32> laidOutRect;
     bool embedded = false;
+    bool locked = false;
+    bool tabLocked() const { return locked && tab >= 0 && tab < (int)tabs.size() && tabs[tab].instructor; }
 };
 
 #endif

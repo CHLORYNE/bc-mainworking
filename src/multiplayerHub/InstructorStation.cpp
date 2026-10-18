@@ -36,8 +36,17 @@ InstructorStation::InstructorStation(irr::IrrlichtDevice* device, bool french, c
     bigFont(bigFont), titleFont(titleFont), textFont(textFont), smallFont(smallFont), scenarioWeather(scenarioWeather),
     messageBox(0), running(false), accelerator(0), scenarioTime(0), lines(0),
     chart(0), chartLoaded(false), chartFittedShips(0), chartTouched(false), dragging(false), dragMoved(false),
-    selected(-1), stationScroll(0), weatherPreset(-1), windDirIndex(0), transitionIndex(1), hourIndex(0), delayIndex(0)
+    selected(-1), stationScroll(0), weatherPreset(-1), windDirIndex(0), transitionIndex(1), hourIndex(0), delayIndex(0),
+    weatherPage(0), fineSnow(0), fineDust(0), fineSignificant(0), streamMode(-1), streamDirIndex(0), speed(1.0f), speedRequest(0)
 {
+    //The fine settings start as the scenario's weather
+    fine[F_WIND] = scenarioWeather.windKn;
+    fine[F_GUST] = std::floor(scenarioWeather.windKn * 0.3f + 0.5f);
+    fine[F_VIS] = scenarioWeather.visibilityNm > 0 ? scenarioWeather.visibilityNm : 10.0f;
+    fine[F_SEA] = scenarioWeather.sea;
+    fine[F_RAIN] = scenarioWeather.rain;
+    fine[F_CLOUD] = scenarioWeather.rain > 0 ? 0.85f : 0.3f;
+    fine[F_STREAM] = 1.0f;
     //The same presets as the simulator's weather window:
     //name, cloud, wind, variation, gusts, visibility, rain, snow, dust, sea, significant
     auto add = [&](const wchar_t* name, irr::f32 cloud, irr::f32 wind, irr::f32 variation, irr::f32 gusts, irr::f32 visibility,
@@ -103,8 +112,10 @@ void InstructorStation::layout()
     weatherCard = irr::core::rect<irr::f32>(20, clockCard.LowerRightCorner.Y + 12, 20 + leftW, bottom);
     //The station list grows with the students, but always leaves the failures panel its room
     //(with many students its rows become one line, then it scrolls)
-    const irr::f32 maxStationsH = std::max(170.0f, (bottom - top) - 12.0f - 490.0f);
-    const irr::f32 stationsH = irr::core::clamp(70.0f + 48.0f * (stationCount + 1), 170.0f, maxStationsH);
+    //(and at its foot, what the students may change themselves)
+    const irr::f32 accessH = 84.0f;
+    const irr::f32 maxStationsH = std::max(170.0f + accessH, (bottom - top) - 12.0f - 490.0f);
+    const irr::f32 stationsH = irr::core::clamp(70.0f + 48.0f * (stationCount + 1) + accessH, 170.0f + accessH, maxStationsH);
     stationCard = irr::core::rect<irr::f32>(W - 20 - rightW, top, W - 20, top + stationsH);
     failureCard = irr::core::rect<irr::f32>(W - 20 - rightW, stationCard.LowerRightCorner.Y + 12, W - 20, bottom);
     chartCard = irr::core::rect<irr::f32>(20 + leftW + 16, top, W - 20 - rightW - 16, bottom);
@@ -272,6 +283,16 @@ void InstructorStation::draw()
     drawWeather(b);
     drawStations(b);
     drawFailures(b);
+    //The exercise's speed when running
+    {
+        const irr::f32 sx0 = clockCard.UpperLeftCorner.X + 24, sx1 = clockCard.LowerRightCorner.X - 24, sy = clockCard.UpperLeftCorner.Y + 124;
+        const int speeds[4] = { 1, 2, 5, 10 };
+        const irr::f32 w = (sx1 - sx0 - 12) / 4;
+        for (int i = 0; i < 4; i++) {
+            const irr::f32 cx = sx0 + i * (w + 4);
+            chip(b, irr::core::rect<irr::f32>(cx, sy, cx + w, sy + 24), L"x" + std::to_wstring(speeds[i]), (int)(speed + 0.5f) == speeds[i], Z_SPEED, speeds[i]);
+        }
+    }
     b.flush();
 
     //Header and clock card text
@@ -385,20 +406,73 @@ void InstructorStation::drawChart(irr::gui::PanelBatch& b)
 void InstructorStation::drawWeather(irr::gui::PanelBatch& b)
 {
     const irr::f32 x0 = weatherCard.UpperLeftCorner.X + 20, x1 = weatherCard.LowerRightCorner.X - 20, y0 = weatherCard.UpperLeftCorner.Y;
-    label(textFont, french ? L"M\u00E9t\u00E9o  \u00B7  tous les postes" : L"Weather  \u00B7  all stations", irr::core::rect<irr::f32>(x0, y0 + 10, x1, y0 + 38), Ui::text);
+    label(textFont, (french ? L"M\u00E9t\u00E9o  \u00B7  " : L"Weather  \u00B7  ") + targetName(), irr::core::rect<irr::f32>(x0, y0 + 10, x1, y0 + 38), Ui::text, 0, true);
     label(smallFont, weatherSent.empty() ? (french ? L"Les stagiaires ont la m\u00E9t\u00E9o du sc\u00E9nario." : L"The students have the scenario's weather.") : weatherSent,
         irr::core::rect<irr::f32>(x0, y0 + 38, x1, y0 + 58), weatherSent.empty() ? Ui::textFaint : Ui::accentHi, 0, true);
 
-    //Presets: the scenario's, then the weather window's, two columns
-    const irr::f32 colW = (x1 - x0 - 8) / 2, chipH = 26;
-    irr::f32 y = y0 + 66;
-    for (int i = -1; i < (int)presets.size(); i++) {
-        const int k = i + 1;
-        const irr::f32 cx = x0 + (k % 2) * (colW + 8), cy = y + (k / 2) * 31;
-        chip(b, irr::core::rect<irr::f32>(cx, cy, cx + colW, cy + chipH), i < 0 ? std::wstring(french ? L"Sc\u00E9nario" : L"Scenario") : presets[i].name,
-            weatherPreset == i, Z_PRESET, i);
+    const irr::f32 chipH = 26;
+    irr::f32 y = y0 + 64;
+    //Two pages: the presets, and the values themselves (a preset fills them in)
+    {
+        const irr::f32 half = (x1 - x0 - 8) / 2;
+        chip(b, irr::core::rect<irr::f32>(x0, y, x0 + half, y + chipH), french ? L"Pr\u00E9r\u00E9glages" : L"Presets", weatherPage == 0, Z_WEATHER_PAGE, 0);
+        chip(b, irr::core::rect<irr::f32>(x0 + half + 8, y, x1, y + chipH), french ? L"R\u00E9glages fins" : L"Fine settings", weatherPage == 1, Z_WEATHER_PAGE, 1);
+        y += chipH + 10;
     }
-    y += ((int)presets.size() + 2) / 2 * 31 + 6;
+    const irr::f32 pageTop = y;
+    if (weatherPage == 0) {
+        //Presets: the scenario's, then the weather window's, two columns
+        const irr::f32 colW = (x1 - x0 - 8) / 2;
+        for (int i = -1; i < (int)presets.size(); i++) {
+            const int k = i + 1;
+            const irr::f32 cx = x0 + (k % 2) * (colW + 8), cy = y + (k / 2) * 31;
+            chip(b, irr::core::rect<irr::f32>(cx, cy, cx + colW, cy + chipH), i < 0 ? std::wstring(french ? L"Sc\u00E9nario" : L"Scenario") : presets[i].name,
+                weatherPreset == i, Z_PRESET, i);
+        }
+        y += ((int)presets.size() + 2) / 2 * 31;
+    }
+    else {
+        //One row per value: its name, then  -  value  +
+        const irr::f32 labelW = 112, stepW = 34, rowH = 28;
+        auto stepper = [&](int which, const std::wstring& name) {
+            label(smallFont, name, irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + chipH), Ui::textDim);
+            chip(b, irr::core::rect<irr::f32>(x0 + labelW, y, x0 + labelW + stepW, y + chipH), L"-", false, Z_STEP, which * 2);
+            chip(b, irr::core::rect<irr::f32>(x1 - stepW, y, x1, y + chipH), L"+", false, Z_STEP, which * 2 + 1);
+            label(textFont, fineText(which), irr::core::rect<irr::f32>(x0 + labelW + stepW + 4, y, x1 - stepW - 4, y + chipH), Ui::text, 1);
+            y += rowH;
+        };
+        stepper(F_WIND, french ? L"Vent" : L"Wind");
+        stepper(F_GUST, french ? L"Rafales" : L"Gusts");
+        stepper(F_VIS, french ? L"Visibilit\u00E9" : L"Visibility");
+        stepper(F_SEA, french ? L"\u00C9tat de la mer" : L"Sea state");
+        stepper(F_RAIN, french ? L"Pluie" : L"Rain");
+        stepper(F_CLOUD, french ? L"Nuages" : L"Cloud");
+        //The current: as it is, the area's tide, or imposed (set towards, force)
+        label(smallFont, french ? L"Courant" : L"Current", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + chipH), Ui::textDim);
+        {
+            const std::vector<std::wstring> names = french ? std::vector<std::wstring>{ L"Inchang\u00E9", L"Mar\u00E9e", L"Impos\u00E9" }
+                : std::vector<std::wstring>{ L"As is", L"Tide", L"Imposed" };
+            const irr::f32 w = (x1 - x0 - labelW - 8) / 3;
+            for (int i = 0; i < 3; i++) {
+                const irr::f32 cx = x0 + labelW + i * (w + 4);
+                chip(b, irr::core::rect<irr::f32>(cx, y, cx + w, y + chipH), names[i], streamMode == i - 1, Z_STREAM_MODE, i - 1);
+            }
+            y += rowH;
+        }
+        if (streamMode == 1) {
+            label(smallFont, french ? L"   porte au" : L"   sets to", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + chipH), Ui::textFaint);
+            const std::vector<std::wstring> dirs = french ? std::vector<std::wstring>{ L"N", L"NE", L"E", L"SE", L"S", L"SO", L"O", L"NO" }
+                : std::vector<std::wstring>{ L"N", L"NE", L"E", L"SE", L"S", L"SW", L"W", L"NW" };
+            const irr::f32 w = (x1 - x0 - labelW - 28) / 8;
+            for (int i = 0; i < 8; i++) {
+                const irr::f32 cx = x0 + labelW + i * (w + 4);
+                chip(b, irr::core::rect<irr::f32>(cx, y, cx + w, y + chipH), dirs[i], streamDirIndex == i, Z_STREAM_DIR, i);
+            }
+            y += rowH;
+            stepper(F_STREAM, french ? L"   force" : L"   rate");
+        }
+    }
+    y = std::max(y, pageTop + 8 * 31) + 6;
 
     auto row = [&](const std::wstring& title, const std::vector<std::wstring>& names, int chosen, ZoneKind kind) {
         label(smallFont, title, irr::core::rect<irr::f32>(x0, y, x1, y + 18), Ui::textFaint);
@@ -418,9 +492,81 @@ void InstructorStation::drawWeather(irr::gui::PanelBatch& b)
         : std::vector<std::wstring>{ L"As is", L"Dawn", L"Day", L"Dusk", L"Night" }, hourIndex, Z_HOUR);
 
     const irr::f32 by = std::min(y + 4, weatherCard.LowerRightCorner.Y - 50);
-    const irr::f32 half = (x1 - x0 - 8) / 2;
-    chip(b, irr::core::rect<irr::f32>(x0, by, x0 + half + 40, by + 34), french ? L"ENVOYER \u00C0 TOUS" : L"SEND TO ALL", true, Z_SEND_WEATHER, 0);
-    chip(b, irr::core::rect<irr::f32>(x0 + half + 48, by, x1, by + 34), french ? L"Rendre la main" : L"Release", false, Z_RELEASE_WEATHER, 0);
+    const std::wstring send = selected < 0 ? std::wstring(french ? L"ENVOYER \u00C0 TOUS" : L"SEND TO ALL")
+        : (french ? L"ENVOYER AU POSTE " : L"SEND TO STATION ") + std::to_wstring(selected + 1);
+    chip(b, irr::core::rect<irr::f32>(x0, by, x1, by + 34), send, true, Z_SEND_WEATHER, 0);
+}
+
+std::wstring InstructorStation::fineText(int which) const
+{
+    wchar_t buf[48];
+    const irr::f32 v = fine[which];
+    switch (which) {
+    case F_WIND: swprintf(buf, 48, french ? L"%.0f nd" : L"%.0f kn", v); break;
+    case F_GUST: swprintf(buf, 48, french ? L"+%.0f nd" : L"+%.0f kn", v); break;
+    case F_VIS:
+        if (v < 1.0f) { swprintf(buf, 48, L"%.0f m", v * 1852.0f); }
+        else { swprintf(buf, 48, L"%.1f NM", v); }
+        break;
+    case F_SEA: swprintf(buf, 48, L"%.1f / 9", v); break;
+    case F_RAIN: swprintf(buf, 48, v <= 0 ? (french ? L"aucune" : L"none") : L"%.0f / 10", v); break;
+    case F_CLOUD: swprintf(buf, 48, L"%.0f %%", v * 100.0f); break;
+    case F_STREAM: swprintf(buf, 48, french ? L"%.1f nd" : L"%.1f kn", v); break;
+    default: buf[0] = 0; break;
+    }
+    return buf;
+}
+
+void InstructorStation::stepFine(int which, int direction)
+{
+    irr::f32& v = fine[which];
+    switch (which) {
+    case F_WIND: v = irr::core::clamp(v + direction * (v >= 20 ? 5.0f : 2.0f), 0.0f, 70.0f); break;
+    case F_GUST: v = irr::core::clamp(v + direction * 2.0f, 0.0f, 30.0f); break;
+    case F_VIS: {
+        //Steps that matter at sea: thick fog to clear
+        static const irr::f32 steps[] = { 0.05f, 0.1f, 0.25f, 0.5f, 1, 2, 3, 5, 8, 12, 20 };
+        const int n = sizeof(steps) / sizeof(steps[0]);
+        int k = 0;
+        for (int i = 0; i < n; i++) { if (std::fabs(steps[i] - v) < std::fabs(steps[k] - v)) { k = i; } }
+        v = steps[irr::core::clamp(k + direction, 0, n - 1)];
+        break;
+    }
+    case F_SEA: v = irr::core::clamp(v + direction * 0.5f, 0.0f, 9.0f); break;
+    case F_RAIN: v = irr::core::clamp(v + direction * 1.0f, 0.0f, 10.0f); break;
+    case F_CLOUD: v = irr::core::clamp(v + direction * 0.1f, 0.0f, 1.0f); break;
+    case F_STREAM: v = irr::core::clamp(v + direction * 0.5f, 0.0f, 8.0f); break;
+    default: break;
+    }
+}
+
+//What the students may change themselves: the weather (their METEO window and the lighting hour)
+//and the instructor's pages of their CONTROLES window. For the chosen station, or all of them.
+void InstructorStation::drawAccess(irr::gui::PanelBatch& b, irr::f32 y)
+{
+    const irr::f32 x0 = stationCard.UpperLeftCorner.X + 16, x1 = stationCard.LowerRightCorner.X - 16;
+    b.rect(irr::core::rect<irr::f32>(x0, y - 6, x1, y - 5), Ui::rule);
+    label(smallFont, (french ? L"ACC\u00C8S DES STAGIAIRES  \u00B7  " : L"STUDENT ACCESS  \u00B7  ") + targetName(), irr::core::rect<irr::f32>(x0, y, x1, y + 18), Ui::textFaint, 0, true);
+    y += 22;
+    //The state shown: the chosen station's, or for all when they all agree
+    auto state = [&](bool weather) -> int {   //1: locked, 0: free, -1: mixed / unknown
+        int locked = 0, free = 0;
+        for (size_t i = 0; i < stations.size(); i++) {
+            if (selected >= 0 && (int)i != selected) { continue; }
+            if (!stations[i].online || !stations[i].hasLocks) { continue; }
+            if (weather ? stations[i].weatherLocked : stations[i].controlsLocked) { locked++; } else { free++; }
+        }
+        return (locked && !free) ? 1 : ((free && !locked) ? 0 : -1);
+    };
+    const irr::f32 labelW = 96, w = (x1 - x0 - labelW - 4) / 2;
+    const int ws = state(true), cs = state(false);
+    label(smallFont, french ? L"M\u00E9t\u00E9o" : L"Weather", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + 26), Ui::textDim);
+    chip(b, irr::core::rect<irr::f32>(x0 + labelW, y, x0 + labelW + w, y + 26), french ? L"Instructeur" : L"Instructor", ws == 1, Z_LOCK, 0);
+    chip(b, irr::core::rect<irr::f32>(x0 + labelW + w + 4, y, x1, y + 26), french ? L"Stagiaire libre" : L"Student free", ws == 0, Z_LOCK, 1);
+    y += 30;
+    label(smallFont, french ? L"Contr\u00F4les" : L"Controls", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + 26), Ui::textDim);
+    chip(b, irr::core::rect<irr::f32>(x0 + labelW, y, x0 + labelW + w, y + 26), french ? L"Instructeur" : L"Instructor", cs == 1, Z_LOCK, 2);
+    chip(b, irr::core::rect<irr::f32>(x0 + labelW + w + 4, y, x1, y + 26), french ? L"Stagiaire libre" : L"Student free", cs == 0, Z_LOCK, 3);
 }
 
 void InstructorStation::drawStations(irr::gui::PanelBatch& b)
@@ -429,7 +575,9 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
     label(textFont, french ? L"Postes des stagiaires" : L"Student stations", irr::core::rect<irr::f32>(x0 + 4, y0 + 10, x1, y0 + 38), Ui::text);
 
     //Two lines per station while they fit, else one; then the list scrolls (mouse wheel)
-    const irr::f32 rowsTop = y0 + 46 + 36, rowsH = stationCard.LowerRightCorner.Y - 6 - rowsTop;
+    const irr::f32 accessTop = stationCard.LowerRightCorner.Y - 80;
+    drawAccess(b, accessTop);
+    const irr::f32 rowsTop = y0 + 46 + 36, rowsH = accessTop - 10 - rowsTop;
     const int n = (int)stations.size();
     const bool compact = n * 48.0f > rowsH;
     const irr::f32 rowStep = compact ? 30.0f : 48.0f;
@@ -454,7 +602,7 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
     }
     for (size_t i = (size_t)stationScroll; i < stations.size(); i++) {
         const irr::core::rect<irr::f32> r(x0, y, x1, y + rowStep - 4);
-        if (r.LowerRightCorner.Y > stationCard.LowerRightCorner.Y - 2) { break; }
+        if (r.LowerRightCorner.Y > accessTop - 8) { break; }
         const Station& s = stations[i];
         const bool on = (int)i == selected;
         Ui::roundRect(b, r, 8, on ? Ui::alpha(Ui::accent, 90) : irr::video::SColor(255, 16, 30, 52), on ? Ui::alpha(Ui::accent, 70) : irr::video::SColor(255, 14, 27, 47));
@@ -529,6 +677,8 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
             if (s.groundings) { swprintf(buf, 64, french ? L"\u00E9chouement %d" : L"grounding %d", s.groundings); st += (st.empty() ? L"" : L"  \u00B7  ") + std::wstring(buf); stCol = Ui::danger; }
             swprintf(buf, 64, french ? L"fond %.1f m" : L"depth %.1f m", s.depth);
             st += (st.empty() ? L"" : L"  \u00B7  ") + std::wstring(buf);
+            if (s.hasLocks && !s.weatherLocked) { st += french ? L"  \u00B7  m\u00E9t\u00E9o libre" : L"  \u00B7  weather free"; }
+            if (s.hasLocks && !s.controlsLocked) { st += french ? L"  \u00B7  contr\u00F4les libres" : L"  \u00B7  controls free"; }
             if (s.depthAlarm && stCol != Ui::danger) { stCol = Ui::warning; }
             if (stCol == Ui::textFaint && failures) { stCol = Ui::warning; }
         }
@@ -687,7 +837,34 @@ bool InstructorStation::OnEvent(const irr::SEvent& event)
 void InstructorStation::click(const Zone& z)
 {
     switch (z.kind) {
-    case Z_PRESET: weatherPreset = z.value; break;
+    case Z_PRESET:
+        weatherPreset = z.value;
+        //The preset's values become the fine settings (to adjust before sending)
+        if (z.value >= 0 && z.value < (int)presets.size()) {
+            const Preset& p = presets[z.value];
+            fine[F_WIND] = p.windKn; fine[F_GUST] = p.gustKn; fine[F_VIS] = p.visibilityNm; fine[F_SEA] = p.sea; fine[F_RAIN] = p.rain;
+            fine[F_CLOUD] = p.cloud; fineSnow = p.snow; fineDust = p.dust; fineSignificant = p.significant;
+        }
+        else {
+            fine[F_WIND] = scenarioWeather.windKn; fine[F_GUST] = std::floor(scenarioWeather.windKn * 0.3f + 0.5f);
+            fine[F_VIS] = scenarioWeather.visibilityNm > 0 ? scenarioWeather.visibilityNm : 10.0f; fine[F_SEA] = scenarioWeather.sea;
+            fine[F_RAIN] = scenarioWeather.rain; fine[F_CLOUD] = scenarioWeather.rain > 0 ? 0.85f : 0.3f;
+            fineSnow = 0; fineDust = 0; fineSignificant = 0;
+            windDirIndex = ((int)std::floor(scenarioWeather.windDir / 45.0f + 0.5f)) % 8;
+            if (windDirIndex < 0) { windDirIndex += 8; }
+        }
+        break;
+    case Z_WEATHER_PAGE: weatherPage = z.value; break;
+    case Z_STEP: stepFine(z.value / 2, (z.value % 2) ? 1 : -1); weatherPreset = -2; break;   //(no preset any more: values of its own)
+    case Z_STREAM_MODE: streamMode = z.value; break;
+    case Z_STREAM_DIR: streamDirIndex = z.value; break;
+    case Z_SPEED: speed = (irr::f32)z.value; speedRequest = speed; break;
+    case Z_LOCK: {
+        //ICP,weather,controls: 1 the instructor's, 0 the student's, -1 unchanged
+        const int what = z.value / 2, locked = (z.value % 2) ? 0 : 1;
+        sendToTargets(what == 0 ? "ICP," + std::to_string(locked) + ",-1" : "ICP,-1," + std::to_string(locked));
+        break;
+    }
     case Z_WINDDIR: windDirIndex = z.value; break;
     case Z_TRANSITION: transitionIndex = z.value; break;
     case Z_HOUR: hourIndex = z.value; break;
@@ -696,32 +873,26 @@ void InstructorStation::click(const Zone& z)
     case Z_CHART_FIT: fitChartToShips(); break;
     case Z_CHART_STYLE: if (chartLoaded) { chart->nextStyle(); } break;
     case Z_SEND_WEATHER: {
-        //The chosen preset (or the scenario's weather), with the chosen wind direction
-        irr::f32 cloud, windKn, variation, gust, visibility, rain, snow = 0, dust = 0, sea;
-        int significant;
+        //The fine settings (a preset fills them in), with the chosen wind direction and current
         std::wstring name;
-        if (weatherPreset >= 0 && weatherPreset < (int)presets.size()) {
-            const Preset& p = presets[weatherPreset];
-            cloud = p.cloud; windKn = p.windKn; variation = p.windVariation; gust = p.gustKn; visibility = p.visibilityNm;
-            rain = p.rain; snow = p.snow; dust = p.dust; sea = p.sea; significant = p.significant; name = p.name;
-        }
-        else {
-            cloud = scenarioWeather.rain > 0 ? 0.85f : 0.3f; windKn = scenarioWeather.windKn; variation = 15; gust = scenarioWeather.windKn * 0.3f;
-            visibility = scenarioWeather.visibilityNm > 0 ? scenarioWeather.visibilityNm : 10; rain = scenarioWeather.rain; sea = scenarioWeather.sea;
-            significant = 0; name = french ? L"m\u00E9t\u00E9o du sc\u00E9nario" : L"scenario weather";
-        }
+        if (weatherPreset >= 0 && weatherPreset < (int)presets.size()) { name = presets[weatherPreset].name; }
+        else if (weatherPreset == -1) { name = french ? L"m\u00E9t\u00E9o du sc\u00E9nario" : L"scenario weather"; }
+        else { name = french ? L"r\u00E9glages fins" : L"fine settings"; }
         const irr::f32 transitions[4] = { 0, 60, 300, 900 };
         const irr::f32 hours[5] = { -1, 6.5f, 12, 19.5f, 23 };
         const irr::f32 windDir = windDirIndex * 45.0f;
-        std::string c = "ICW," + num(cloud) + "," + num(windKn) + "," + num(windDir) + "," + num(variation) + "," + num(gust) + "," + num(visibility) + ","
-            + num(rain) + "," + num(snow) + "," + num(dust) + "," + num(sea) + "," + std::to_string(significant) + "," + num(transitions[transitionIndex]) + ","
-            + "-1,0,0," + num(hours[hourIndex]) + ",1";
-        Command cmd; cmd.station = -1; cmd.text = c;
+        const irr::f32 variation = fine[F_WIND] < 4 ? 20.0f : 15.0f;
+        std::string c = "ICW," + num(fine[F_CLOUD]) + "," + num(fine[F_WIND]) + "," + num(windDir) + "," + num(variation) + "," + num(fine[F_GUST]) + ","
+            + num(fine[F_VIS]) + "," + num(fine[F_RAIN]) + "," + num(fineSnow) + "," + num(fineDust) + "," + num(fine[F_SEA]) + ","
+            + std::to_string(fineSignificant) + "," + num(transitions[transitionIndex]) + ","
+            + std::to_string(streamMode) + "," + num(streamDirIndex * 45.0f) + "," + num(fine[F_STREAM]) + ","
+            + num(hours[hourIndex]) + ",-1";   //(the locks are set apart: ICP)
+        Command cmd; cmd.station = selected; cmd.text = c;
         commands.push_back(cmd);
         static const wchar_t* dirs[8] = { L"N", L"NE", L"E", L"SE", L"S", L"SO", L"O", L"NO" };
-        wchar_t buf[160];
-        swprintf(buf, 160, french ? L"Envoy\u00E9e \u00E0 %ls : %ls, vent %.0f nd de %ls" : L"Sent at %ls: %ls, wind %.0f kn from %ls",
-            clock.c_str(), name.c_str(), windKn, dirs[windDirIndex]);
+        wchar_t buf[200];
+        swprintf(buf, 200, french ? L"Envoy\u00E9e \u00E0 %ls (%ls) : %ls, vent %.0f nd de %ls" : L"Sent at %ls (%ls): %ls, wind %.0f kn from %ls",
+            clock.c_str(), targetName().c_str(), name.c_str(), fine[F_WIND], dirs[windDirIndex]);
         weatherSent = buf;
         break;
     }

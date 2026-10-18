@@ -466,21 +466,23 @@ int main()
     //where she was last seen (else at her start), then what the instructor has sent everyone since
     double worldSouth = 0, worldWest = 0, worldLatExtent = 0, worldLongExtent = 0;
     const bool worldKnown = ChartView::worldBounds(masterScenarioData.worldName, worldSouth, worldWest, worldLatExtent, worldLongExtent);
-    std::vector<std::string> standingCommands;   //the last weather, lock... sent to every station
-    auto rememberStanding = [&standingCommands](const std::string& text) {
-        //One of each kind is enough: the latest replaces the earlier one
-        const std::string kind = text.substr(0, 3);
-        if (kind != "ICW" && kind != "ICL" && kind != "ICP") { return; }
-        for (size_t k = 0; k < standingCommands.size(); k++) {
-            if (standingCommands[k].compare(0, 3, kind) == 0) { standingCommands.erase(standingCommands.begin() + k); break; }
-        }
-        //(a weather sent also sets the lock: an older lock command no longer applies)
-        if (kind == "ICW") {
-            for (size_t k = 0; k < standingCommands.size(); k++) {
-                if (standingCommands[k].compare(0, 3, "ICL") == 0) { standingCommands.erase(standingCommands.begin() + k); break; }
+    //What each station was last sent that a station coming back must get again: the weather, and
+    //what it may change itself (ICP: weather, controls; 1 the instructor's - the default -, 0 free)
+    std::vector<std::string> lastWeather(numberOfPeers);
+    std::vector<int> lockWeather(numberOfPeers, 1), lockControls(numberOfPeers, 1);
+    auto remember = [&](const InstructorStation::Command& c) {
+        for (unsigned int p = 0; p < numberOfPeers; p++) {
+            if (c.station >= 0 && (unsigned int)c.station != p) { continue; }
+            if (c.text.compare(0, 3, "ICW") == 0) { lastWeather[p] = c.text; }
+            if (c.text.compare(0, 3, "ICL") == 0) { lockWeather[p] = c.text == "ICL,1" ? 1 : 0; }
+            if (c.text.compare(0, 3, "ICP") == 0) {
+                std::vector<std::string> f = Utilities::split(c.text, ',');
+                if (f.size() >= 3) {
+                    if (f[1] != "-1") { lockWeather[p] = f[1] == "1" ? 1 : 0; }
+                    if (f[2] != "-1") { lockControls[p] = f[2] == "1" ? 1 : 0; }
+                }
             }
         }
-        standingCommands.push_back(text);
     };
     const auto hubStart = std::chrono::steady_clock::now();
 
@@ -505,7 +507,8 @@ int main()
             local++;
         }
         network.sendString(names, true, p);
-        for (size_t c = 0; c < standingCommands.size(); c++) { network.sendString(standingCommands[c], true, p); }
+        if (!lastWeather[p].empty()) { network.sendString(lastWeather[p], true, p); }
+        network.sendString("ICP," + std::to_string(lockWeather[p]) + "," + std::to_string(lockControls[p]), true, p);
         greeted[p] = true;
     };
 
@@ -551,7 +554,7 @@ int main()
             }
             std::cout << "Station " << i + 1 << " (" << network.getPeerName(i) << ") joined" << std::endl;
             network.sendString(data.serialise(false), true, i);
-            if (i < greeted.size()) { greeted[i] = false; }   //(names and standing commands at its first report)
+            if (i < greeted.size()) { greeted[i] = false; }   //(names, weather and access at its first report)
         }
 
         //Do time handling here.
@@ -815,6 +818,8 @@ int main()
                                 ps.gpsError = Utilities::lexical_cast<irr::f32>(st.at(17));
                                 ps.scheduled = Utilities::lexical_cast<int>(st.at(18));
                                 ps.weatherLocked = st.at(19) == "1";
+                                ps.hasLocks = st.size() >= 21;
+                                ps.controlsLocked = ps.hasLocks && st.at(20) == "1";
                                 ps.hasStatus = true;
                             }
                             catch (const std::exception&) {
@@ -858,14 +863,17 @@ int main()
 
         //What the instructor asked for: to the students' simulators, reliably
         std::vector<InstructorStation::Command> commands = dashboard->takeCommands();
+        //The exercise's speed (x1, x2, x5, x10)
+        const irr::f32 speedAsked = dashboard->takeSpeed();
+        if (speedAsked > 0) { eventReceiver.setSpeed(speedAsked); }
         for (size_t c = 0; c < commands.size(); c++) {
             for (unsigned int thisPeer = 0; thisPeer < numberOfPeers; thisPeer++) {
                 if (commands[c].station >= 0 && (unsigned int)commands[c].station != thisPeer) { continue; }
                 network.sendString(commands[c].text, true, thisPeer);
             }
-            if (commands[c].station < 0) { rememberStanding(commands[c].text); }
-            //The weather (and its lock) also to the cameras, so they see what the students see
-            if (commands[c].station < 0 && (commands[c].text.compare(0, 3, "ICW") == 0 || commands[c].text.compare(0, 3, "ICL") == 0)) {
+            remember(commands[c]);
+            //The weather also to the cameras, so they see what the students see
+            if (commands[c].station < 0 && commands[c].text.compare(0, 3, "ICW") == 0) {
                 for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
                     cameraNetwork.sendString(commands[c].text, true, cam);
                 }

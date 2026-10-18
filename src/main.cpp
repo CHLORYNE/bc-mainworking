@@ -1558,6 +1558,12 @@ int main(int argc, char** argv)
         modelParameters,
         &loadingScreen); //KYARA CHARGEMENT
     model.setTripleScreen(triScreen, perScreenFOV, bezelYaw);
+    //A student in a multiplayer exercise: the weather and the instructor's controls are the
+    //instructor's until he hands them over (the hub says so as soon as the exercise runs)
+    if (mode == OperatingMode::Multiplayer && !spectator) {
+        model.setWeatherByInstructor(true);
+        model.setControlsByInstructor(true);
+    }
     //check enough time has elapsed to show the credits screen (5s)
     //while (device->getTimer()->getRealTime() - creditsStartTime < 5000) {
        //device->run();

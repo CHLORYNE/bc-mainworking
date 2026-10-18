@@ -35,7 +35,7 @@
                 if (id == pauseButtonID) {
                     accelerator = 0;
                 } else if (id == runButtonID) {
-                    accelerator = 1;
+                    accelerator = speed;
                 }
             }
 		}
@@ -49,8 +49,8 @@
             if (event.KeyInput.Key==irr::KEY_KEY_0)
             {
                 accelerator = 0;
-            } else if ((event.KeyInput.Key==irr::KEY_KEY_0) || (event.KeyInput.Key == irr::KEY_RETURN)) {
-                    accelerator = 1;
+            } else if (event.KeyInput.Key == irr::KEY_RETURN) {
+                accelerator = speed;
             }
         }
         return false;

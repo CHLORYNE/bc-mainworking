@@ -703,6 +703,9 @@ void NetworkSecondary::receiveMessage()
 // ICO                              man overboard
 // ICT,text                         a message, each character as 4 hex digits
 // ICL,0|1                          weather window unlocked / locked
+// ICP,weather,controls             what the student may change: 1 locked, 0 free, -1 unchanged
+//                                  (weather: the METEO window and the lighting hour; controls: the
+//                                  instructor's pages of CONTROLES)
 // ICN,index,hex|index,hex...       the names of the other ships (the students' stations), each character as 4 hex digits
 void NetworkSecondary::instructorCommand(const std::string& command)
 {
@@ -728,7 +731,9 @@ void NetworkSecondary::instructorCommand(const std::string& command)
             const irr::f32 streamDir = Utilities::lexical_cast<irr::f32>(parts.at(14));
             const irr::f32 streamKn = Utilities::lexical_cast<irr::f32>(parts.at(15));
             const irr::f32 hour = Utilities::lexical_cast<irr::f32>(parts.at(16));
-            const bool lock = parts.at(17) == "1";
+            //Lock: 1 locked, 0 free, -1 as it is (the locks are set with ICP)
+            const int lockField = Utilities::lexical_cast<int>(parts.at(17));
+            const bool lock = lockField < 0 ? model->getWeatherByInstructor() : lockField == 1;
             model->setWeatherByInstructor(false); //(so that the setters below are not refused)
             model->setWeatherState(w, seconds);
             model->setSignificantWeather(significant);
@@ -764,6 +769,17 @@ void NetworkSecondary::instructorCommand(const std::string& command)
         }
         else if (kind == "L" && parts.size() >= 2) {
             model->setWeatherByInstructor(parts.at(1) == "1");
+        }
+        else if (kind == "P" && parts.size() >= 3) {
+            const int weather = Utilities::lexical_cast<int>(parts.at(1)), controls = Utilities::lexical_cast<int>(parts.at(2));
+            if (weather >= 0 && (weather == 1) != model->getWeatherByInstructor()) {
+                model->setWeatherByInstructor(weather == 1);
+                model->showInstructorMessage(weather == 1 ? L"La m\u00E9t\u00E9o est pilot\u00E9e par l'instructeur." : L"L'instructeur vous laisse r\u00E9gler la m\u00E9t\u00E9o.");
+            }
+            if (controls >= 0 && (controls == 1) != model->getControlsByInstructor()) {
+                model->setControlsByInstructor(controls == 1);
+                model->showInstructorMessage(controls == 1 ? L"Les contr\u00F4les sont r\u00E9serv\u00E9s \u00E0 l'instructeur." : L"L'instructeur vous laisse utiliser les contr\u00F4les.");
+            }
         }
         else if (kind == "N") {
             std::vector<std::string> entries = Utilities::split(command.substr(2), '|');
