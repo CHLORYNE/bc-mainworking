@@ -100,6 +100,7 @@ InstructorStation::InstructorStation(irr::IrrlichtDevice* device, bool french, c
 
 InstructorStation::~InstructorStation()
 {
+    if (radarTexture) { Environment->getVideoDriver()->removeTexture(radarTexture); }
     delete chart;
 }
 
@@ -270,7 +271,19 @@ void InstructorStation::draw()
     }
 
     //The chart itself (its own drawing), then everything over it in one batch
-    if (chartLoaded) {
+    if (radarView) {
+        //The radar: its picture (land echoes, scope) as an image, the rest drawn over it
+        driver->draw2DRectangle(irr::video::SColor(255, 8, 16, 28), Ui::toI(chartArea));
+        updateRadarPicture(driver);
+        if (radarTexture) {
+            const irr::core::vector2df c = radarCentre();
+            const irr::s32 half = radarBuiltSize / 2;
+            const irr::core::rect<irr::s32> clipRect = Ui::toI(chartArea);
+            driver->draw2DImage(radarTexture, irr::core::position2di((irr::s32)c.X - half, (irr::s32)c.Y - half),
+                irr::core::rect<irr::s32>(0, 0, radarBuiltSize, radarBuiltSize), &clipRect, irr::video::SColor(255, 255, 255, 255), true);
+        }
+    }
+    else if (chartLoaded) {
         chart->setViewport(Ui::toI(chartArea));
         chart->draw(driver);
     }
@@ -331,8 +344,26 @@ void InstructorStation::draw()
 void InstructorStation::drawChart(irr::gui::PanelBatch& b)
 {
     const irr::f32 x0 = chartCard.UpperLeftCorner.X + 20, y0 = chartCard.UpperLeftCorner.Y;
-    label(textFont, french ? L"Carte en direct" : L"Live chart", irr::core::rect<irr::f32>(x0, y0 + 10, x0 + 300, y0 + 40), Ui::text);
     const irr::f32 cr = chartCard.LowerRightCorner.X - 20;
+    //Chart or radar
+    chip(b, irr::core::rect<irr::f32>(x0, y0 + 12, x0 + 80, y0 + 38), french ? L"Carte" : L"Chart", !radarView, Z_VIEW, 0);
+    chip(b, irr::core::rect<irr::f32>(x0 + 86, y0 + 12, x0 + 166, y0 + 38), L"Radar", radarView, Z_VIEW, 1);
+    if (radarView) {
+        const int st = radarStation();
+        std::wstring title = french ? L"Radar du poste " : L"Radar of station ";
+        if (st >= 0) { title += std::to_wstring(st + 1) + L"  " + (stations[st].ship.empty() ? stations[st].host : stations[st].ship); }
+        else { title = french ? L"Radar : aucun navire en position" : L"Radar: no ship in position"; }
+        label(textFont, title, irr::core::rect<irr::f32>(x0 + 180, y0 + 10, cr - 290, y0 + 40), Ui::text, 0, true);
+        //Ranges
+        static const wchar_t* ranges[5] = { L"0.75", L"1.5", L"3", L"6", L"12" };
+        for (int i = 0; i < 5; i++) {
+            const irr::f32 rx = cr - 5 * 54 + i * 54;
+            chip(b, irr::core::rect<irr::f32>(rx, y0 + 12, rx + 50, y0 + 38), ranges[i], radarRangeIndex == i, Z_RADAR_RANGE, i);
+        }
+        drawRadar(b);
+        return;
+    }
+    label(textFont, french ? L"Carte en direct" : L"Live chart", irr::core::rect<irr::f32>(x0 + 180, y0 + 10, x0 + 400, y0 + 40), Ui::text);
     chip(b, irr::core::rect<irr::f32>(cr - 100, y0 + 12, cr, y0 + 38), french ? L"Fond" : L"Style", false, Z_CHART_STYLE, 0);
     chip(b, irr::core::rect<irr::f32>(cr - 230, y0 + 12, cr - 110, y0 + 38), french ? L"Voir les navires" : L"Fit ships", false, Z_CHART_FIT, 0);
     if (!chartLoaded) {
@@ -751,17 +782,169 @@ void InstructorStation::drawFailures(irr::gui::PanelBatch& b)
 }
 
 //-------------------------------------------------------------------------------------------------
+//Radar view
+//-------------------------------------------------------------------------------------------------
+
+irr::f32 InstructorStation::radarRangeNm() const
+{
+    static const irr::f32 ranges[5] = { 0.75f, 1.5f, 3.0f, 6.0f, 12.0f };
+    return ranges[irr::core::clamp(radarRangeIndex, 0, 4)];
+}
+
+//The chosen station, or else the first one in position
+int InstructorStation::radarStation() const
+{
+    if (selected >= 0 && selected < (int)stations.size() && stations[selected].reported) { return selected; }
+    for (size_t i = 0; i < stations.size(); i++) { if (stations[i].reported) { return (int)i; } }
+    return -1;
+}
+
+irr::core::vector2df InstructorStation::radarCentre() const
+{
+    return irr::core::vector2df(chartArea.getCenter().X, chartArea.getCenter().Y + 10);
+}
+
+irr::f32 InstructorStation::radarRadius() const
+{
+    return std::max(40.0f, std::min(chartArea.getWidth(), chartArea.getHeight() - 20) * 0.5f - 14);
+}
+
+irr::core::vector2df InstructorStation::radarToScreen(irr::f32 x, irr::f32 z) const
+{
+    const int st = radarStation();
+    const irr::core::vector2df c = radarCentre();
+    if (st < 0) { return c; }
+    const irr::f32 k = radarRadius() / (radarRangeNm() * 1852.0f);   //pixels per metre
+    return irr::core::vector2df(c.X + (x - stations[st].x) * k, c.Y - (z - stations[st].z) * k);
+}
+
+//The land the station's radar sees: each ray from the antenna (10 m up) lights the slopes it
+//meets and nothing in their shadow, as a real radar picture. Rebuilt every two seconds, or when
+//the range or the station changes, or the ship has moved.
+void InstructorStation::updateRadarPicture(irr::video::IVideoDriver* driver)
+{
+    const int st = radarStation();
+    const irr::s32 size = ((irr::s32)(radarRadius() * 2.0f) + 1) & ~1;
+    const irr::u32 now = device->getTimer()->getRealTime();
+    const irr::f32 rangeM = radarRangeNm() * 1852.0f;
+    const bool moved = st >= 0 && (std::fabs(stations[st].x - radarBuiltX) + std::fabs(stations[st].z - radarBuiltZ)) > rangeM / 60.0f;
+    if (radarTexture && radarBuiltRange == radarRangeIndex && radarBuiltSize == size && !moved && now - radarBuiltMs < 2000) { return; }
+    radarBuiltMs = now;
+    radarBuiltRange = radarRangeIndex;
+    radarBuiltSize = size;
+    if (st >= 0) { radarBuiltX = stations[st].x; radarBuiltZ = stations[st].z; }
+
+    irr::video::IImage* img = driver->createImage(irr::video::ECF_A8R8G8B8, irr::core::dimension2du((irr::u32)size, (irr::u32)size));
+    if (!img) { return; }
+    const irr::f32 R = size * 0.5f;
+    //The scope: black inside the circle, clear outside
+    for (irr::s32 py = 0; py < size; py++) {
+        for (irr::s32 px = 0; px < size; px++) {
+            const irr::f32 dx = px + 0.5f - R, dy = py + 0.5f - R;
+            img->setPixel(px, py, (dx * dx + dy * dy <= R * R) ? irr::video::SColor(255, 4, 8, 6) : irr::video::SColor(0, 0, 0, 0));
+        }
+    }
+    if (st >= 0 && chartLoaded) {
+        const irr::f32 x0 = stations[st].x, z0 = stations[st].z;
+        const irr::f32 antenna = 10.0f;
+        const int rays = 1440, steps = std::max(40, (int)R);
+        const irr::f32 dr = rangeM / steps;
+        for (int a = 0; a < rays; a++) {
+            const irr::f32 ang = a * 2.0f * irr::core::PI / rays;
+            const irr::f32 sx = std::sin(ang), sz = std::cos(ang);
+            irr::f32 horizon = -1.0e9f;   //the highest elevation angle met so far (tangent)
+            for (int k = 1; k <= steps; k++) {
+                const irr::f32 d = k * dr;
+                const irr::f32 h = chart->heightAtXZ(x0 + sx * d, z0 + sz * d);
+                if (h <= 0.0f) { continue; }   //water: no echo, no shadow
+                const irr::f32 tanEl = (h - antenna) / d;
+                if (tanEl > horizon) {
+                    //Seen: the steeper the face, the stronger the echo
+                    const irr::f32 strength = irr::core::clamp(0.45f + (tanEl - horizon) * 40.0f, 0.45f, 1.0f);
+                    horizon = tanEl;
+                    const irr::f32 pr = (irr::f32)k / steps * (R - 1);
+                    const irr::s32 px = (irr::s32)(R + sx * pr), py = (irr::s32)(R - sz * pr);
+                    const irr::video::SColor col(255, (irr::u32)(255 * strength), (irr::u32)(176 * strength), (irr::u32)(24 * strength));
+                    for (int oy = 0; oy < 2; oy++) {
+                        for (int ox = 0; ox < 2; ox++) {
+                            if (px + ox >= 0 && py + oy >= 0 && px + ox < size && py + oy < size) { img->setPixel(px + ox, py + oy, col); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (radarTexture) { driver->removeTexture(radarTexture); radarTexture = 0; }
+    radarTexture = driver->addTexture("instructorRadar", img);
+    img->drop();
+}
+
+void InstructorStation::drawRadar(irr::gui::PanelBatch& b)
+{
+    const irr::core::vector2df c = radarCentre();
+    const irr::f32 R = radarRadius();
+    const int st = radarStation();
+    const irr::video::SColor ring(150, 90, 200, 120), mark(200, 120, 220, 150), echo(255, 255, 200, 40);
+    //Range rings and the bearing scale
+    static const irr::f32 ringStep[5] = { 0.25f, 0.5f, 0.5f, 1.0f, 2.0f };
+    const irr::f32 rangeNm = radarRangeNm(), step = ringStep[irr::core::clamp(radarRangeIndex, 0, 4)];
+    for (irr::f32 d = step; d < rangeNm - 0.01f; d += step) { b.sector(c, R * d / rangeNm - 0.7f, R * d / rangeNm + 0.7f, 0, 360, ring, ring, false); }
+    b.sector(c, R - 1.5f, R + 1.5f, 0, 360, mark, mark, false);
+    for (int deg = 0; deg < 360; deg += 5) {
+        const irr::f32 a = deg * irr::core::DEGTORAD, len = (deg % 30 == 0) ? 12.0f : (deg % 10 == 0 ? 7.0f : 3.0f);
+        const irr::core::vector2df dir(std::sin(a), -std::cos(a));
+        b.line(c + dir * (R - len), c + dir * R, 1.2f, mark);
+        if (deg % 30 == 0) {
+            wchar_t t[8];
+            swprintf(t, 8, L"%03d", deg);
+            const irr::core::vector2df lp = c + dir * (R + 12);
+            label(smallFont, t, irr::core::rect<irr::f32>(lp.X - 20, lp.Y - 9, lp.X + 20, lp.Y + 9), Ui::textDim, 1);
+        }
+    }
+    wchar_t info[64];
+    swprintf(info, 64, french ? L"%.2g NM  \u00B7  anneaux %.2g NM  \u00B7  nord en haut" : L"%.2g NM  \u00B7  rings %.2g NM  \u00B7  north up", rangeNm, step);
+    label(smallFont, info, irr::core::rect<irr::f32>(chartArea.UpperLeftCorner.X + 10, chartArea.LowerRightCorner.Y - 24, chartArea.LowerRightCorner.X - 10, chartArea.LowerRightCorner.Y - 4), Ui::textDim);
+    if (st < 0) {
+        label(textFont, french ? L"Aucun navire en position" : L"No ship in position", irr::core::rect<irr::f32>(c.X - 200, c.Y - 14, c.X + 200, c.Y + 14), Ui::textDim, 1);
+        return;
+    }
+    //Her heading line, to the edge of the scope
+    const irr::f32 ha = stations[st].heading * irr::core::DEGTORAD;
+    b.line(c, c + irr::core::vector2df(std::sin(ha), -std::cos(ha)) * (R - 12), 1.5f, irr::video::SColor(220, 230, 240, 255));
+    //The other stations: echoes, with their numbers for the instructor
+    for (size_t i = 0; i < stations.size(); i++) {
+        if ((int)i == st || !stations[i].reported) { continue; }
+        const irr::core::vector2df p = radarToScreen(stations[i].x, stations[i].z);
+        const irr::f32 dx = p.X - c.X, dy = p.Y - c.Y;
+        if (dx * dx + dy * dy > (R - 3) * (R - 3)) { continue; }
+        const irr::f32 a = stations[i].heading * irr::core::DEGTORAD;
+        const irr::core::vector2df along(std::sin(a), -std::cos(a)), across(std::cos(a), std::sin(a));
+        b.tri(p + along * 4.0f + across * 2.5f, p - along * 4.0f + across * 2.5f, p - along * 4.0f - across * 2.5f, echo);
+        b.tri(p + along * 4.0f + across * 2.5f, p - along * 4.0f - across * 2.5f, p + along * 4.0f - across * 2.5f, echo);
+        if ((int)i == selected) { b.sector(p, 9, 10.5f, 0, 360, Ui::text, Ui::text, false); }
+        label(smallFont, std::to_wstring(i + 1), irr::core::rect<irr::f32>(p.X + 8, p.Y - 18, p.X + 60, p.Y - 2), stationColour(i));
+    }
+    //Her own position at the centre
+    b.disc(c, 3.5f, irr::video::SColor(255, 230, 240, 255), irr::video::SColor(255, 230, 240, 255));
+}
+
+//-------------------------------------------------------------------------------------------------
 //Input
 //-------------------------------------------------------------------------------------------------
 
 int InstructorStation::stationAt(irr::core::position2di p) const
 {
-    if (!chartLoaded) { return -1; }
+    if (!chartLoaded && !radarView) { return -1; }
     int best = -1;
     irr::f32 bestD = 18.0f * 18.0f;
     for (size_t i = 0; i < stations.size(); i++) {
         if (!stations[i].reported) { continue; }
-        const irr::core::position2di s = chart->toScreenXZ(stations[i].x, stations[i].z);
+        irr::core::position2di s;
+        if (radarView) {
+            const irr::core::vector2df r = radarToScreen(stations[i].x, stations[i].z);
+            s = irr::core::position2di((irr::s32)r.X, (irr::s32)r.Y);
+        }
+        else { s = chart->toScreenXZ(stations[i].x, stations[i].z); }
         const irr::f32 dx = (irr::f32)(s.X - p.X), dy = (irr::f32)(s.Y - p.Y);
         if (dx * dx + dy * dy < bestD) { bestD = dx * dx + dy * dy; best = (int)i; }
     }
@@ -782,6 +965,10 @@ bool InstructorStation::OnEvent(const irr::SEvent& event)
         case irr::EMIE_MOUSE_WHEEL:
             if (stationCard.isPointInside(irr::core::vector2df((irr::f32)m.X, (irr::f32)m.Y))) {
                 stationScroll -= m.Wheel > 0 ? 1 : -1; //(clamped when the list is drawn)
+                return true;
+            }
+            if (overChart && radarView) {
+                radarRangeIndex = irr::core::clamp(radarRangeIndex + (m.Wheel > 0 ? -1 : 1), 0, 4);
                 return true;
             }
             if (overChart && chartLoaded) {
@@ -806,7 +993,7 @@ bool InstructorStation::OnEvent(const irr::SEvent& event)
             }
             break;
         case irr::EMIE_MOUSE_MOVED:
-            if (dragging && chartLoaded) {
+            if (dragging && chartLoaded && !radarView) {
                 if (std::abs(mouse.X - dragStart.X) + std::abs(mouse.Y - dragStart.Y) > 4) { dragMoved = true; }
                 if (dragMoved) { chart->panPixels(mouse.X - dragLast.X, mouse.Y - dragLast.Y); chartTouched = true; }
                 dragLast = mouse;
@@ -855,6 +1042,8 @@ void InstructorStation::click(const Zone& z)
         }
         break;
     case Z_WEATHER_PAGE: weatherPage = z.value; break;
+    case Z_VIEW: radarView = z.value == 1; break;
+    case Z_RADAR_RANGE: radarRangeIndex = z.value; break;
     case Z_STEP: stepFine(z.value / 2, (z.value % 2) ? 1 : -1); weatherPreset = -2; break;   //(no preset any more: values of its own)
     case Z_STREAM_MODE: streamMode = z.value; break;
     case Z_STREAM_DIR: streamDirIndex = z.value; break;

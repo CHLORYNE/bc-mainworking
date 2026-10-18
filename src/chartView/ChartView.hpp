@@ -63,6 +63,8 @@ public:
     double latToZ(double lat) const;
     double xToLon(double x) const;
     double zToLat(double z) const;
+    // Terrain height (m, below 0 under water) at world x, z (metres); -1000 without a height map
+    float heightAtXZ(double x, double z) const;
 
     // Drawing
     void draw(irr::video::IVideoDriver* driver);

@@ -71,7 +71,8 @@ public:
 private:
     //Clickable zones of the last frame
     enum ZoneKind { Z_PRESET, Z_WINDDIR, Z_TRANSITION, Z_HOUR, Z_SEND_WEATHER, Z_RELEASE_WEATHER, Z_STATION, Z_DELAY, Z_FAILURE,
-        Z_REPAIR, Z_MOB, Z_SEND_MESSAGE, Z_CHART_FIT, Z_CHART_STYLE, Z_WEATHER_PAGE, Z_STEP, Z_STREAM_MODE, Z_STREAM_DIR, Z_LOCK, Z_SPEED };
+        Z_REPAIR, Z_MOB, Z_SEND_MESSAGE, Z_CHART_FIT, Z_CHART_STYLE, Z_WEATHER_PAGE, Z_STEP, Z_STREAM_MODE, Z_STREAM_DIR, Z_LOCK, Z_SPEED,
+        Z_VIEW, Z_RADAR_RANGE };
     //The values of the "fine" weather page (a preset fills them in)
     enum Fine { F_WIND = 0, F_GUST, F_VIS, F_SEA, F_RAIN, F_CLOUD, F_STREAM, F_COUNT };
     struct Zone { irr::core::rect<irr::f32> r; ZoneKind kind; int value; };
@@ -90,6 +91,14 @@ private:
     void click(const Zone& z);
     void sendToTargets(const std::string& text);
     void drawAccess(irr::gui::PanelBatch& b, irr::f32 y);
+    //The radar view: what the chosen station's radar sees (north up, centred on her)
+    int radarStation() const;
+    irr::core::vector2df radarCentre() const;
+    irr::f32 radarRadius() const;
+    irr::core::vector2df radarToScreen(irr::f32 x, irr::f32 z) const;
+    irr::f32 radarRangeNm() const;
+    void updateRadarPicture(irr::video::IVideoDriver* driver);
+    void drawRadar(irr::gui::PanelBatch& b);
     void stepFine(int which, int direction);
     std::wstring fineText(int which) const;
     void sendMessage();
@@ -129,6 +138,13 @@ private:
     int chartFittedShips;    //how many ships the chart was framed on
     bool chartTouched;       //the instructor moved or zoomed it: no more automatic framing
     bool dragging;
+    //Radar view
+    bool radarView = false;
+    int radarRangeIndex = 2;
+    irr::video::ITexture* radarTexture = 0;
+    irr::u32 radarBuiltMs = 0;
+    irr::f32 radarBuiltX = 0, radarBuiltZ = 0;
+    int radarBuiltRange = -1, radarBuiltSize = 0;
     bool dragMoved;
     irr::core::position2di dragStart, dragLast;
 

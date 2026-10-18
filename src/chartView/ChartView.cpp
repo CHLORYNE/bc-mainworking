@@ -324,6 +324,13 @@ bool ChartView::loadHeights(irr::IrrlichtDevice* device, const std::string& worl
     return true;
 }
 
+float ChartView::heightAtXZ(double x, double z) const
+{
+    if (heights.empty() || hCols < 2 || hRows < 2 || widthM <= 0 || heightM <= 0) { return -1000.0f; }
+    if (x < 0 || z < 0 || x > widthM || z > heightM) { return -1000.0f; }   //off the map: open sea
+    return heightAt(x / (widthM / (hCols - 1)), z / (heightM / (hRows - 1)));
+}
+
 float ChartView::heightAt(double gx, double gz) const
 {
     if (gx < 0) { gx = 0; }
