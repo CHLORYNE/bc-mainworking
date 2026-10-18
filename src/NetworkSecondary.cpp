@@ -255,9 +255,12 @@ void NetworkSecondary::receiveMessage()
                         }
                     }
 
-                    //Update MOB data
+                    //Update MOB data. Not in multiplayer: there each student's man overboard is his own
+                    //(thrown by him or by the instructor) and the hub always sends none
                     irr::u32 numberMOB = Utilities::lexical_cast<irr::u32>(numberData.at(2));
-                    if (numberMOB==1) {
+                    if (mode == OperatingMode::Multiplayer) {
+                        //(the student's own)
+                    } else if (numberMOB==1) {
                         //MOB should be visible, find if we have an MOB position record with two items (record 5)
                         //TODO: TEST!
                         std::vector<std::string> mobData = Utilities::split(receivedData.at(5),',');
@@ -700,6 +703,7 @@ void NetworkSecondary::receiveMessage()
 // ICO                              man overboard
 // ICT,text                         a message, each character as 4 hex digits
 // ICL,0|1                          weather window unlocked / locked
+// ICN,index,hex|index,hex...       the names of the other ships (the students' stations), each character as 4 hex digits
 void NetworkSecondary::instructorCommand(const std::string& command)
 {
     std::vector<std::string> parts = Utilities::split(command, ',');
@@ -760,6 +764,19 @@ void NetworkSecondary::instructorCommand(const std::string& command)
         }
         else if (kind == "L" && parts.size() >= 2) {
             model->setWeatherByInstructor(parts.at(1) == "1");
+        }
+        else if (kind == "N") {
+            std::vector<std::string> entries = Utilities::split(command.substr(2), '|');
+            for (size_t e = 0; e < entries.size(); e++) {
+                std::vector<std::string> f = Utilities::split(entries[e], ',');
+                if (f.size() != 2) { continue; }
+                std::string name;   //(ASCII on the way: the names of stations and ships)
+                for (size_t i = 0; i + 4 <= f[1].size(); i += 4) {
+                    const int ch = std::stoi(f[1].substr(i, 4), 0, 16);
+                    name += (ch > 0 && ch < 128) ? (char)ch : '?';
+                }
+                model->setOtherShipDisplayName(Utilities::lexical_cast<int>(f[0]), name);
+            }
         }
     }
     catch (const std::exception&) {

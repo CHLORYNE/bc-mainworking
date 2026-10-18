@@ -337,10 +337,15 @@ void OtherShips::resetLegs(int shipNumber, irr::f32 course, irr::f32 speedKts, i
     }
 }
 
+void OtherShips::setDisplayName(int number, const std::string& name)
+{
+    if (number < (int)otherShips.size() && number >= 0) { otherShips.at(number)->setDisplayName(name); }
+}
+
 std::string OtherShips::getName(int number) const
 {
     if (number < (int)otherShips.size() && number >= 0) {
-        return otherShips.at(number)->getName();
+        return otherShips.at(number)->getDisplayName();
     }
     else {
         return "";

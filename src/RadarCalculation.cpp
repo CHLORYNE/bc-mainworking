@@ -1160,6 +1160,7 @@ void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const T
                                         newContact.isBuoy = radarData.at(thisContact).isBuoy;
                                         newContact.contactType = CONTACT_NORMAL;
                                         newContact.mmsi = radarData.at(thisContact).mmsi; // NEW: Extract real MMSI
+                                        newContact.name = radarData.at(thisContact).name;
                                         //newContact.displayID = 0; //Initially not displayed
                                         newContact.totalXMovementEst = 0;
                                         newContact.totalZMovementEst = 0;
@@ -1665,6 +1666,7 @@ void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int cont
 {
     thisArpaContact.estimate.isBuoy = thisArpaContact.isBuoy;
     thisArpaContact.estimate.mmsi = thisArpaContact.mmsi;
+    thisArpaContact.estimate.name = thisArpaContact.name;
     thisArpaContact.estimate.danger = false;
     thisArpaContact.estimate.trialDanger = false;
 

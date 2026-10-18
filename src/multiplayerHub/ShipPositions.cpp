@@ -35,6 +35,7 @@ void ShipPositions::setShipPosition(unsigned int shipNumber, irr::f32 scenarioTi
         shipData.at(shipNumber).rateOfTurn = rateOfTurn;
         shipData.at(shipNumber).timeStored = scenarioTime;
         shipData.at(shipNumber).reported = true;
+        shipData.at(shipNumber).seen = true;
     }
 }
 

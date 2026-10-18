@@ -3977,6 +3977,7 @@ void GUIMain::drawGUI()
     if (aisDataMode && selectedItem2 >= 0 && selectedItem2 < (irr::s32)arpaContactStates.size()) {
         const ARPAEstimatedState& c = arpaContactStates.at(selectedItem2);
         irr::core::stringw l;
+        if (!c.name.empty()) { l = L"Nom  : "; l.append(irr::core::stringw(c.name.c_str())); aisText2->addItem(l.c_str()); }
         l = L"MMSI : "; l.append(irr::core::stringw(c.mmsi)); aisText2->addItem(l.c_str());
         l = L"SOG  : "; l.append(f32To1dp(c.speed).c_str()); l.append(L" kts"); aisText2->addItem(l.c_str());
         l = L"COG  : "; l.append(irr::core::stringw((irr::s32)round(c.absHeading))); l.append(L"\u00B0"); aisText2->addItem(l.c_str());

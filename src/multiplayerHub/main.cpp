@@ -32,6 +32,7 @@
 #include "LinesData.hpp"
 #include "EventReceiver.hpp"
 #include "InstructorStation.hpp"
+#include "../chartView/ChartView.hpp"
 #include "../UiTheme.hpp"
 
 #include <fstream> //To save to log
@@ -319,7 +320,9 @@ int main()
 
 
     Network network(port);
-    network.connectToServer(hostnames);
+    //Every station typed keeps its number (and its ship), answering now or not: one that is not
+    //started yet, or that drops out, is tried again every few seconds and joins when it answers
+    network.connectToServer(hostnames, true);
 
     //The instructor's 3D camera: the simulator in spectator mode, opened here on this PC (on the
     //second screen when there is one), and any camera station named in mph.ini (camera_hosts=PC:port,...)
@@ -410,6 +413,7 @@ int main()
     absoluteTime = Utilities::round(scenarioTime) + scenarioOffsetTime;
 
     //for each peer, build basic scenario information (own ship, other ships, excluding this one)
+    //(sent now to the stations that answered, and to the others when they join)
     std::vector<ScenarioData> peerScenarioData;
     for(unsigned int thisPeer = 0; thisPeer<numberOfPeers; thisPeer++ ) {
         //Own ship data gets populated from other ship (including 1st leg if it exists
@@ -431,7 +435,7 @@ int main()
             thisPeerData.otherShipsData.erase(thisPeerData.otherShipsData.begin()+thisPeer);
 
             //Send initial scenario information (reliable packet)
-            network.sendString(thisPeerData.serialise(false),true,thisPeer);
+            if (network.isConnected(thisPeer)) { network.sendString(thisPeerData.serialise(false),true,thisPeer); }
 
             //Store the data for this peer
             peerScenarioData.push_back(thisPeerData);
@@ -458,6 +462,53 @@ int main()
     //What each student's simulator reports of its state, for the instructor station
     std::vector<InstructorStation::Station> peerStatus(numberOfPeers);
 
+    //A station that joins late, or comes back after dropping out, gets its scenario with its ship
+    //where she was last seen (else at her start), then what the instructor has sent everyone since
+    double worldSouth = 0, worldWest = 0, worldLatExtent = 0, worldLongExtent = 0;
+    const bool worldKnown = ChartView::worldBounds(masterScenarioData.worldName, worldSouth, worldWest, worldLatExtent, worldLongExtent);
+    std::vector<std::string> standingCommands;   //the last weather, lock... sent to every station
+    auto rememberStanding = [&standingCommands](const std::string& text) {
+        //One of each kind is enough: the latest replaces the earlier one
+        const std::string kind = text.substr(0, 3);
+        if (kind != "ICW" && kind != "ICL" && kind != "ICP") { return; }
+        for (size_t k = 0; k < standingCommands.size(); k++) {
+            if (standingCommands[k].compare(0, 3, kind) == 0) { standingCommands.erase(standingCommands.begin() + k); break; }
+        }
+        //(a weather sent also sets the lock: an older lock command no longer applies)
+        if (kind == "ICW") {
+            for (size_t k = 0; k < standingCommands.size(); k++) {
+                if (standingCommands[k].compare(0, 3, "ICL") == 0) { standingCommands.erase(standingCommands.begin() + k); break; }
+            }
+        }
+        standingCommands.push_back(text);
+    };
+    const auto hubStart = std::chrono::steady_clock::now();
+
+    //The name each ship shows on the others' radar and AIS: the station and the ship
+    auto stationLabel = [&](unsigned int g) -> std::string {
+        std::string ship = g < masterScenarioData.otherShipsData.size() ? masterScenarioData.otherShipsData[g].shipName : std::string();
+        return "POSTE " + std::to_string(g + 1) + (ship.empty() ? std::string() : " - " + ship);
+    };
+    //Once a station's simulator runs (its first report), it is told the names of the others and
+    //what the instructor has sent everyone (a simulator still loading could miss them)
+    std::vector<bool> greeted(numberOfPeers, false);
+    auto greet = [&](unsigned int p) {
+        std::string names = "ICN,";
+        unsigned int local = 0;
+        for (unsigned int g = 0; g < numberOfOtherShips + 1; g++) {
+            if (g == p) { continue; }
+            const std::string label = stationLabel(g);
+            char hex[8];
+            std::string encoded;
+            for (size_t c = 0; c < label.size(); c++) { snprintf(hex, sizeof(hex), "%04X", (unsigned char)label[c]); encoded += hex; }
+            names += (local ? "|" : "") + std::to_string(local) + "," + encoded;
+            local++;
+        }
+        network.sendString(names, true, p);
+        for (size_t c = 0; c < standingCommands.size(); c++) { network.sendString(standingCommands[c], true, p); }
+        greeted[p] = true;
+    };
+
     //Start main loop, listening for updates from PCs and sending out scenario update, including time handling
     while(device->run())
     {
@@ -469,6 +520,39 @@ int main()
 
         // Find current time acceleration
         accelerator = eventReceiver.getAccelerator();
+
+        //Stations: drop the silent ones, call the missing ones, welcome the ones that answer
+        network.maintain((unsigned long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - hubStart).count());
+        network.listenForMessages();
+        const std::vector<unsigned int> lostStations = network.takeLost();
+        for (size_t k = 0; k < lostStations.size(); k++) {
+            const unsigned int i = lostStations[k];
+            std::cout << "Station " << i + 1 << " (" << network.getPeerName(i) << ") lost" << std::endl;
+            shipPositionData.setReported(i, false);   //hidden from the others until she is back
+            if (i < peerStatus.size()) { peerStatus[i] = InstructorStation::Station(); }
+            if (i < greeted.size()) { greeted[i] = false; }
+        }
+        const std::vector<unsigned int> joinedStations = network.takeJoined();
+        for (size_t k = 0; k < joinedStations.size(); k++) {
+            const unsigned int i = joinedStations[k];
+            if (i >= peerScenarioData.size()) { continue; }
+            ScenarioData data = peerScenarioData[i];
+            irr::f32 lx = 0, lz = 0, lSpeed = 0, lBearing = 0, lRot = 0;
+            if (worldKnown && shipPositionData.wasSeen(i)) {
+                shipPositionData.getShipPosition(i, scenarioTime, lx, lz, lSpeed, lBearing, lRot);
+                const double widthM = worldLongExtent * 2.0 * PI * EARTH_RAD_M * cos((worldSouth + worldLatExtent / 2.0) * PI / 180.0) / 360.0;
+                const double heightM = worldLatExtent * 2.0 * PI * EARTH_RAD_M / 360.0;
+                if (widthM > 0 && heightM > 0) {
+                    data.ownShipData.initialLong = (irr::f32)(worldWest + lx * worldLongExtent / widthM);
+                    data.ownShipData.initialLat = (irr::f32)(worldSouth + lz * worldLatExtent / heightM);
+                    data.ownShipData.initialBearing = lBearing;
+                    data.ownShipData.initialSpeed = lSpeed * MPS_TO_KTS;
+                }
+            }
+            std::cout << "Station " << i + 1 << " (" << network.getPeerName(i) << ") joined" << std::endl;
+            network.sendString(data.serialise(false), true, i);
+            if (i < greeted.size()) { greeted[i] = false; }   //(names and standing commands at its first report)
+        }
 
         //Do time handling here.
         currentTime = std::chrono::system_clock::now();
@@ -526,6 +610,24 @@ int main()
             cameraNetwork.sendString(cameraUpdate, false, cam);
         }
         cameraNetwork.listenForMessages(); //(keeps the connections alive; a camera sends nothing back)
+        //The cameras show the ships by their stations' names too: told every few seconds, as a
+        //camera says nothing back (and may still be loading)
+        {
+            static irr::f32 lastNamesTime = -100.0f;
+            const irr::f32 nowS = std::chrono::duration<irr::f32>(std::chrono::steady_clock::now() - hubStart).count();
+            if (cameraNetwork.getNumberOfPeers() > 0 && nowS - lastNamesTime > 5.0f) {
+                lastNamesTime = nowS;
+                std::string names = "ICN,";
+                for (unsigned int g = 0; g < numberOfOtherShips + 1; g++) {
+                    const std::string label = stationLabel(g);
+                    char hex[8];
+                    std::string encoded;
+                    for (size_t c = 0; c < label.size(); c++) { snprintf(hex, sizeof(hex), "%04X", (unsigned char)label[c]); encoded += hex; }
+                    names += (g ? "|" : "") + std::to_string(g) + "," + encoded;
+                }
+                for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) { cameraNetwork.sendString(names, true, cam); }
+            }
+        }
 
         //for each peer
         for(unsigned int thisPeer = 0; thisPeer<numberOfPeers; thisPeer++ ) {
@@ -621,6 +723,7 @@ int main()
                     irr::f32 thisOtherShipSpeed = Utilities::lexical_cast<irr::f32>(splitMessage.at(4));
                     irr::f32 thisOtherShipTime = Utilities::lexical_cast<irr::f32>(splitMessage.at(5));
                     shipPositionData.setShipPosition(thisPeer,thisOtherShipTime,thisOtherShipX,thisOtherShipZ,thisOtherShipSpeed,thisOtherShipBearing,thisOtherShipRateOfTurn);
+                    if (thisPeer < greeted.size() && !greeted[thisPeer]) { greet(thisPeer); }
 
                     // Lines data, from splitMessage.at(6)
                     std::vector<std::string> linesDataString = Utilities::split(splitMessage.at(6),'|');
@@ -745,6 +848,7 @@ int main()
             station.z = thisOtherShipZ;
             //(a station reports (0, 0) before its ship is placed)
             station.reported = shipPositionData.isReported(i) && (thisOtherShipX != 0 || thisOtherShipZ != 0);
+            station.online = network.isConnected(i);
             stations.push_back(station);
         }
         const std::string clockText = Utilities::timestampToString(absoluteTime, "%H:%M:%S");
@@ -759,6 +863,7 @@ int main()
                 if (commands[c].station >= 0 && (unsigned int)commands[c].station != thisPeer) { continue; }
                 network.sendString(commands[c].text, true, thisPeer);
             }
+            if (commands[c].station < 0) { rememberStanding(commands[c].text); }
             //The weather (and its lock) also to the cameras, so they see what the students see
             if (commands[c].station < 0 && (commands[c].text.compare(0, 3, "ICW") == 0 || commands[c].text.compare(0, 3, "ICL") == 0)) {
                 for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {

@@ -580,6 +580,7 @@ RadarData OtherShip::getRadarData(irr::core::vector3df scannerPosition) const
 
     radarData.contact = (void*)this;
     radarData.mmsi = this->getMMSI(); // NEW: Pass the real MMSI to the radar array
+    radarData.name = getDisplayName();
 
     if (isAbsent()) { //no echo at all
         radarData.hidden = true;

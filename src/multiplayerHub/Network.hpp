@@ -27,26 +27,48 @@ class Network
 public:
     Network(int port);
     ~Network();
-    void connectToServer(std::string hostnames);
+    //Connects to each comma-separated host (up to a second each). With keepAll, a host that does
+    //not answer keeps its place (its number, and so its ship) and is tried again by maintain();
+    //without it, only the hosts that answered are kept.
+    void connectToServer(std::string hostnames, bool keepAll = false);
     unsigned int getNumberOfPeers();
-    std::string getPeerName(unsigned int peerNumber) const; //station name as typed, for connected peer N
-    const std::vector<std::string>& getUnreachedNames() const { return unreachedNames; } //stations that did not answer
+    std::string getPeerName(unsigned int peerNumber) const; //station name as typed, for station N
+    const std::vector<std::string>& getUnreachedNames() const { return unreachedNames; } //names that could not be resolved
+    bool isConnected(unsigned int peerNumber) const;
 
     void sendString(std::string stringToSend, bool reliable, unsigned int peerNumber);
     void listenForMessages();
     std::string getLatestMessage(unsigned int peerNumber);
 
+    //Every few seconds: a station silent for too long is dropped; a station not connected is
+    //tried again (without waiting). nowMs: any millisecond clock.
+    void maintain(unsigned long long nowMs);
+    //Stations that have (re)connected / been lost since the last call
+    std::vector<unsigned int> takeJoined();
+    std::vector<unsigned int> takeLost();
 
 private:
-    int port;
+    struct Slot
+    {
+        std::string name;
+        ENetAddress address;
+        bool resolvable = false;
+        ENetPeer* peer = 0;          //connected, or a connection under way
+        bool connected = false;
+        unsigned long long attemptMs = 0;
+        unsigned long long lastMessageMs = 0;
+        bool heard = false;          //has sent something since it connected
+        std::string latest;
+    };
+    void dropSlot(unsigned int i, bool tellLost);
 
+    int port;
     ENetHost* client; //One client
     ENetEvent event;
-    std::vector<ENetPeer*> peers;
-    std::vector<std::string> latestMessageFromPeer;
-    std::vector<std::string> peerNames;
+    std::vector<Slot> slots;
     std::vector<std::string> unreachedNames;
-
+    std::vector<unsigned int> joined, lost;
+    unsigned long long now;
 };
 
 #endif

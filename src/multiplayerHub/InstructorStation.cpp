@@ -474,6 +474,10 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
                 swprintf(buf, 64, french ? L"%d alarme(s) %.0f s" : L"%d alarm(s) %.0f s", s.unacked, s.oldestUnacked);
                 st = buf; stCol = Ui::danger;
             }
+            else if (!s.online) {
+                st = french ? L"hors ligne" : L"offline";
+                stCol = Ui::warning;
+            }
             else if (s.hasStatus && (s.collisions || s.groundings)) {
                 swprintf(buf, 64, french ? L"abordage %d  \u00E9chouement %d" : L"collision %d  grounding %d", s.collisions, s.groundings);
                 st = buf; stCol = Ui::danger;
@@ -495,13 +499,19 @@ void InstructorStation::drawStations(irr::gui::PanelBatch& b)
         label(textFont, name, irr::core::rect<irr::f32>(x0 + 12, y + 2, x1 - 120, y + 22), Ui::text, 0, true);
         wchar_t mv[48];
         swprintf(mv, 48, L"%.1f nd  %03.0f\u00B0", s.speedKts, s.heading);
-        label(smallFont, s.reported ? std::wstring(mv) : std::wstring(french ? L"pas encore de position" : L"no position yet"),
-            irr::core::rect<irr::f32>(x1 - 130, y + 2, x1 - 8, y + 22), Ui::textDim, 2);
+        label(smallFont, !s.online ? std::wstring(french ? L"hors ligne" : L"offline")
+            : (s.reported ? std::wstring(mv) : std::wstring(french ? L"pas encore de position" : L"no position yet")),
+            irr::core::rect<irr::f32>(x1 - 130, y + 2, x1 - 8, y + 22), s.online ? Ui::textDim : Ui::warning, 2);
 
         //Second line: what needs the instructor's eye
         std::wstring st;
         irr::video::SColor stCol = Ui::textFaint;
-        if (!s.hasStatus) {
+        if (!s.online) {
+            //Not started yet, or dropped out: called every few seconds, it rejoins by itself
+            st = french ? L"Hors ligne : en attente du simulateur (il rejoint seul)" : L"Offline: waiting for the simulator (it rejoins by itself)";
+            stCol = Ui::warning;
+        }
+        else if (!s.hasStatus) {
             st = french ? L"(simulateur sans retour d'\u00E9tat)" : L"(simulator does not report its state)";
         }
         else {

@@ -783,6 +783,10 @@ void SimulationModel::setOtherShipAbsent(int number, bool absent) {
     otherShips.setAbsent(number, absent);
 }
 
+void SimulationModel::setOtherShipDisplayName(int number, const std::string& name) {
+    otherShips.setDisplayName(number, name);
+}
+
 bool SimulationModel::isOtherShipAbsent(int number) const {
     return otherShips.isAbsent(number);
 }

@@ -74,6 +74,7 @@ struct ARPAEstimatedState {
     ARPA_CONTACT_TYPE contactType; //Duplicate of what's in the parent, but useful to pass to the GUI
     bool isBuoy;
     irr::u32 mmsi = 0;
+    std::string name;         //the vessel's name, when known (AIS)
     bool danger = false;      //CPA and TCPA both inside the alarm limits
     irr::f32 trialCpa = 0;    //with the trial manoeuvre (Nm), when one is set
     irr::f32 trialTcpa = 0;   //(mins)
@@ -107,6 +108,7 @@ struct ARPAContact {
     irr::f32 totalZMovementEst;
     ARPA_CONTACT_TYPE contactType;
     irr::u32 mmsi;
+    std::string name;
     void* contact;
     bool isBuoy;
     //irr::u32 displayID;

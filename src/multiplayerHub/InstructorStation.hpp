@@ -28,6 +28,7 @@ public:
         irr::f32 x = 0, z = 0;              //world metres
         irr::f32 speedKts = 0, heading = 0;
         bool reported = false;              //has sent its position
+        bool online = true;                 //connected (else: not started yet, or dropped out - called again)
         bool hasStatus = false;             //sends its state (a simulator that knows the instructor station)
         int failure[5] = { 0, 0, 0, 0, 0 }; //port engine, starboard engine, gyro, GPS, radar: 0 ok, 1 degraded, 2 failed
         bool pump1 = true, pump2 = true, followUp = true;

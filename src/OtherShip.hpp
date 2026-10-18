@@ -42,6 +42,9 @@ public:
     irr::f32 getHeight() const;
     irr::f32 getRCS() const;
     std::string getName() const;
+    //The name shown on the radar, AIS and lists (multiplayer: the student's station), else the name
+    void setDisplayName(const std::string& n) { displayName = n; }
+    std::string getDisplayName() const { return displayName.empty() ? name : displayName; }
     std::vector<Leg> getLegs() const;
     void changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
     void addLeg(int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
@@ -79,6 +82,7 @@ private:
 
     SimulationModel* model;
     std::string name;
+    std::string displayName;
     std::vector<Leg> legs;
     std::vector<NavLight*> navLights;
     ShipLights shipLights; // KYARA FEUX

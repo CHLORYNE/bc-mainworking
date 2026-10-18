@@ -241,6 +241,7 @@ public:
     void setOtherShipPos(int number, irr::f32 positionX, irr::f32 positionZ);
     void setOtherShipRateOfTurn(int number, irr::f32 rateOfTurn);
     void setOtherShipAbsent(int number, bool absent);   //multiplayer: no student on this ship
+    void setOtherShipDisplayName(int number, const std::string& name);   //multiplayer: the student's station
     bool isOtherShipAbsent(int number) const;
     void setOtherShipSpeed(int number, irr::f32 speed); //Speed in m/s
     void setOtherShipMMSI(int number, irr::u32 mmsi);
