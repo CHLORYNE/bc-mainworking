@@ -1,0 +1,26 @@
+newmtl concrete
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd concrete.jpg
+
+newmtl iron
+Ka 0.180 0.180 0.200
+Kd 0.180 0.180 0.200
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl quaywall
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd quaywall.jpg
+
+newmtl rubber
+Ka 0.080 0.080 0.080
+Kd 0.080 0.080 0.080
+Ks 0.000 0.000 0.000
+illum 1
+

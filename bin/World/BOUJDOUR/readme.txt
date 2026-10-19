@@ -8,3 +8,7 @@ Coastline data and navigation aid data from from OpenStreetMap data, available
 under the Open Database License.
 
 NOT FOR USE IN NAVIGATION
+
+Port structures (breakwaters, quays, beacons) and the terrain texture were generated from
+this world's heightmap by tools/harbour_builder (see harbour.json). Levels are typical
+values, not surveyed data.

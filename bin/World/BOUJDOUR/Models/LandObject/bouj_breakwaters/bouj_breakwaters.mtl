@@ -1,0 +1,38 @@
+newmtl beacon_green
+Ka 0.050 0.550 0.200
+Kd 0.050 0.550 0.200
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl beacon_red
+Ka 0.780 0.100 0.080
+Kd 0.780 0.100 0.080
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl concrete
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd concrete.jpg
+
+newmtl iron
+Ka 0.180 0.180 0.200
+Kd 0.180 0.180 0.200
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl rock
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd rock.jpg
+
+newmtl white
+Ka 0.920 0.920 0.900
+Kd 0.920 0.920 0.900
+Ks 0.000 0.000 0.000
+illum 1
+
