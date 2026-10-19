@@ -1486,6 +1486,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     guardAlarmButton2 = addRadarBtn(cell(0, 2, EY + 3 * EP, GRH), GUI_ID_RADAR_GUARD_ALARM_BUTTON, L"Alarme", accBtn);
     echoStretchButton2 = addRadarBtn(cell(2, 1, EY + 3 * EP, GRH), GUI_ID_RADAR_ECHO_STRETCH_BUTTON, L"Écho", accBtn); //kyara: cellule libre de la grille
     //offCentreButton2 = addRadarBtn(cell(2, 1, EY + 4 * EP, GRH), GUI_ID_RADAR_OFFCENTRE_BUTTON, L"Décentr.", accBtn); //kyara: décentrage
+    offCentreButton2 = 0; //Not created, but still passed to setButtonHighlight in updateGuiData, so must not be left uninitialised
 
     // Radar cursor buttons
     radarCursorLeftButton2 = guienv->addButton(irr::core::rect<irr::s32>(radarTL.X + 0.670 * radarSu, radarTL.Y + 0.640 * radarSu, radarTL.X + 0.700 * radarSu, radarTL.Y + 0.670 * radarSu), 0, GUI_ID_RADAR_DECREASE_X_BUTTON, L"<");
