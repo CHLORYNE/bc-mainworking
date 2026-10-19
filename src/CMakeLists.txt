@@ -100,7 +100,7 @@ set(BC_SOURCES
     Splash.cpp
     ScreenSpray.cpp
     ShipLights.cpp
-Loading
+    LoadingScreen.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
     BCTerrainSceneNode.cpp
