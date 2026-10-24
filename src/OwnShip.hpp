@@ -49,6 +49,7 @@ public:
     void setViewVisibility(irr::u32 view);
     std::string getRadarConfigFile() const;
     irr::f32 getDepth() const;
+    irr::f32 getHeave() const { return waveVerticalDisplacement; } //vertical movement of the hull on the waves
     irr::f32 getAngleCorrection() const;
     bool hasGPS() const;
     //ship certified FF
@@ -56,6 +57,14 @@ public:
     //KYARA SLAM: true once per slam event, with ratio = impact speed / this hull's slamming
     //threshold, and the impact speed itself in m/s.
     bool consumeSlam(irr::f32& ratio, irr::f32& impactSpeed);
+
+    //Waterline outline of the model, measured at load: half-widths at HULL_STATIONS evenly spaced
+    //stations from zMin (stern) to zMax (bow), about centreX. Ship-node coordinates in metres
+    //(before the heading rotation). False if the model has no hull at the waterline.
+    static const int HULL_STATIONS = 24;
+    //keels: height of her waterline at each station, ship-node frame (scaled, before heightCorrection);
+    //sea below it is always drawn
+    bool getHullWaterline(irr::f32& zMin, irr::f32& zMax, irr::f32& centreX, irr::f32* halfWidths, irr::f32* keels) const;
 
     //KYARA FEUX: navigation lights, driven by the vessel's COLREG situation
     ShipLights& getLights();
@@ -65,6 +74,15 @@ public:
     void setInstrumentLights(int level);
     int getInstrumentLights() const;
     int getInstrumentMaterialCount() const; //KYARA FEUX TAB: 0 = the dim/bright buttons do nothing
+    //Instrument lighting editor: choose by hand which materials of the model glow
+    irr::u32 getModelMaterialCount() const;
+    std::string getModelMaterialTexture(irr::u32 material) const; //texture file name, "" if none
+    bool isInstrumentMaterial(irr::u32 material) const;
+    void setInstrumentMaterial(irr::u32 material, bool lit);
+    std::vector<irr::u32> getInstrumentMaterialList() const;
+    void setInstrumentMaterialList(const std::vector<irr::u32>& materials);
+    int pickModelMaterial(const irr::core::line3df& worldRay) const; //nearest material hit, -1 if none
+    void flashInstrumentMaterial(int material, bool on);           //show where a material is
 
     //KYARA SLAM: the wheelhouse glass the spray lands on (model units, like RadarScreenX/Y/Z)
     irr::core::vector3df getWindscreenPosition() const;
@@ -117,6 +135,7 @@ public:
     irr::f32 getRoll() const;
     irr::f32 getCOG() const;
     irr::f32 getSOG() const; // m/s
+    void setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogMps);
     irr::f32 getSpeedThroughWater() const; // m/s
     std::string getBasePath() const;
     std::string getName() const;   // Kyara: own ship's name, for VHF/comms identification
@@ -131,6 +150,8 @@ public:
     irr::core::vector3df getStbdEngineControlPosition() const;
     irr::core::vector3df getWheelControlPosition() const;
     irr::f32 getWheelControlScale() const;
+    irr::f32 getThrottleScale() const;  //ThrottleScale in boat.ini (default 1): size of the levers
+    irr::f32 getLoadScaleFactor() const; //ScaleFactor as loaded, before any live resize
     bool isSingleEngine() const;
     bool isAzimuthDrive() const;
     bool isAzimuthAsternAllowed() const;
@@ -194,6 +215,10 @@ public:
 
     irr::f32 getShipMass() const;
     irr::f32 getScaleFactor() const;
+    //Live change of size / waterline: hull, lamps, hull mask, views and radar screen follow.
+    //Her handling (mass, inertia, drag) is set up at load: restart the scenario for that.
+    irr::f32 getModelYCorrection() const;
+    void setModelSize(irr::f32 newScale, irr::f32 newYCorrection);
 
     void enableTriangleSelector(bool selectorEnabled);
 
@@ -216,6 +241,7 @@ private:
     bool is360textureShip;
     bool showDebugData;
     irr::f32 scaleFactor;
+    irr::f32 modelYCorrection; //YCorrection in use
     irr::f32 rollPeriod;       // Roll period (s)  DEE this should be dynamically loaded
     irr::f32 rollAngle;        // Roll Angle (deg)
     irr::f32 pitchPeriod;      // Roll period (s)
@@ -356,9 +382,18 @@ private:
 
     irr::f32 cog; // course over ground
     irr::f32 sog; // m/s speed over ground
+    //On a secondary the ship is moved to the primary's position every message, so COG / SOG worked
+    //out here would be zero: the primary's own values are used instead.
+    bool cogSogFromNetwork = false;
+    irr::f32 networkCog = 0, networkSog = 0;
 
     // KYARA HOULE: seakeeping model (heave / pitch / roll) and wave forces
     HullMotion hullMotion;
+    bool hullWlValid;
+    irr::f32 hullWlZMin, hullWlZMax, hullWlCentreX;
+    irr::f32 hullWlHalf[HULL_STATIONS];
+    irr::f32 hullWlKeel[HULL_STATIONS];
+    void measureHullWaterline();
     irr::f32 heavePeriod;          // boat.ini HeavePeriod (s, optional)
     irr::f32 heaveDamping;         // boat.ini HeaveDamping (zeta, optional)
     irr::f32 pitchDamping;         // boat.ini PitchDamping (zeta, optional)
@@ -374,6 +409,7 @@ private:
     std::vector<irr::u32> instrumentMaterials;
     int instrumentLightLevel;
     void findInstrumentMaterials(const std::string& shipIniFilename);
+    irr::video::SColor instrumentGlow(irr::u32 material) const; //what it shows at the current level
 
     //KYARA SLAM: windscreen pane
     irr::core::vector3df windscreenPosition;
@@ -401,6 +437,8 @@ private:
     irr::core::vector3df stbdThrottlePosition;
     irr::core::vector3df wheelControlPosition;
     irr::f32 wheelControlScale;
+    irr::f32 throttleScale;
+    irr::f32 loadScaleFactor;
 
     bool buoyCollision;
     bool otherShipCollision;

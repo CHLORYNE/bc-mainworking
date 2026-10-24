@@ -1,4 +1,5 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
+#include <cerrno>
 #include "irrlicht.h"
 #include <iostream>
 #include "irrlicht.h"
@@ -23,6 +24,7 @@
 #include "../Lang.hpp"
 #include "../Utilities.hpp"
 #include "../ScenarioDataStructure.hpp"
+#include "../EditorStartScreen.hpp"
 
 
 //Mac OS:
@@ -150,14 +152,14 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     irr::gui::IGUIEnvironment* guienv = device->getGUIEnvironment();
     irr::gui::IGUISkin* skin = guienv->getSkin();
 
-    // Modern Palette: Slate Grays and Azure Blues (A, R, G, B)
-    irr::video::SColor bgDark(240, 30, 34, 43);       // Main window bg (slight transparency)
-    irr::video::SColor panelColor(255, 45, 52, 60);   // Buttons, lists, tabs
-    irr::video::SColor borderDark(255, 20, 24, 30);   // Shadows/Borders
-    irr::video::SColor borderLight(255, 65, 75, 85);  // Highlights
+    // Palette: the launcher's navy (A, R, G, B)
+    irr::video::SColor bgDark(240, 14, 26, 44);       // Main window bg (slight transparency)
+    irr::video::SColor panelColor(255, 28, 46, 72);   // Buttons, lists, tabs
+    irr::video::SColor borderDark(255, 12, 22, 38);   // Shadows/Borders
+    irr::video::SColor borderLight(255, 46, 72, 106); // Highlights
     irr::video::SColor textMain(255, 240, 245, 250);  // Off-white text
-    irr::video::SColor highlightBlue(255, 52, 152, 219); // Azure selection highlight
-    irr::video::SColor editBg(255, 20, 24, 30);       // Darker inset for text inputs
+    irr::video::SColor highlightBlue(255, 36, 122, 222); // Selection highlight
+    irr::video::SColor editBg(255, 8, 16, 30);        // Darker inset for text inputs
 
     // Apply Base & Windows
     skin->setColor(irr::gui::EGDC_WINDOW, bgDark);
@@ -175,7 +177,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
 
     // Selections / Highlighting
     skin->setColor(irr::gui::EGDC_HIGH_LIGHT, highlightBlue);
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 0, 0, 0));
+    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, irr::video::SColor(255, 255, 255, 255));
 
     // Checkbox tick / window symbols (also combo + scrollbar arrows) -> azure blue.
     // Irrlicht draws the checkbox tick via drawIcon(), which uses EGDC_WINDOW_SYMBOL.
@@ -196,54 +198,69 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     const irr::s32 IMPORT_EXPORT_OK_BUTTON_ID = 107;
     const irr::s32 DELETE_SCENARIO_BUTTON_ID = 108; // Include the delete ID
 
-    // --- TRUE FULLSCREEN WINDOW FIX ---
+    // --- Start screen: maps on the left, the chart in the middle, the exercises on the right ---
     irr::gui::IGUIWindow* scnWorldChoiceWindow = device->getGUIEnvironment()->addWindow(irr::core::rect<irr::s32>(0, 0, su, sh), false);
     scnWorldChoiceWindow->getCloseButton()->setVisible(false);
-    scnWorldChoiceWindow->setDrawTitlebar(false); // Eliminates top window border
+    scnWorldChoiceWindow->setDrawTitlebar(false);
+    scnWorldChoiceWindow->setDrawBackground(false);
+    scnWorldChoiceWindow->setDraggable(false); //else dragging an empty spot moves the lists off their cards
 
-    // --- HEADER ---
-    irr::gui::IGUIStaticText* headerText = device->getGUIEnvironment()->addStaticText(L"Module de conception d'exercices de navigation\nNAUTITECH S.A.R.L", irr::core::rect<irr::s32>(0.20 * su, 0.05 * sh, 0.80 * su, 0.12 * sh), false, true, scnWorldChoiceWindow);
-    headerText->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
+    //Drawn first: header, cards and chart behind the lists and buttons.
+    EditorStartScreen* screen = new EditorStartScreen(device, scnWorldChoiceWindow, L"\u00C9diteur de sc\u00E9nario",
+        L"NAUTITECH  \u00B7  Conception des exercices de navigation", irr::video::SColor(255, 40, 130, 235), true);
+    screen->drop();
+    screen->setCardTitles(L"CARTES", L"LA CARTE", L"EXERCICES EXISTANTS", L"D\u00C9TAILS DE L'EXERCICE");
+    screen->setFooter(L"Choisissez une carte pour cr\u00E9er un exercice, ou un exercice existant pour le modifier (double-clic pour l'ouvrir).");
+    irr::gui::IGUIFont* listFont = screen->font(15);
+    irr::gui::IGUIFont* editorFont = skin->getFont(); //given back when the editor opens
+    if (listFont) { skin->setFont(listFont); }
+    irr::gui::IGUIStaticText* headerText = 0;
+    irr::gui::IGUIStaticText* footerText = 0;
+    (void)headerText;
+    (void)footerText;
 
-    // --- TOP SECTION (MAPS) ---
-    device->getGUIEnvironment()->addStaticText(L"Choisir la carte", irr::core::rect<irr::s32>(0.10 * su, 0.15 * sh, 0.45 * su, 0.19 * sh), false, true, scnWorldChoiceWindow);
-    irr::gui::IGUIListBox* worldListBox = device->getGUIEnvironment()->addListBox(irr::core::rect<irr::s32>(0.10 * su, 0.20 * sh, 0.45 * su, 0.48 * sh), scnWorldChoiceWindow, WORLD_BOX_ID);
-
-    // EXPANDED MAP METADATA PANEL (Widened to 0.95)
-    irr::core::rect<irr::s32> mapMetaRect(0.55 * su, 0.15 * sh, 0.95 * su, 0.45 * sh);
-    irr::gui::IGUIListBox* mapThumbText = device->getGUIEnvironment()->addListBox(mapMetaRect, scnWorldChoiceWindow, -1, true);
-
-    // Centered relative to 0.55 - 0.95
-    irr::gui::IGUIButton* worldOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.46 * sh, 0.875 * su, 0.51 * sh), scnWorldChoiceWindow, OK_WORLD_BUTTON_ID, L"Nouveau Scénario");
-
-    // --- BOTTOM SECTION (SCENARIOS) ---
-    device->getGUIEnvironment()->addStaticText(L"Exercices existants", irr::core::rect<irr::s32>(0.10 * su, 0.52 * sh, 0.45 * su, 0.55 * sh), false, true, scnWorldChoiceWindow);
-    irr::gui::IGUIListBox* scenarioListBox = device->getGUIEnvironment()->addListBox(irr::core::rect<irr::s32>(0.10 * su, 0.56 * sh, 0.45 * su, 0.94 * sh), scnWorldChoiceWindow, SCENARIO_BOX_ID); // Extends lower
-
-    // Centered relative to 0.55 - 0.95
-    irr::gui::IGUIButton* scenarioOK = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.55 * sh, 0.875 * su, 0.60 * sh), scnWorldChoiceWindow, OK_SCENARIO_BUTTON_ID, L"Éditer le Scénario");
-    irr::gui::IGUIButton* deleteScenario = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.625 * su, 0.61 * sh, 0.875 * su, 0.66 * sh), scnWorldChoiceWindow, DELETE_SCENARIO_BUTTON_ID, L"Supprimer le Scénario");
-    deleteScenario->setOverrideColor(irr::video::SColor(255, 255, 100, 100));
-
-    // HUGE METADATA PANEL (Widened to 0.95)
-    irr::core::rect<irr::s32> metaRect(0.55 * su, 0.67 * sh, 0.95 * su, 0.88 * sh);
-    irr::gui::IGUIListBox* metadataPanel = device->getGUIEnvironment()->addListBox(metaRect, scnWorldChoiceWindow, -1, true);
-
-    // SIDE-BY-SIDE IMPORT/EXPORT (Evenly split under the new 0.55 - 0.95 width)
-    irr::gui::IGUIButton* importScenario = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.55 * su, 0.89 * sh, 0.73 * su, 0.94 * sh), scnWorldChoiceWindow, IMPORT_SCENARIO_BUTTON_ID, L"Importer");
-    irr::gui::IGUIButton* exportScenario = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.77 * su, 0.89 * sh, 0.95 * su, 0.94 * sh), scnWorldChoiceWindow, EXPORT_SCENARIO_BUTTON_ID, L"Exporter");
-
-    // MULTIPLAYER BOX - placed in the gap between "Nouveau Scénario" and "Éditer le Scénario"
-    irr::gui::IGUICheckBox* multiplayerBox = device->getGUIEnvironment()->addCheckBox(false, irr::core::rect<irr::s32>
-        (0.625 * su, 0.515 * sh, 0.875 * su, 0.55 * sh),
+    const irr::s32 buttonH = (irr::s32)screen->buttonHeight();
+    //Maps: the list, then the multiplayer box and "new exercise" at the bottom of the card
+    const irr::core::rect<irr::f32> left = screen->leftCard();
+    const irr::core::rect<irr::s32> leftArea = screen->content(left, buttonH * 2 + 14);
+    irr::gui::IGUIListBox* worldListBox = device->getGUIEnvironment()->addListBox(leftArea, scnWorldChoiceWindow, WORLD_BOX_ID);
+    worldListBox->setDrawBackground(false);
+    const irr::s32 lx0 = leftArea.UpperLeftCorner.X, lx1 = leftArea.LowerRightCorner.X, ly = leftArea.LowerRightCorner.Y + 8;
+    irr::gui::IGUICheckBox* multiplayerBox = device->getGUIEnvironment()->addCheckBox(false, irr::core::rect<irr::s32>(lx0 + 4, ly, lx1, ly + buttonH),
         scnWorldChoiceWindow, -1, language->translate("multiplayer").c_str());
-    multiplayerBox->setVisible(true);
+    Ui::Button* worldOK = new Ui::Button(device->getGUIEnvironment(), scnWorldChoiceWindow, OK_WORLD_BUTTON_ID,
+        irr::core::rect<irr::s32>(lx0, ly + buttonH + 6, lx1, ly + 2 * buttonH + 6), L"Nouveau sc\u00E9nario sur cette carte", Ui::Button::Primary);
+    worldOK->drop();
 
+    //Middle: the map's description under the chart
+    irr::gui::IGUIListBox* mapThumbText = device->getGUIEnvironment()->addListBox(screen->content(screen->mapInfoCard()), scnWorldChoiceWindow, -1, true);
+    mapThumbText->setDrawBackground(false);
 
-    // --- TRUE FULLSCREEN FOOTER FIX ---
-    irr::gui::IGUIStaticText* footerText = device->getGUIEnvironment()->addStaticText(L"NAUTITECH S.A.R.L | Simulateur de Navigation V5.0 | System Ready", irr::core::rect<irr::s32>(0, 0.96 * sh, su, 0.99 * sh), false, false, scnWorldChoiceWindow);
-    footerText->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-    footerText->setOverrideColor(irr::video::SColor(255, 100, 120, 140));
+    //Exercises: list, open / delete, details, import / export
+    irr::gui::IGUIListBox* scenarioListBox = device->getGUIEnvironment()->addListBox(screen->content(screen->rightCard()), scnWorldChoiceWindow, SCENARIO_BOX_ID);
+    scenarioListBox->setDrawBackground(false);
+    Ui::Button* scenarioOK = new Ui::Button(device->getGUIEnvironment(), scnWorldChoiceWindow, OK_SCENARIO_BUTTON_ID,
+        screen->half(screen->actionRow(), 0), L"\u00C9diter le sc\u00E9nario", Ui::Button::Primary);
+    scenarioOK->drop();
+    Ui::Button* deleteScenario = new Ui::Button(device->getGUIEnvironment(), scnWorldChoiceWindow, DELETE_SCENARIO_BUTTON_ID,
+        screen->half(screen->actionRow(), 1), L"Supprimer le sc\u00E9nario", Ui::Button::Danger);
+    deleteScenario->drop();
+    irr::gui::IGUIListBox* metadataPanel = device->getGUIEnvironment()->addListBox(screen->content(screen->detailsCard()), scnWorldChoiceWindow, -1, true);
+    metadataPanel->setDrawBackground(false);
+    Ui::Button* importScenario = new Ui::Button(device->getGUIEnvironment(), scnWorldChoiceWindow, IMPORT_SCENARIO_BUTTON_ID,
+        screen->half(screen->bottomRow(), 0), L"Importer", Ui::Button::Secondary);
+    importScenario->drop();
+    Ui::Button* exportScenario = new Ui::Button(device->getGUIEnvironment(), scnWorldChoiceWindow, EXPORT_SCENARIO_BUTTON_ID,
+        screen->half(screen->bottomRow(), 1), L"Exporter", Ui::Button::Secondary);
+    exportScenario->drop();
+    const irr::gui::IGUIElement* buttons[5] = { worldOK, scenarioOK, deleteScenario, importScenario, exportScenario };
+    for (int i = 0; i < 5; i++) { ((Ui::Button*)buttons[i])->setFont(listFont); }
+
+    //The chart follows the map selected, or the map of the exercise selected.
+    screen->follow(worldListBox, scenarioListBox, [&scenarioDirList, scenarioPath](irr::s32 index) -> std::string {
+        if (index < 0 || index >= (irr::s32)scenarioDirList.size()) { return ""; }
+        return IniFile::iniFileToString(scenarioPath + scenarioDirList[index] + "/environment.ini", "Setting");
+    });
     //Add scenarios to list box
     for (std::vector<std::string>::iterator it = scenarioDirList.begin(); it != scenarioDirList.end(); ++it) {
         scenarioListBox->addItem(irr::core::stringw(it->c_str()).c_str());
@@ -285,7 +302,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
 
     // Run until we know scenario data to use
     while (device->run() && startupReceiver.getScenarioSelected() < 0 && startupReceiver.getWorldSelected() < 0 && scenarioData->dataPopulated == false) {
-        driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+        driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
         device->getGUIEnvironment()->drawAll();
         driver->endScene();
     }
@@ -327,10 +344,11 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
         multiplayer = scenarioData->multiplayerName;
     }
 
-    //Clean up
-   //Clean up
+    //Clean up: the start screen first, as it follows the lists
+    screen->remove();
     scenarioListBox->remove();
     worldListBox->remove();
+    skin->setFont(editorFont);
     scenarioOK->remove();
     worldOK->remove();
     multiplayerBox->remove();
@@ -339,7 +357,7 @@ void findWhatToLoad(irr::IrrlichtDevice* device, ScenarioData* scenarioData, std
     //Show patience message
     irr::gui::IGUIStaticText* patienceText = device->getGUIEnvironment()->addStaticText(language->translate("loadingMap").c_str(), irr::core::rect<irr::s32>(0.01 * su, 0.04 * sh, 0.95 * su, 0.95 * sh), false, true, scnWorldChoiceWindow);
     if (device->run()) {
-        driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+        driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
         device->getGUIEnvironment()->drawAll();
         driver->endScene();
     }
@@ -401,7 +419,7 @@ int copyDir(std::string source, std::string dest)
 
             //std::cout << "Dest: " << dest << std::endl;
             //std::cout << "Trying to create '" << newDir << "'" << std::endl;
-            if (mkdir(newDir.c_str(), 0755) == 0) {
+            if (mkdir(newDir.c_str(), 0755) == 0 || errno == EEXIST) { //a folder already there is fine
                 //Recursive here
                 std::string fromDir = source;
                 fromDir.append("/");
@@ -412,6 +430,7 @@ int copyDir(std::string source, std::string dest)
                 copyDir(fromDir, toDir);
             }
             else {
+                closedir(dir);
                 return -1;
             }
         }
@@ -439,6 +458,7 @@ int copyDir(std::string source, std::string dest)
 
         entry = readdir(dir);
     }
+    closedir(dir);
 
     //For each file at root level, create the file and copy contents
 
@@ -548,20 +568,15 @@ int main(int argc, char** argv)
 #endif
     if (graphicsWidth == 0) {
         graphicsWidth = 1200 * fontScale;
-        if (graphicsWidth > deskres.Width * 0.90) {
+        if (deskres.Width > 0 && graphicsWidth > deskres.Width * 0.90) { //(0 x 0 when the desktop size cannot be found)
             graphicsWidth = deskres.Width * 0.90;
         }
     }
     if (graphicsHeight == 0) {
         graphicsHeight = 900 * fontScale;
-        if (graphicsHeight > deskres.Height * 0.90) {
+        if (deskres.Height > 0 && graphicsHeight > deskres.Height * 0.90) {
             graphicsHeight = deskres.Height * 0.90;
         }
-    }
-
-    irr::u32 zoomLevels = IniFile::iniFileTou32(iniFilename, "zoom_levels");
-    if (zoomLevels == 0) {
-        zoomLevels = 10;
     }
 
     irr::IrrlichtDevice* device = irr::createDevice(irr::video::EDT_OPENGL, irr::core::dimension2d<irr::u32>(graphicsWidth, graphicsHeight), graphicsDepth, fullScreen, false, false, 0);
@@ -685,6 +700,7 @@ int main(int argc, char** argv)
 
         //GUI class
         GUIMain guiMain(device, &language, ownShipTypes, otherShipTypes, multiplayer);
+        guiMain.setWorldName(worldName);
         //kyara update to display pc clock 
         if (scenarioData.dataPopulated == false) {
             // Get current PC system time
@@ -731,7 +747,7 @@ int main(int argc, char** argv)
         }
 
         //Main model
-        ControllerModel controller(device, &language, &guiMain, worldName, &scenarioData, &buoysData, zoomLevels);
+        ControllerModel controller(device, &language, &guiMain, worldName, &scenarioData, &buoysData);
 
         if (scenarioData.dataPopulated == false) {
             //If an existing scenario, load data into these structures
@@ -882,6 +898,10 @@ int main(int argc, char** argv)
                 }
                 scenarioData.description = descriptionLines;
 
+            } else {
+                //New scenario: start the own ship in the middle of the chart
+                scenarioData.ownShipData.initialX = controller.chartWidth() / 2;
+                scenarioData.ownShipData.initialZ = controller.chartHeight() / 2;
             }
         }
         else {
@@ -956,7 +976,7 @@ int main(int argc, char** argv)
         device->setEventReceiver(&receiver);
 
         while (device->run()) {
-            driver->beginScene(true, true, irr::video::SColor(255, 30, 34, 43));
+            driver->beginScene(true, true, irr::video::SColor(255, 12, 24, 42));
             //network.update(time, ownShipData, otherShipsData, buoysData);
             controller.update();
             driver->endScene();

@@ -17,6 +17,7 @@
 #include "MyEventReceiver.hpp"
 
 #include <string>
+#include <cstdlib> //abs
 
 #include "GUIMain.hpp"
 #include "SimulationModel.hpp"
@@ -131,16 +132,58 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
     // From mouse - keep track of button press state
     if (event.EventType == irr::EET_MOUSE_INPUT_EVENT)
     {
+        //On the large radar's picture: clicks track targets / draw parallel index lines, the wheel
+        //changes the range
+        if (gui->scopeMouseEvent(event)) { return true; }
+        //ACQUITTER on the alert list: acknowledged on the press itself, whatever the GUI's focus is on
+        if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN && gui->ackKeyAt(event.MouseInput.X, event.MouseInput.Y))
+        {
+            model->setAlarm(false);
+            model->getRadar().acknowledgeCPAAlarm();
+            model->acknowledgeAlerts();
+            return true;
+        }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_PRESSED_DOWN)
         {
             leftMouseDown = true;
             // Log position of mouse click, so we can track relative movement
             mouseClickX = event.MouseInput.X;
             mouseClickY = event.MouseInput.Y;
+            pressX = event.MouseInput.X;
+            pressY = event.MouseInput.Y;
         }
         if (event.MouseInput.Event == irr::EMIE_LMOUSE_LEFT_UP)
         {
             leftMouseDown = false;
+            //Light editor: a click on the vessel (not a drag to turn round her) places or adds a lamp there
+            if (model->isLightEditing() &&
+                abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
+            {
+                irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+                if (rootGUIElement->getElementFromPoint(irr::core::position2d<irr::s32>(pressX, pressY)) == rootGUIElement)
+                {
+                    gui->lightEditorClick(model->getMooringRay(pressX, pressY, gui->getCompact3dView()));
+                }
+            }
+            //Instrument editor: a click in the view (not a drag to look round) lights what is under it
+            if (model->isInstrumentEditing() &&
+                abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
+            {
+                irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+                irr::gui::IGUIElement* clickElement = rootGUIElement->getElementFromPoint(irr::core::position2d<irr::s32>(pressX, pressY));
+                if (clickElement == rootGUIElement)
+                {
+                    const irr::core::line3df ray = model->getMooringRay(pressX, pressY, gui->getCompact3dView());
+                    const int material = model->instrumentEditPick(ray);
+                    if (material >= 0) {
+                        const std::string tex = model->getOwnShipMaterialTexture((irr::u32)material);
+                        std::wstring msg = model->isOwnShipInstrumentMaterial((irr::u32)material) ? L"Allum\u00E9 : " : L"\u00C9teint : ";
+                        msg += std::to_wstring(material) + L"  " + (tex.empty() ? std::wstring(L"(sans image)") : std::wstring(tex.begin(), tex.end()));
+                        msg += L"  - non enregistr\u00E9.";
+                        gui->setInstrumentEditorStatus(msg, false);
+                    }
+                }
+            }
         }
 
         if (event.MouseInput.Event == irr::EMIE_RMOUSE_PRESSED_DOWN)
@@ -172,7 +215,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 if (clickElement == rootGUIElement)
                 {
                     // Scale if required because 3d view may be different
-                    irr::core::line3df rayForLines = model->getMooringRay(mouseClickX, mouseClickY, gui->getShowInterface());
+                    irr::core::line3df rayForLines = model->getMooringRay(mouseClickX, mouseClickY, gui->getCompact3dView());
                     handleMooringLines(rayForLines);
                 }
             }
@@ -181,11 +224,19 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         if (event.MouseInput.Event == irr::EMIE_MOUSE_MOVED && leftMouseDown)
         {
             irr::gui::IGUIElement* focussedElement = device->getGUIEnvironment()->getFocus();
-            if (!focussedElement)
+            //(On the large radar a drag moves the radar cursor or draws a parallel index line: the
+            //bridge camera behind it stays where it is)
+            if (!focussedElement && !gui->getLargeRadar())
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                model->changeLookPx(deltaX, deltaY);
+                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
+                    //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp (or the ship, in free view)
+                    model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
+                }
+                else {
+                    model->changeLookPx(deltaX, deltaY);
+                }
             }
             mouseClickX = event.MouseInput.X;
             mouseClickY = event.MouseInput.Y;
@@ -193,6 +244,19 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.MouseInput.Event == irr::EMIE_MOUSE_WHEEL)
         {
+            //Over a control (radar knob, list, scroll bar) the wheel belongs to that control. Given to
+            //it directly: Irrlicht would only pass the wheel to whichever control has the focus.
+            irr::gui::IGUIElement* wheelRoot = device->getGUIEnvironment()->getRootGUIElement();
+            irr::gui::IGUIElement* wheelOver = wheelRoot->getElementFromPoint(irr::core::position2d<irr::s32>(event.MouseInput.X, event.MouseInput.Y));
+            if (wheelOver && wheelOver != wheelRoot) {
+                wheelOver->OnEvent(event);
+                return true;
+            }
+            //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
+            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
+                model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
+                return true;
+            }
             //KYARA: the wheel now drives the ZOOM (magnification) bar. It used to drive the
             //rudder, which is far too easy to nudge by accident while looking around.
             irr::s32 step = (event.MouseInput.Wheel > 0) ? 5 : -5;
@@ -248,8 +312,32 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
         // They are now handled in the EGET_BUTTON_CLICKED block below, so they only
         // respond to an actual click.
 
+        //A length or draught typed in, then Enter
+        if (event.GUIEvent.EventType == irr::gui::EGET_EDITBOX_ENTER && model->isSizeEditing() &&
+            (id == GUIMain::GUI_ID_SEDIT_LENGTH_BOX || id == GUIMain::GUI_ID_SEDIT_DRAUGHT_BOX))
+        {
+            applySizeEditorBox(id);
+            return true;
+        }
+
         if (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED)
         {
+            //Instrument editor: a line of the list flashes its material in the view
+            if (id == GUIMain::GUI_ID_IEDIT_LIST && model->isInstrumentEditing())
+            {
+                gui->instrumentEditorListPicked();
+                device->getGUIEnvironment()->setFocus(0);
+            }
+
+            //KYARA FEUX EDIT: lamp picked in the placement window
+            if (id == GUIMain::GUI_ID_LEDIT_LIST && model->isLightEditing())
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                const irr::s32 sel = ((irr::gui::IGUIListBox*)event.GUIEvent.Caller)->getSelected();
+                if (lights && sel >= 0) { lights->selectEditItem(sel); }
+                device->getGUIEnvironment()->setFocus(0); //so the arrow keys move the lamp, not the list
+            }
+
             if (id == GUIMain::GUI_ID_LINES_LIST)
             {
                 model->getLines()->setSelectedLine(((irr::gui::IGUIListBox*)event.GUIEvent.Caller)->getSelected());
@@ -299,6 +387,14 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_AZIMUTH_2_MASTER_CHECKBOX)
             {
                 model->setAzimuth2Master(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked());
+            }
+
+            //KYARA FEUX EDIT
+            if (id == GUIMain::GUI_ID_LEDIT_MIRROR && model->isLightEditing())
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                if (lights) { lights->setMirror(((irr::gui::IGUICheckBox*)event.GUIEvent.Caller)->isChecked()); }
+                device->getGUIEnvironment()->setFocus(0);
             }
 
             //KYARA FEUX TAB: "hide this light" boxes and the working lights, on the vessel
@@ -499,6 +595,10 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 model->setStreamOverrideSpeed(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos());
             }
+            if (id == GUIMain::GUI_ID_GLOW_SCROLL_BAR)
+            {
+                gui->setGlowLevel(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos());
+            }
             if (id == GUIMain::GUI_ID_MAGNIFICATION_SCROLL_BAR)
             {
                 irr::s32 rawZoomLevel = ((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos();
@@ -536,6 +636,16 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED)
         {
+            //Large radar tools (lengths, coastline, CPA alarm, parallel index, trial manoeuvre)
+            if (gui->handleRadarToolButton(id)) {
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            //Instructor training controls (failures, sound signals, depth alarm, MOB mark, debrief)
+            if (gui->handleTrainingButton(id)) {
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
             // ===== kyara: touches à bascule grand radar =====
             if (id == GUIMain::GUI_ID_BIG_ARPA_MODE_BUTTON) {
                 irr::gui::IGUIElement* e = device->getGUIEnvironment()->getRootGUIElement()->getElementFromId(GUIMain::GUI_ID_BIG_ARPA_ON_BOX, true);
@@ -579,6 +689,168 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_STORM_PRESET_BUTTON)
             {
                 model->setBadWeatherPreset();
+            }
+
+            //Command bar: day / dusk / night / digital / auto colours
+            //Command bar: the weather window
+            if (id == GUIMain::GUI_ID_SONAR_BUTTON)
+            {
+                gui->toggleSonar();
+            }
+            if (id == GUIMain::GUI_ID_STATION_BUTTON)
+            {
+                gui->toggleStation();
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+
+            if (id == GUIMain::GUI_ID_WEATHER_BUTTON)
+            {
+                gui->toggleWeatherPanel();
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (id >= GUIMain::GUI_ID_PALETTE_DAY && id <= GUIMain::GUI_ID_PALETTE_AUTO)
+            {
+                gui->setPaletteChoice(id == GUIMain::GUI_ID_PALETTE_AUTO ? -1 : (int)(id - GUIMain::GUI_ID_PALETTE_DAY));
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+
+            //Which screens and gauges of the own ship glow at night
+            if (id == GUIMain::GUI_ID_INSTR_EDIT_BUTTON)
+            {
+                if (model->beginInstrumentEdit()) {
+                    gui->openInstrumentEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isInstrumentEditing() && id >= GUIMain::GUI_ID_IEDIT_TOGGLE && id <= GUIMain::GUI_ID_IEDIT_CLOSE)
+            {
+                if (id == GUIMain::GUI_ID_IEDIT_TOGGLE) {
+                    const int material = model->getInstrumentEditSelected();
+                    if (material >= 0) {
+                        model->instrumentEditToggle(material);
+                        model->instrumentEditSelect(material);
+                    }
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_SAVE) {
+                    std::wstring msg;
+                    const bool ok = model->instrumentEditSave(msg);
+                    gui->setInstrumentEditorStatus(msg, !ok);
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_REVERT) {
+                    model->instrumentEditRevert();
+                    gui->setInstrumentEditorStatus(L"\u00C9crans \u00E9clair\u00E9s de l'ouverture r\u00E9tablis (rien n'est enregistr\u00E9).", false);
+                }
+                if (id == GUIMain::GUI_ID_IEDIT_CLOSE) {
+                    model->endInstrumentEdit();
+                    gui->closeInstrumentEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+
+            //Size and waterline of the vessel picked in the Taille tab
+            if (id == GUIMain::GUI_ID_SIZE_EDIT_BUTTON)
+            {
+                const int vessel = gui->getSizeVessel();
+                if (model->beginSizeEdit(vessel)) {
+                    gui->openSizeEditor(vessel);
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isSizeEditing() && id >= GUIMain::GUI_ID_SEDIT_LENGTH_BOX && id <= GUIMain::GUI_ID_SEDIT_CLOSE)
+            {
+                switch (id) {
+                case GUIMain::GUI_ID_SEDIT_LENGTH_APPLY: applySizeEditorBox(GUIMain::GUI_ID_SEDIT_LENGTH_BOX); break;
+                case GUIMain::GUI_ID_SEDIT_DRAUGHT_APPLY: applySizeEditorBox(GUIMain::GUI_ID_SEDIT_DRAUGHT_BOX); break;
+                case GUIMain::GUI_ID_SEDIT_LENGTH_MINUS: model->sizeEditStepLength(-1.0f); break;
+                case GUIMain::GUI_ID_SEDIT_LENGTH_PLUS: model->sizeEditStepLength(1.0f); break;
+                case GUIMain::GUI_ID_SEDIT_RAISE: model->sizeEditStepDraught(-0.1f); break;
+                case GUIMain::GUI_ID_SEDIT_LOWER: model->sizeEditStepDraught(0.1f); break;
+                case GUIMain::GUI_ID_SEDIT_SAVE: {
+                    std::wstring msg;
+                    const bool ok = model->sizeEditSave(msg);
+                    if (ok && model->getSizeEditVessel() < 0) {
+                        msg += L"\nSa man\u0153uvrabilit\u00E9 suit au prochain lancement du sc\u00E9nario.";
+                    }
+                    gui->setSizeEditorStatus(msg, !ok);
+                    break;
+                }
+                case GUIMain::GUI_ID_SEDIT_REVERT:
+                    model->sizeEditRevert();
+                    gui->setSizeEditorStatus(L"Taille et flottaison de l'ouverture r\u00E9tablies (rien n'est enregistr\u00E9).", false);
+                    break;
+                case GUIMain::GUI_ID_SEDIT_CLOSE:
+                    model->endSizeEdit();
+                    gui->closeSizeEditor();
+                    break;
+                default: break;
+                }
+                device->getGUIEnvironment()->setFocus(0); //keys go back to sizing the ship
+                return true;
+            }
+
+            //KYARA FEUX EDIT: the placement editor
+            if (id == GUIMain::GUI_ID_LIGHTS_EDIT_BUTTON)
+            {
+                const int vessel = gui->getLightsVessel();
+                if (model->beginLightEdit(vessel)) {
+                    gui->openLightEditor(vessel);
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            //Light editor: what a click on the vessel does, the type and colour of a new lamp
+            if (model->isLightEditing() &&
+                (id == GUIMain::GUI_ID_LEDIT_CLICK_MOVE || id == GUIMain::GUI_ID_LEDIT_CLICK_ADD || id == GUIMain::GUI_ID_LEDIT_TYPE ||
+                 (id >= GUIMain::GUI_ID_LEDIT_MOVE_UP && id <= GUIMain::GUI_ID_LEDIT_STEP) ||
+                 (id >= GUIMain::GUI_ID_LEDIT_COLOUR_0 && id < GUIMain::GUI_ID_LEDIT_COLOUR_END)))
+            {
+                gui->lightEditorAction(id);
+                device->getGUIEnvironment()->setFocus(0); //the arrow keys keep moving the lamp
+                return true;
+            }
+            if (model->isLightEditing() &&
+                (id == GUIMain::GUI_ID_LEDIT_SAVE || id == GUIMain::GUI_ID_LEDIT_REVERT ||
+                 id == GUIMain::GUI_ID_LEDIT_SPACING_DOWN || id == GUIMain::GUI_ID_LEDIT_SPACING_UP ||
+                 id == GUIMain::GUI_ID_LEDIT_CLOSE || id == GUIMain::GUI_ID_LEDIT_ROLE ||
+                 id == GUIMain::GUI_ID_LEDIT_DELETE || id == GUIMain::GUI_ID_LEDIT_PROPOSE))
+            {
+                ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+                if (lights) {
+                    if (id == GUIMain::GUI_ID_LEDIT_SAVE) {
+                        std::wstring msg;
+                        const bool ok = lights->saveToIni(msg);
+                        gui->setLightEditorStatus(msg, !ok);
+                        device->getLogger()->log(ok ? "Light editor: saved" : "Light editor: SAVE FAILED");
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_PROPOSE) {
+                        std::wstring msg;
+                        const bool ok = lights->proposeLights(msg);
+                        gui->setLightEditorStatus(msg, !ok);
+                        device->getLogger()->log(ok ? "Light editor: lights proposed" : "Light editor: proposal failed");
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_REVERT) {
+                        lights->revertEdit();
+                        gui->setLightEditorStatus(L"Positions remises comme \u00E0 l'ouverture (rien n'est enregistr\u00E9).", false);
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_ROLE) { lights->cycleSelectedRole(1); }
+                    if (id == GUIMain::GUI_ID_LEDIT_DELETE && lights->deleteSelected()) {
+                        gui->setLightEditorStatus(L"Feu supprim\u00E9 - d\u00E9finitif \u00E0 l'enregistrement.", false);
+                    }
+                    if (id == GUIMain::GUI_ID_LEDIT_SPACING_DOWN) { lights->changeSignalSpacing(-0.5f); }
+                    if (id == GUIMain::GUI_ID_LEDIT_SPACING_UP) { lights->changeSignalSpacing(0.5f); }
+                }
+                if (id == GUIMain::GUI_ID_LEDIT_CLOSE) {
+                    model->endLightEdit();
+                    gui->closeLightEditor();
+                }
+                device->getGUIEnvironment()->setFocus(0); //keys go back to moving the lamp
+                return true;
             }
 
             //KYARA FEUX TAB: COLREG situation of the selected vessel
@@ -642,9 +914,24 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
             if (id == GUIMain::GUI_ID_BIG_RADAR_BUTTON)
             {
-                gui->setLargeRadar(true);
-                model->setRadarDisplayRadius(gui->getRadarPixelRadius());
-                gui->hide2dInterface();
+                if (gui->isRadarDetached()) {
+                    gui->requestRadarDetached(false); //the radar comes back on this screen
+                }
+                else {
+                    gui->setLargeRadar(true);
+                    model->setRadarDisplayRadius(gui->getRadarPixelRadius());
+                    gui->hide2dInterface();
+                }
+            }
+
+            //Large radar in its own window, and back (the button is on the radar, in either place)
+            if (id == GUIMain::GUI_ID_DETACH_RADAR_BUTTON)
+            {
+                gui->requestRadarDetached(!gui->isRadarDetached());
+            }
+            if (id == GUIMain::GUI_ID_RADAR_FULLSCREEN_BUTTON)
+            {
+                gui->requestRadarFullScreenToggle();
             }
 
             if (id == GUIMain::GUI_ID_SMALL_RADAR_BUTTON)
@@ -797,6 +1084,11 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 gui->showLogWindow();
             }
 
+            if (id == GUIMain::GUI_ID_DETACH_CONSOLE_BUTTON)
+            {
+                gui->toggleConsoleDetached();
+            }
+
             if (id == GUIMain::GUI_ID_HIDE_EXTRA_CONTROLS_BUTTON)
             {
                 gui->setExtraControlsWindowVisible(false);
@@ -804,7 +1096,8 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
             if (id == GUIMain::GUI_ID_SHOW_EXTRA_CONTROLS_BUTTON)
             {
-                gui->setExtraControlsWindowVisible(true);
+                gui->toggleExtraControlsWindow();
+                device->getGUIEnvironment()->setFocus(0);
             }
 
             if (id == GUIMain::GUI_ID_HIDE_LINES_CONTROLS_BUTTON)
@@ -820,31 +1113,21 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_RUDDERPUMP_1_WORKING_BUTTON)
             {
                 model->setRudderPumpState(1, true);
-                if (model->getRudderPumpState(2))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_1_FAILED_BUTTON)
             {
                 model->setRudderPumpState(1, false);
-                model->setAlarm(true);
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_2_WORKING_BUTTON)
             {
                 model->setRudderPumpState(2, true);
-                if (model->getRudderPumpState(1))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
 
             if (id == GUIMain::GUI_ID_RUDDERPUMP_2_FAILED_BUTTON)
             {
                 model->setRudderPumpState(2, false);
-                model->setAlarm(true);
             }
 
             if (id == GUIMain::GUI_ID_FOLLOWUP_WORKING_BUTTON)
@@ -860,13 +1143,15 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_ACK_ALARMS_BUTTON)
             {
                 model->setAlarm(false);
+                model->getRadar().acknowledgeCPAAlarm();
+                model->acknowledgeAlerts();
             }
 
             if (id == GUIMain::GUI_ID_ADD_LINE_BUTTON)
             {
                 linesMode = 1;
                 model->addLine();
-                gui->setLinesControlsText("Click in 3d view to set start position for line (on own ship)"); // TODO: Add translation
+                gui->setLinesControlsText(std::wstring(L"Cliquer dans la vue 3D le point de d\u00E9part, sur le navire"));
             }
 
             if (id == GUIMain::GUI_ID_REMOVE_LINE_BUTTON)
@@ -883,6 +1168,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_COMBO_BOX_CHANGED)
         {
+
+            //AMARRES page: the line the keys and switches act on (item 0 is "Aucune")
+            if (id == GUIMain::GUI_ID_LINES_COMBO)
+            {
+                gui->selectLine(((irr::gui::IGUIComboBox*)event.GUIEvent.Caller)->getSelected() - 1);
+            }
 
             //KYARA FEUX TAB: another vessel picked - show her state, change nothing
             if (id == GUIMain::GUI_ID_LIGHTS_VESSEL_COMBO)
@@ -953,6 +1244,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 event.GUIEvent.EventType == irr::gui::EGET_ELEMENT_FOCUS_LOST))
         {
             irr::core::stringc text(((irr::gui::IGUIEditBox*)event.GUIEvent.Caller)->getText());
+            if (model->getWeatherByInstructor()) { return false; }   //multiplayer: the lighting is the instructor's
 
             irr::f32 hours = 12.0f;
             int hh = 0, mm = 0;
@@ -1122,6 +1414,92 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             cancelShutdown();
         }
         return true;
+    }
+
+    //While sizing a vessel, Up / Down change her length and Page Up / Down lift or sink
+    //her; A/D, W/S, Q/E turn and zoom the camera. Taken here so none of them also steers the ship.
+    irr::gui::IGUIElement* sizeFocus = device->getGUIEnvironment()->getFocus();
+    //Instructor camera (multiplayer): its own keys - the ship watched, the view. A bridge's keys do
+    //nothing here (Escape still quits).
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSpectator() && event.KeyInput.Key != irr::KEY_ESCAPE) {
+        if (event.KeyInput.PressedDown) {
+            const irr::EKEY_CODE k = event.KeyInput.Key;
+            if (k >= irr::KEY_KEY_1 && k <= irr::KEY_KEY_9) { model->setSpectatorTarget((int)(k - irr::KEY_KEY_1)); }
+            else if (k >= irr::KEY_NUMPAD1 && k <= irr::KEY_NUMPAD9) { model->setSpectatorTarget((int)(k - irr::KEY_NUMPAD1)); }
+            else if (k == irr::KEY_TAB) { model->nextSpectatorTarget(event.KeyInput.Shift ? -1 : 1); }
+            else if (k == irr::KEY_KEY_V) { model->setSpectatorView(model->getSpectatorView() + 1); }
+        }
+        return true;
+    }
+
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSizeEditing() &&
+        !(sizeFocus && sizeFocus->getType() == irr::gui::EGUIET_EDIT_BOX)) //typing in a box wins
+    {
+        const irr::EKEY_CODE k = event.KeyInput.Key;
+        const bool ours = (k == irr::KEY_UP || k == irr::KEY_DOWN || k == irr::KEY_PRIOR || k == irr::KEY_NEXT ||
+            k == irr::KEY_KEY_A || k == irr::KEY_KEY_D || k == irr::KEY_KEY_W || k == irr::KEY_KEY_S ||
+            k == irr::KEY_KEY_Q || k == irr::KEY_KEY_E);
+        if (ours) {
+            if (event.KeyInput.PressedDown) {
+                const irr::f32 lenStep = event.KeyInput.Shift ? 0.1f : (event.KeyInput.Control ? 10.0f : 1.0f);
+                const irr::f32 wlStep = event.KeyInput.Shift ? 0.01f : (event.KeyInput.Control ? 0.5f : 0.05f);
+                switch (k) {
+                case irr::KEY_UP:    model->sizeEditStepLength(lenStep); break;
+                case irr::KEY_DOWN:  model->sizeEditStepLength(-lenStep); break;
+                case irr::KEY_PRIOR: model->sizeEditStepDraught(-wlStep); break; //up out of the water
+                case irr::KEY_NEXT:  model->sizeEditStepDraught(wlStep); break;
+                case irr::KEY_KEY_A: model->lightEditOrbit(-5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_D: model->lightEditOrbit(5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_W: model->lightEditOrbit(0.0f, 5.0f, 1.0f); break;
+                case irr::KEY_KEY_S: model->lightEditOrbit(0.0f, -5.0f, 1.0f); break;
+                case irr::KEY_KEY_Q: model->lightEditOrbit(0.0f, 0.0f, 0.9f); break;
+                case irr::KEY_KEY_E: model->lightEditOrbit(0.0f, 0.0f, 1.1f); break;
+                default: break;
+                }
+            }
+            return true; //the key-up too, so nothing downstream sees half a key press
+        }
+    }
+
+    //KYARA FEUX EDIT: while placing lamps, the arrows / Page keys move the selected lamp in the
+    //ship's frame, Tab picks the next one, and A/D, W/S, Q/E turn and zoom the camera. Taken here,
+    //before the normal key handling, so none of them also steers the ship or turns the bridge view.
+    irr::gui::IGUIElement* editFocus = device->getGUIEnvironment()->getFocus();
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isLightEditing() &&
+        !(editFocus && editFocus->getType() == irr::gui::EGUIET_EDIT_BOX)) //typing in a box wins
+    {
+        ShipLights* lights = model->getShipLights(model->getLightEditVessel());
+        const irr::EKEY_CODE k = event.KeyInput.Key;
+        const bool ours = (k == irr::KEY_UP || k == irr::KEY_DOWN || k == irr::KEY_LEFT || k == irr::KEY_RIGHT ||
+            k == irr::KEY_PRIOR || k == irr::KEY_NEXT || k == irr::KEY_TAB ||
+            k == irr::KEY_KEY_A || k == irr::KEY_KEY_D || k == irr::KEY_KEY_W || k == irr::KEY_KEY_S ||
+            k == irr::KEY_KEY_Q || k == irr::KEY_KEY_E || k == irr::KEY_KEY_R || k == irr::KEY_DELETE);
+        if (lights && ours) {
+            if (event.KeyInput.PressedDown) {
+                const irr::f32 step = event.KeyInput.Shift ? 0.05f : (event.KeyInput.Control ? 1.0f : 0.25f);
+                switch (k) {
+                case irr::KEY_UP:    lights->moveSelected(step, 0.0f, 0.0f); break;
+                case irr::KEY_DOWN:  lights->moveSelected(-step, 0.0f, 0.0f); break;
+                case irr::KEY_LEFT:  lights->moveSelected(0.0f, -step, 0.0f); break;
+                case irr::KEY_RIGHT: lights->moveSelected(0.0f, step, 0.0f); break;
+                case irr::KEY_PRIOR: lights->moveSelected(0.0f, 0.0f, step); break;
+                case irr::KEY_NEXT:  lights->moveSelected(0.0f, 0.0f, -step); break;
+                case irr::KEY_TAB:
+                    lights->selectEditItem(lights->getSelectedEditItem() + (event.KeyInput.Shift ? -1 : 1));
+                    break;
+                case irr::KEY_KEY_A: model->lightEditOrbit(-5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_D: model->lightEditOrbit(5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_W: model->lightEditOrbit(0.0f, 5.0f, 1.0f); break;
+                case irr::KEY_KEY_S: model->lightEditOrbit(0.0f, -5.0f, 1.0f); break;
+                case irr::KEY_KEY_Q: model->lightEditOrbit(0.0f, 0.0f, 0.9f); break;
+                case irr::KEY_KEY_E: model->lightEditOrbit(0.0f, 0.0f, 1.1f); break;
+                case irr::KEY_KEY_R: lights->cycleSelectedRole(event.KeyInput.Shift ? -1 : 1); break;
+                case irr::KEY_DELETE: lights->deleteSelected(); break;
+                default: break;
+                }
+            }
+            return true; //the key-up too, so nothing downstream sees half a key press
+        }
     }
 
     if (event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown)
@@ -2065,10 +2443,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump1On, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump1On, previousButtonState))
             {
                 model->setRudderPumpState(1, true);
-                if (model->getRudderPumpState(2))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
         }
 
@@ -2078,7 +2452,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump1Off, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump1Off, previousButtonState))
             {
                 model->setRudderPumpState(1, false);
-                model->setAlarm(true);
             }
         }
 
@@ -2088,10 +2461,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump2On, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump2On, previousButtonState))
             {
                 model->setRudderPumpState(2, true);
-                if (model->getRudderPumpState(1))
-                {
-                    model->setAlarm(false); // Only turn off alarm if other pump is working
-                }
             }
         }
 
@@ -2101,7 +2470,6 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonPump2Off, thisButtonState) && !IsButtonPressed(joystickSetup.joystickButtonPump2Off, previousButtonState))
             {
                 model->setRudderPumpState(2, false);
-                model->setAlarm(true);
             }
         }
 
@@ -2152,6 +2520,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (IsButtonPressed(joystickSetup.joystickButtonAckAlarm, thisButtonState))
             {
                 model->setAlarm(false);
+                model->acknowledgeAlerts();
             }
         }
 
@@ -2380,6 +2749,21 @@ bool MyEventReceiver::IsButtonPressed(irr::u32 button, irr::u32 buttonBitmap) co
     return (buttonBitmap & (1 << button)) ? true : false;
 }
 
+void MyEventReceiver::applySizeEditorBox(int boxId)
+{
+    irr::f32 metres = 0.0f;
+    if (!gui->getSizeEditorValue(boxId, metres)) {
+        gui->setSizeEditorStatus(L"Valeur illisible : tapez un nombre en m\u00E8tres, par exemple 42,5", true);
+    }
+    else if (boxId == GUIMain::GUI_ID_SEDIT_LENGTH_BOX) {
+        model->sizeEditSetLength(metres);
+    }
+    else {
+        model->sizeEditSetDraught(metres);
+    }
+    device->getGUIEnvironment()->setFocus(0); //so the box takes the new value, and the keys work again
+}
+
 void MyEventReceiver::startShutdown()
 {
     //KYARA: Esc / Quitter now PAUSES and asks. "Oui" quits, "Non" (or Esc again) resumes the
@@ -2419,7 +2803,7 @@ void MyEventReceiver::aimMonitor(irr::s32 mx, irr::s32 my)
 {
     // Reuse the SAME column-aware pick ray as mooring, so aiming is correct on the
     // triple-screen (Eyefinity) build - no separate ray maths to drift out of sync.
-    irr::core::line3df ray = model->getMooringRay(mx, my, gui->getShowInterface());
+    irr::core::line3df ray = model->getMooringRay(mx, my, gui->getCompact3dView());
     model->setMonitorAimFromRay(ray);
 }
 void MyEventReceiver::handleMooringLines(irr::core::line3df rayForLines)
@@ -2502,7 +2886,7 @@ void MyEventReceiver::handleMooringLines(irr::core::line3df rayForLines)
                 model->getLines()->setLineStart(contactNode, nodeType, nodeID, false, -1); // Start should always be on 'own ship' so nodeType = 1, and ID does not matter (leave as 0)
                 // Move on to end point
                 linesMode = 2;
-                gui->setLinesControlsText("Click in 3d view to set end position for line"); // TODO: Add translation
+                gui->setLinesControlsText(std::wstring(L"Cliquer dans la vue 3D le point d'arriv\u00E9e (\u00E0 terre ou sur l'autre navire)"));
 
                 // special case for 'anchoring', set end node at sea bed under the starting node
                 if (gui->getAnchorLine()) {

@@ -31,15 +31,20 @@
 #include "ShipPositions.hpp"
 #include "LinesData.hpp"
 #include "EventReceiver.hpp"
+#include "InstructorStation.hpp"
+#include "../chartView/ChartView.hpp"
+#include "../UiTheme.hpp"
 
 #include <fstream> //To save to log
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h> // For GetSystemMetrics
+#include <shellapi.h> // For ShellExecuteA (the instructor camera)
 #include <direct.h> //for windows _mkdir
 #else
 #include <sys/stat.h>
+#include <unistd.h> //fork, execl (the instructor camera)
 #endif // _WIN32
 
 
@@ -71,6 +76,29 @@ std::string makeTimeString(uint64_t absoluteTime, uint64_t offsetTime, irr::f32 
     timeString.append(",");
     timeString.append(Utilities::lexical_cast<std::string>(accelerator));
     return timeString;
+}
+
+//Opens the instructor's 3D camera: the simulator in spectator mode, waiting for this hub on port
+static void startInstructorCamera(int port)
+{
+    const std::string portText = std::to_string(port);
+#ifdef _WIN32
+    std::string params = "-spectator " + portText;
+    if (GetSystemMetrics(SM_CMONITORS) >= 2) { params += " -monitor 2"; } //the hub keeps the first screen
+    ShellExecuteA(NULL, NULL, "Simulator-nav.exe", params.c_str(), NULL, SW_SHOW);
+#else
+    const int pid = fork();
+    if (pid != 0) { return; }
+#ifdef __APPLE__
+    execl("../MacOS/bc.app/Contents/MacOS/bc", "bc", "-spectator", portText.c_str(), (char*)NULL);
+#else
+#ifdef FOR_DEB
+    if (chdir("/usr/bin") != 0) {}
+#endif
+    execl("./Simulator-bc", "Simulator-bc", "-spectator", portText.c_str(), (char*)NULL);
+#endif
+    _exit(EXIT_FAILURE); //only if the simulator could not be started
+#endif
 }
 
 int main()
@@ -171,15 +199,16 @@ int main()
     deskres = nulldevice->getVideoModeList()->getDesktopResolution();
     nulldevice->drop();
     #endif
+    //(The desktop size can read as 0 x 0 when it cannot be found; then keep the default size.)
     if (graphicsWidth==0) {
-        graphicsWidth = 1200 * fontScale;
-        if (graphicsWidth > deskres.Width*0.90) {
+        graphicsWidth = 1600 * fontScale; //the instructor station: chart, students, weather and failures side by side
+        if (deskres.Width > 0 && graphicsWidth > deskres.Width*0.90) {
             graphicsWidth = deskres.Width*0.90;
         }
     }
     if (graphicsHeight==0) {
-        graphicsHeight = 900 * fontScale;
-        if (graphicsHeight > deskres.Height*0.90) {
+        graphicsHeight = 960 * fontScale;
+        if (deskres.Height > 0 && graphicsHeight > deskres.Height*0.90) {
             graphicsHeight = deskres.Height*0.90;
         }
     }
@@ -197,36 +226,8 @@ int main()
     irr::gui::IGUIEnvironment* guienv = device->getGUIEnvironment();
     irr::gui::IGUISkin* skin = guienv->getSkin();
 
-    // palette 
-    irr::video::SColor deepBlue(255, 28, 111, 167);
-    irr::video::SColor shadowBlue(255, 0, 0, 0);
-    irr::video::SColor black(255, 0, 0, 0);
-    irr::video::SColor white(255, 255, 255, 255);
-    irr::video::SColor yellow(255, 255, 255, 0);
-
-    //   borders shadows
-    skin->setColor(irr::gui::EGDC_3D_SHADOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_DARK_SHADOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_HIGH_LIGHT, deepBlue);
-
-    // Background  windows, buttons,edit boxes
-    skin->setColor(irr::gui::EGDC_WINDOW, deepBlue);
-    skin->setColor(irr::gui::EGDC_3D_FACE, white);
-    skin->setColor(irr::gui::EGDC_EDITABLE, deepBlue);
-    skin->setColor(irr::gui::EGDC_FOCUSED_EDITABLE, shadowBlue);
-    skin->setColor(irr::gui::EGDC_GRAY_EDITABLE, deepBlue);
-
-    //  Normal text
-    skin->setColor(irr::gui::EGDC_BUTTON_TEXT, black);
-    skin->setColor(irr::gui::EGDC_GRAY_TEXT, white);
-
-
-    //  Selection colours
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT, black);  // selected-item background
-    skin->setColor(irr::gui::EGDC_HIGH_LIGHT_TEXT, yellow); // selected-item text
-
-    //  tooltips frames etc.
-    skin->setColor(irr::gui::EGDC_TOOLTIP, deepBlue);
+    //Dark navy look, as the launcher.
+    Ui::applySkin(skin);
     const irr::s32 SCENARIO_BOX_ID = 101;
     const irr::s32 WORLD_BOX_ID = 102;
     const irr::s32 OK_SCENARIO_BUTTON_ID = 103;
@@ -234,12 +235,8 @@ int main()
     const irr::s32 IMPORT_SCENARIO_BUTTON_ID = 105;
     const irr::s32 EXPORT_SCENARIO_BUTTON_ID = 106;
     const irr::s32 IMPORT_EXPORT_OK_BUTTON_ID = 107;
-    device->setWindowCaption(L"Multiplayer Hub"); //Fixme - odd conversion from char* to wchar*!
-
- 
-
-
-    device->setWindowCaption(L"Multiplayer Hub"); //Fixme - odd conversion from char* to wchar*!
+    const bool french = (modifier == "fr");
+    device->setWindowCaption(french ? L"NAUTITECH - Hub multijoueur" : L"NAUTITECH - Multiplayer hub");
     irr::video::IVideoDriver* driver = device->getVideoDriver();
     irr::scene::ISceneManager* smgr = device->getSceneManager();
 
@@ -261,6 +258,7 @@ int main()
 
     //Get user input for hostnames and scenario name
     std::string hostnames;
+    bool openCamera = false; //the instructor's 3D camera on this PC
     std::string scenarioName;
     //Scenario path - default to user dir if it exists
     std::string scenarioPath = "Scenarios/";
@@ -271,10 +269,25 @@ int main()
     //Find default hostname if set in user directory (hostname-mp.txt)
     if (Utilities::pathExists(userFolder + "/hostname-mh.txt")) {
         hostnames=IniFile::iniFileToString(userFolder + "/hostname-mh.txt","hostname");
+        openCamera = IniFile::iniFileTou32(userFolder + "/hostname-mh.txt", "camera") == 1;
     }
     
-    ScenarioChoice scenarioChoice(device,&language);
-    scenarioChoice.chooseScenario(scenarioName,hostnames,scenarioPath);
+    //Fonts in the sizes the screens use.
+    const std::string uiFontName = fontName.empty() ? std::string("noto-sans") : fontName;
+    auto uiFont = [&](int size) -> irr::gui::IGUIFont* {
+        size = (int)(size * fontScale + 0.5f);
+        if (size > 36) { size = 36; }
+        irr::gui::IGUIFont* f = device->getGUIEnvironment()->getFont(("media/fonts/" + uiFontName + "/" + uiFontName + "-" + std::to_string(size) + ".xml").c_str());
+        return f ? f : device->getGUIEnvironment()->getSkin()->getFont();
+    };
+    irr::gui::IGUIFont* bigFont = uiFont(36);
+    irr::gui::IGUIFont* titleFont = uiFont(20);
+    irr::gui::IGUIFont* textFont = uiFont(15);
+    irr::gui::IGUIFont* smallFont = uiFont(13);
+
+    ScenarioChoice scenarioChoice(device,&language,french);
+    scenarioChoice.setFonts(titleFont, textFont, smallFont);
+    scenarioChoice.chooseScenario(scenarioName,hostnames,scenarioPath,openCamera);
 
     //Save hostname in user directory (hostname.txt). Check first that the location exists
     if (!Utilities::pathExists(Utilities::getUserDirBase())) {
@@ -300,13 +313,31 @@ int main()
         std::ofstream file (hostnameFile.c_str());
         if (file.is_open()) {
             file << "hostname=" << hostnames << std::endl;
+            file << "camera=" << (openCamera ? 1 : 0) << std::endl;
             file.close();
         }
     }
 
 
     Network network(port);
-    network.connectToServer(hostnames);
+    //Every station typed keeps its number (and its ship), answering now or not: one that is not
+    //started yet, or that drops out, is tried again every few seconds and joins when it answers
+    network.connectToServer(hostnames, true);
+
+    //The instructor's 3D camera: the simulator in spectator mode, opened here on this PC (on the
+    //second screen when there is one), and any camera station named in mph.ini (camera_hosts=PC:port,...)
+    Network cameraNetwork(port);
+    if (openCamera) {
+        const int cameraPort = 18320;
+        startInstructorCamera(cameraPort);
+        //(it takes a few seconds to open: each attempt waits up to a second)
+        for (int attempt = 0; attempt < 45 && cameraNetwork.getNumberOfPeers() == 0; attempt++) {
+            cameraNetwork.connectToServer("localhost:" + std::to_string(cameraPort));
+        }
+        if (cameraNetwork.getNumberOfPeers() == 0) { std::cout << "Instructor camera: no answer" << std::endl; }
+    }
+    const std::string cameraHosts = IniFile::iniFileToString(iniFilename, "camera_hosts");
+    if (!cameraHosts.empty()) { cameraNetwork.connectToServer(cameraHosts); }
 
     unsigned int numberOfPeers = network.getNumberOfPeers();
 
@@ -341,18 +372,38 @@ int main()
 
     //Add some simple information to the GUI, so the user knows it's running
     //Add text, which will list connected peers, and current time.
-    irr::u32 su = driver->getScreenSize().Width;
-    irr::u32 sh = driver->getScreenSize().Height;
-    irr::gui::IGUIStaticText* text = device->getGUIEnvironment()->addStaticText(L"",irr::core::rect<irr::s32>(0.01*su,0.01*sh,0.99*su,0.74*sh),true);
+    std::string exerciseName = scenarioName;
+    if (exerciseName.size() > 3) { exerciseName = exerciseName.substr(0, exerciseName.size() - 3); } //without _mp
+    //The instructor's station: the clock, the live chart, the students' state, weather, failures, messages
+    InstructorStation::ScenarioWeather scenarioWeather;
+    scenarioWeather.sea = masterScenarioData.weather;
+    scenarioWeather.rain = masterScenarioData.rainIntensity;
+    scenarioWeather.visibilityNm = masterScenarioData.visibilityRange;
+    scenarioWeather.windDir = masterScenarioData.windDirection;
+    scenarioWeather.windKn = masterScenarioData.windSpeed;
+    InstructorStation* dashboard = new InstructorStation(device, french, std::wstring(exerciseName.begin(), exerciseName.end()), numberOfPeers,
+        masterScenarioData.worldName, scenarioWeather, bigFont, titleFont, textFont, smallFont);
+    std::vector<std::wstring> unreached;
+    for (size_t i = 0; i < network.getUnreachedNames().size(); i++) {
+        unreached.push_back(std::wstring(network.getUnreachedNames()[i].begin(), network.getUnreachedNames()[i].end()));
+    }
+    dashboard->setUnreached(unreached);
 
     // Add run and pause buttons
     irr::s32 runButtonID = 101;
     irr::s32 pauseButtonID = 102;
-    irr::gui::IGUIButton* runButton = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.01*su,0.76*sh,0.49*su,0.99*sh), 0, runButtonID, language.translate("run").c_str());
-    irr::gui::IGUIButton* pauseButton = device->getGUIEnvironment()->addButton(irr::core::rect<irr::s32>(0.51*su,0.76*sh,0.99*su,0.99*sh), 0, pauseButtonID, language.translate("pause").c_str());
+    Ui::Button* runButton = new Ui::Button(device->getGUIEnvironment(), dashboard, runButtonID, dashboard->runRect(),
+        french ? L"D\u00E9marrer" : L"Run", Ui::Button::Primary);
+    Ui::Button* pauseButton = new Ui::Button(device->getGUIEnvironment(), dashboard, pauseButtonID, dashboard->pauseRect(),
+        french ? L"Pause" : L"Pause", Ui::Button::Secondary);
+    runButton->setFont(textFont);
+    pauseButton->setFont(textFont);
+    runButton->drop();
+    pauseButton->drop();
 
     // Setup event receiver
     EventReceiver eventReceiver(pauseButtonID, runButtonID, accelerator);
+    eventReceiver.setGuiEnvironment(device->getGUIEnvironment()); //(no shortcuts while a message is typed)
     device->setEventReceiver(&eventReceiver);
 
     //Fixme: Think about time zone handling
@@ -362,6 +413,7 @@ int main()
     absoluteTime = Utilities::round(scenarioTime) + scenarioOffsetTime;
 
     //for each peer, build basic scenario information (own ship, other ships, excluding this one)
+    //(sent now to the stations that answered, and to the others when they join)
     std::vector<ScenarioData> peerScenarioData;
     for(unsigned int thisPeer = 0; thisPeer<numberOfPeers; thisPeer++ ) {
         //Own ship data gets populated from other ship (including 1st leg if it exists
@@ -383,7 +435,7 @@ int main()
             thisPeerData.otherShipsData.erase(thisPeerData.otherShipsData.begin()+thisPeer);
 
             //Send initial scenario information (reliable packet)
-            network.sendString(thisPeerData.serialise(false),true,thisPeer);
+            if (network.isConnected(thisPeer)) { network.sendString(thisPeerData.serialise(false),true,thisPeer); }
 
             //Store the data for this peer
             peerScenarioData.push_back(thisPeerData);
@@ -394,17 +446,116 @@ int main()
         }
     }
 
+    //The cameras: every ship of the exercise as another ship; their own ship (hidden) is the first one
+    if (cameraNetwork.getNumberOfPeers() > 0 && !masterScenarioData.otherShipsData.empty()) {
+        ScenarioData cameraData = masterScenarioData;
+        cameraData.ownShipData.ownShipName = cameraData.otherShipsData.at(0).shipName;
+        cameraData.ownShipData.initialLat = cameraData.otherShipsData.at(0).initialLat;
+        cameraData.ownShipData.initialLong = cameraData.otherShipsData.at(0).initialLong;
+        cameraData.ownShipData.initialSpeed = 0;
+        cameraData.ownShipData.initialBearing = 0;
+        for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+            cameraNetwork.sendString(cameraData.serialise(false), true, cam);
+        }
+    }
+
+    //What each student's simulator reports of its state, for the instructor station
+    std::vector<InstructorStation::Station> peerStatus(numberOfPeers);
+
+    //A station that joins late, or comes back after dropping out, gets its scenario with its ship
+    //where she was last seen (else at her start), then what the instructor has sent everyone since
+    double worldSouth = 0, worldWest = 0, worldLatExtent = 0, worldLongExtent = 0;
+    const bool worldKnown = ChartView::worldBounds(masterScenarioData.worldName, worldSouth, worldWest, worldLatExtent, worldLongExtent);
+    //What each station was last sent that a station coming back must get again: the weather, and
+    //what it may change itself (ICP: weather, controls; 1 the instructor's - the default -, 0 free)
+    std::vector<std::string> lastWeather(numberOfPeers);
+    std::vector<int> lockWeather(numberOfPeers, 1), lockControls(numberOfPeers, 1);
+    auto remember = [&](const InstructorStation::Command& c) {
+        for (unsigned int p = 0; p < numberOfPeers; p++) {
+            if (c.station >= 0 && (unsigned int)c.station != p) { continue; }
+            if (c.text.compare(0, 3, "ICW") == 0) { lastWeather[p] = c.text; }
+            if (c.text.compare(0, 3, "ICL") == 0) { lockWeather[p] = c.text == "ICL,1" ? 1 : 0; }
+            if (c.text.compare(0, 3, "ICP") == 0) {
+                std::vector<std::string> f = Utilities::split(c.text, ',');
+                if (f.size() >= 3) {
+                    if (f[1] != "-1") { lockWeather[p] = f[1] == "1" ? 1 : 0; }
+                    if (f[2] != "-1") { lockControls[p] = f[2] == "1" ? 1 : 0; }
+                }
+            }
+        }
+    };
+    const auto hubStart = std::chrono::steady_clock::now();
+
+    //The name each ship shows on the others' radar and AIS: the station and the ship
+    auto stationLabel = [&](unsigned int g) -> std::string {
+        std::string ship = g < masterScenarioData.otherShipsData.size() ? masterScenarioData.otherShipsData[g].shipName : std::string();
+        return "POSTE " + std::to_string(g + 1) + (ship.empty() ? std::string() : " - " + ship);
+    };
+    //Once a station's simulator runs (its first report), it is told the names of the others and
+    //what the instructor has sent everyone (a simulator still loading could miss them)
+    std::vector<bool> greeted(numberOfPeers, false);
+    auto greet = [&](unsigned int p) {
+        std::string names = "ICN,";
+        unsigned int local = 0;
+        for (unsigned int g = 0; g < numberOfOtherShips + 1; g++) {
+            if (g == p) { continue; }
+            const std::string label = stationLabel(g);
+            char hex[8];
+            std::string encoded;
+            for (size_t c = 0; c < label.size(); c++) { snprintf(hex, sizeof(hex), "%04X", (unsigned char)label[c]); encoded += hex; }
+            names += (local ? "|" : "") + std::to_string(local) + "," + encoded;
+            local++;
+        }
+        network.sendString(names, true, p);
+        if (!lastWeather[p].empty()) { network.sendString(lastWeather[p], true, p); }
+        network.sendString("ICP," + std::to_string(lockWeather[p]) + "," + std::to_string(lockControls[p]), true, p);
+        greeted[p] = true;
+    };
+
     //Start main loop, listening for updates from PCs and sending out scenario update, including time handling
     while(device->run())
     {
 
-        driver->beginScene(true, true, irr::video::SColor(0,128,128,128));
+        driver->beginScene(true, true, Ui::background);
 
         // Pause, so we don't flood clients with data
         device->sleep(sleepTime);
 
         // Find current time acceleration
         accelerator = eventReceiver.getAccelerator();
+
+        //Stations: drop the silent ones, call the missing ones, welcome the ones that answer
+        network.maintain((unsigned long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - hubStart).count());
+        network.listenForMessages();
+        const std::vector<unsigned int> lostStations = network.takeLost();
+        for (size_t k = 0; k < lostStations.size(); k++) {
+            const unsigned int i = lostStations[k];
+            std::cout << "Station " << i + 1 << " (" << network.getPeerName(i) << ") lost" << std::endl;
+            shipPositionData.setReported(i, false);   //hidden from the others until she is back
+            if (i < peerStatus.size()) { peerStatus[i] = InstructorStation::Station(); }
+            if (i < greeted.size()) { greeted[i] = false; }
+        }
+        const std::vector<unsigned int> joinedStations = network.takeJoined();
+        for (size_t k = 0; k < joinedStations.size(); k++) {
+            const unsigned int i = joinedStations[k];
+            if (i >= peerScenarioData.size()) { continue; }
+            ScenarioData data = peerScenarioData[i];
+            irr::f32 lx = 0, lz = 0, lSpeed = 0, lBearing = 0, lRot = 0;
+            if (worldKnown && shipPositionData.wasSeen(i)) {
+                shipPositionData.getShipPosition(i, scenarioTime, lx, lz, lSpeed, lBearing, lRot);
+                const double widthM = worldLongExtent * 2.0 * PI * EARTH_RAD_M * cos((worldSouth + worldLatExtent / 2.0) * PI / 180.0) / 360.0;
+                const double heightM = worldLatExtent * 2.0 * PI * EARTH_RAD_M / 360.0;
+                if (widthM > 0 && heightM > 0) {
+                    data.ownShipData.initialLong = (irr::f32)(worldWest + lx * worldLongExtent / widthM);
+                    data.ownShipData.initialLat = (irr::f32)(worldSouth + lz * worldLatExtent / heightM);
+                    data.ownShipData.initialBearing = lBearing;
+                    data.ownShipData.initialSpeed = lSpeed * MPS_TO_KTS;
+                }
+            }
+            std::cout << "Station " << i + 1 << " (" << network.getPeerName(i) << ") joined" << std::endl;
+            network.sendString(data.serialise(false), true, i);
+            if (i < greeted.size()) { greeted[i] = false; }   //(names, weather and access at its first report)
+        }
 
         //Do time handling here.
         currentTime = std::chrono::system_clock::now();
@@ -417,6 +568,69 @@ int main()
         absoluteTime = Utilities::round(scenarioTime) + scenarioOffsetTime;
 
         std::string timeString = makeTimeString(absoluteTime,scenarioOffsetTime,scenarioTime,accelerator);
+
+        //One ship's record for the update: PosX,PosZ,Heading,speed (kts),rate of turn,absent marker,MMSI,legs
+        auto shipRecord = [&](unsigned int i) -> std::string {
+            std::string otherShipsString;
+            irr::f32 thisOtherShipX = 0;
+            irr::f32 thisOtherShipZ = 0;
+            irr::f32 thisOtherShipSpeed = 0;
+            irr::f32 thisOtherShipBearing = 0;
+            irr::f32 thisOtherShipRateOfTurn = 0;
+            shipPositionData.getShipPosition(i, scenarioTime, thisOtherShipX, thisOtherShipZ, thisOtherShipSpeed, thisOtherShipBearing, thisOtherShipRateOfTurn);
+            //No student on this ship (or none has reported yet): marked absent, and sent far
+            //away, so that even an older simulator does not show a ship stopped at the map's
+            //origin, on the chart, the radar or the 3D view.
+            const bool absent = !shipPositionData.isReported(i);
+            if (absent) {
+                thisOtherShipX = -1.0e7f;
+                thisOtherShipZ = -1.0e7f;
+                thisOtherShipSpeed = 0;
+                thisOtherShipRateOfTurn = 0;
+            }
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipX));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipZ));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipBearing));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS));
+            otherShipsString.append(",");
+            otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipRateOfTurn));
+            otherShipsString.append(",");
+            otherShipsString.append(absent ? "A,0,0,0" : "0,0,0,0"); //absent marker (was SART), MMSI, number of legs, leg info
+            return otherShipsString;
+        };
+
+        //The instructor's cameras: every ship (they have none of their own), no lines
+        for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+            std::string cameraUpdate = "BC" + timeString + "#0#" + Utilities::lexical_cast<std::string>(numberOfOtherShips + 1) + ",0,0,0#";
+            for (unsigned int i = 0; i < (numberOfOtherShips + 1); i++) {
+                if (i) { cameraUpdate.append("|"); }
+                cameraUpdate.append(shipRecord(i));
+            }
+            cameraUpdate.append("#4#5#6#7#8#9#10##12");
+            cameraNetwork.sendString(cameraUpdate, false, cam);
+        }
+        cameraNetwork.listenForMessages(); //(keeps the connections alive; a camera sends nothing back)
+        //The cameras show the ships by their stations' names too: told every few seconds, as a
+        //camera says nothing back (and may still be loading)
+        {
+            static irr::f32 lastNamesTime = -100.0f;
+            const irr::f32 nowS = std::chrono::duration<irr::f32>(std::chrono::steady_clock::now() - hubStart).count();
+            if (cameraNetwork.getNumberOfPeers() > 0 && nowS - lastNamesTime > 5.0f) {
+                lastNamesTime = nowS;
+                std::string names = "ICN,";
+                for (unsigned int g = 0; g < numberOfOtherShips + 1; g++) {
+                    const std::string label = stationLabel(g);
+                    char hex[8];
+                    std::string encoded;
+                    for (size_t c = 0; c < label.size(); c++) { snprintf(hex, sizeof(hex), "%04X", (unsigned char)label[c]); encoded += hex; }
+                    names += (g ? "|" : "") + std::to_string(g) + "," + encoded;
+                }
+                for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) { cameraNetwork.sendString(names, true, cam); }
+            }
+        }
 
         //for each peer
         for(unsigned int thisPeer = 0; thisPeer<numberOfPeers; thisPeer++ ) {
@@ -443,34 +657,7 @@ int main()
             std::string otherShipsString;
             for(unsigned int i = 0; i < (numberOfOtherShips+1); i++) {
                 if (i!=thisPeer) {
-                    irr::f32 thisOtherShipX = 0;
-                    irr::f32 thisOtherShipZ = 0;
-                    irr::f32 thisOtherShipSpeed = 0;
-                    irr::f32 thisOtherShipBearing = 0;
-                    irr::f32 thisOtherShipRateOfTurn = 0;
-
-                    shipPositionData.getShipPosition(i,
-                                                     scenarioTime,
-                                                     thisOtherShipX,
-                                                     thisOtherShipZ,
-                                                     thisOtherShipSpeed,
-                                                     thisOtherShipBearing,
-                                                     thisOtherShipRateOfTurn);
-
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipX));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipZ));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipBearing));
-                    otherShipsString.append(",");
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS));
-                    otherShipsString.append(",");
-
-                    // TODO: Send Rate of turn here
-                    otherShipsString.append(Utilities::lexical_cast<std::string>(thisOtherShipRateOfTurn));
-                    otherShipsString.append(",");
-
-                    otherShipsString.append("0,0,0,0"); //SART enabled, MMSI, number of legs,leg info. TODO: Can we get MMSI
+                    otherShipsString.append(shipRecord(i));
                     otherShipsString.append("|"); //End of other ship record
                 }
             }
@@ -531,7 +718,7 @@ int main()
                 receivedMessage = receivedMessage.substr(3,receivedMessage.length()-3); //Strip 'MPF'
                 std::vector<std::string> splitMessage = Utilities::split(receivedMessage,'#');
                 //Store information
-                if (splitMessage.size() == 7) {
+                if (splitMessage.size() >= 7) { //(an 8th record: the state the instructor station shows)
                     irr::f32 thisOtherShipX = Utilities::lexical_cast<irr::f32>(splitMessage.at(0));
                     irr::f32 thisOtherShipZ = Utilities::lexical_cast<irr::f32>(splitMessage.at(1));
                     irr::f32 thisOtherShipBearing = Utilities::lexical_cast<irr::f32>(splitMessage.at(2));
@@ -539,6 +726,7 @@ int main()
                     irr::f32 thisOtherShipSpeed = Utilities::lexical_cast<irr::f32>(splitMessage.at(4));
                     irr::f32 thisOtherShipTime = Utilities::lexical_cast<irr::f32>(splitMessage.at(5));
                     shipPositionData.setShipPosition(thisPeer,thisOtherShipTime,thisOtherShipX,thisOtherShipZ,thisOtherShipSpeed,thisOtherShipBearing,thisOtherShipRateOfTurn);
+                    if (thisPeer < greeted.size() && !greeted[thisPeer]) { greet(thisPeer); }
 
                     // Lines data, from splitMessage.at(6)
                     std::vector<std::string> linesDataString = Utilities::split(splitMessage.at(6),'|');
@@ -607,18 +795,45 @@ int main()
                         }
                     }
                     // End lines data
+
+                    //The student's state: failures, steering, alerts, contacts, depth (see SimulationModel::instructorStatus)
+                    if (splitMessage.size() >= 8 && thisPeer < peerStatus.size()) {
+                        std::vector<std::string> st = Utilities::split(splitMessage.at(7), ',');
+                        if (st.size() >= 20) {
+                            try {
+                                InstructorStation::Station& ps = peerStatus[thisPeer];
+                                for (int f = 0; f < 5; f++) { ps.failure[f] = Utilities::lexical_cast<int>(st.at(f)); }
+                                ps.pump1 = st.at(5) == "1";
+                                ps.pump2 = st.at(6) == "1";
+                                ps.followUp = st.at(7) == "1";
+                                ps.alerts = Utilities::lexical_cast<int>(st.at(8));
+                                ps.unacked = Utilities::lexical_cast<int>(st.at(9));
+                                ps.oldestUnacked = Utilities::lexical_cast<irr::f32>(st.at(10));
+                                ps.collisions = Utilities::lexical_cast<int>(st.at(11));
+                                ps.groundings = Utilities::lexical_cast<int>(st.at(12));
+                                ps.contacts = Utilities::lexical_cast<int>(st.at(13));
+                                ps.depth = Utilities::lexical_cast<irr::f32>(st.at(14));
+                                ps.depthAlarm = st.at(15) == "1";
+                                ps.gyroError = Utilities::lexical_cast<irr::f32>(st.at(16));
+                                ps.gpsError = Utilities::lexical_cast<irr::f32>(st.at(17));
+                                ps.scheduled = Utilities::lexical_cast<int>(st.at(18));
+                                ps.weatherLocked = st.at(19) == "1";
+                                ps.hasLocks = st.size() >= 21;
+                                ps.controlsLocked = ps.hasLocks && st.at(20) == "1";
+                                ps.hasStatus = true;
+                            }
+                            catch (const std::exception&) {
+                                //A garbled state is ignored: the next one comes in a moment
+                            }
+                        }
+                    }
                 } // Correct number of entries in MPF
             } // MPF record
         } //End of loop for each peer
 
 
-        //TODO:
-        //Update gui time here, using Utilities::timestampToString(absoluteTime)
-        std::string displayTime = Utilities::timestampToString(absoluteTime);
-        irr::core::stringw displayText = language.translate("time");
-        displayText.append(L" ");
-        displayText.append(irr::core::stringw(displayTime.c_str()));
-        displayText.append(L"\n\n");
+        //Update the live view: clock, and each station's ship as last reported.
+        std::vector<InstructorStation::Station> stations;
         for(unsigned int i = 0; i<numberOfPeers; i++ ) {
             irr::f32 thisOtherShipX = 0;
             irr::f32 thisOtherShipZ = 0;
@@ -627,31 +842,44 @@ int main()
             irr::f32 thisOtherShipRateOfTurn = 0;
 
             shipPositionData.getShipPosition(i,scenarioTime,thisOtherShipX,thisOtherShipZ,thisOtherShipSpeed,thisOtherShipBearing,thisOtherShipRateOfTurn);
-            std::string thisShipNumber = Utilities::lexical_cast<std::string>(i+1);
-            std::string stringSpeed = Utilities::lexical_cast<std::string>(thisOtherShipSpeed*MPS_TO_KTS); //Should be in knots
-            std::string stringHeading = Utilities::lexical_cast<std::string>(thisOtherShipBearing);
-            irr::core::stringw thisShipInfo = language.translate("ship");
-            thisShipInfo.append(L": ");
-            thisShipInfo.append(irr::core::stringw(thisShipNumber.c_str()));
-            thisShipInfo.append(L"\n");
-            thisShipInfo.append(language.translate("speed"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(irr::core::stringw(stringSpeed.c_str()));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(language.translate("knots"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(language.translate("heading"));
-            thisShipInfo.append(L" ");
-            thisShipInfo.append(irr::core::stringw(stringHeading.c_str()));
-            thisShipInfo.append(L"\n");
-
-            displayText.append(thisShipInfo);
+            InstructorStation::Station station = peerStatus[i];
+            const std::string host = network.getPeerName(i);
+            const std::string ship = i < peerScenarioData.size() ? peerScenarioData[i].ownShipData.ownShipName : std::string();
+            station.host = std::wstring(host.begin(), host.end());
+            station.ship = std::wstring(ship.begin(), ship.end());
+            station.speedKts = thisOtherShipSpeed*MPS_TO_KTS;
+            station.heading = thisOtherShipBearing;
+            station.x = thisOtherShipX;
+            station.z = thisOtherShipZ;
+            //(a station reports (0, 0) before its ship is placed)
+            station.reported = shipPositionData.isReported(i) && (thisOtherShipX != 0 || thisOtherShipZ != 0);
+            station.online = network.isConnected(i);
+            stations.push_back(station);
         }
-        displayText.append(L"\n");
-        displayText.append(irr::core::stringw(linesData.getNumberOfLines()));
+        const std::string clockText = Utilities::timestampToString(absoluteTime, "%H:%M:%S");
+        const std::string dateText = Utilities::timestampToString(absoluteTime, "%d/%m/%Y");
+        dashboard->update(std::wstring(clockText.begin(), clockText.end()), std::wstring(dateText.begin(), dateText.end()),
+            accelerator, scenarioTime, stations, linesData.getNumberOfLines());
 
-
-        text->setText(displayText.c_str());
+        //What the instructor asked for: to the students' simulators, reliably
+        std::vector<InstructorStation::Command> commands = dashboard->takeCommands();
+        //The exercise's speed (x1, x2, x5, x10)
+        const irr::f32 speedAsked = dashboard->takeSpeed();
+        if (speedAsked > 0) { eventReceiver.setSpeed(speedAsked); }
+        for (size_t c = 0; c < commands.size(); c++) {
+            for (unsigned int thisPeer = 0; thisPeer < numberOfPeers; thisPeer++) {
+                if (commands[c].station >= 0 && (unsigned int)commands[c].station != thisPeer) { continue; }
+                network.sendString(commands[c].text, true, thisPeer);
+            }
+            remember(commands[c]);
+            //The weather also to the cameras, so they see what the students see
+            if (commands[c].station < 0 && commands[c].text.compare(0, 3, "ICW") == 0) {
+                for (unsigned int cam = 0; cam < cameraNetwork.getNumberOfPeers(); cam++) {
+                    cameraNetwork.sendString(commands[c].text, true, cam);
+                }
+            }
+            std::cout << "Instructor: " << commands[c].text << " -> " << (commands[c].station < 0 ? std::string("all") : std::to_string(commands[c].station + 1)) << std::endl;
+        }
 
         smgr->drawAll();
         device->getGUIEnvironment()->drawAll();

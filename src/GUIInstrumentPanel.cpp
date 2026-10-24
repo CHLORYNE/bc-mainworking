@@ -6,6 +6,7 @@
      published by the Free Software Foundation. */
 
 #include "GUIInstrumentPanel.hpp"
+#include "BridgeSkin.hpp"
 
 #include "IGUISkin.h"
 #include "IGUIFont.h"
@@ -52,39 +53,182 @@ namespace irr
             const wchar_t* CARDINALS[4] = { L"N", L"E", L"S", L"W" };
 
             //---------------------------------------------------------------------------------------------
-            //Palette. Neutral steel console with black instrument faces - the classic bridge look - so it
-            //sits comfortably next to the Nord-coloured buttons without competing with them.
-            const video::SColor PANEL_TOP(255, 72, 77, 86);
-            const video::SColor PANEL_BOTTOM(255, 43, 47, 54);
-            const video::SColor PANEL_EDGE_HI(255, 112, 118, 130);
-            const video::SColor PANEL_EDGE_LO(255, 18, 20, 24);
-            const video::SColor BEZEL_TOP(255, 186, 191, 199);
-            const video::SColor BEZEL_BOTTOM(255, 62, 66, 73);
-            const video::SColor BEZEL_INNER(255, 16, 17, 20);
-            const video::SColor FACE_CENTRE(255, 36, 39, 45);
-            const video::SColor FACE_EDGE(255, 9, 10, 12);
-            const video::SColor SCALE_WHITE(255, 232, 235, 240);
-            const video::SColor TEXT_TITLE(255, 196, 202, 212);
-            const video::SColor TEXT_DIM(255, 128, 138, 150);
-            const video::SColor NEEDLE(255, 255, 138, 0);          //instrument orange
-            const video::SColor NEEDLE_SHADOW(90, 0, 0, 0);
-            const video::SColor HUB_OUTER(255, 58, 61, 68);
-            const video::SColor HUB_INNER(255, 20, 21, 24);
-            const video::SColor BAND_PORT(255, 205, 40, 40);
-            const video::SColor BAND_STBD(255, 40, 185, 70);
-            const video::SColor BAND_ASTERN(255, 190, 45, 45);
-            const video::SColor LUBBER(255, 235, 45, 35);
-            const video::SColor COG_MARK(255, 70, 200, 255);
-            const video::SColor ORDER_MARK(255, 255, 215, 40);
-            const video::SColor LCD_BG(255, 7, 10, 12);
-            const video::SColor LCD_EDGE(255, 64, 70, 78);
-            const video::SColor LCD_HEADER(255, 26, 34, 40);
-            const video::SColor DIGIT_WHITE(255, 236, 240, 244);
-            const video::SColor DIGIT_RED(255, 255, 80, 70);
-            const video::SColor DIGIT_GREEN(255, 70, 225, 110);
-            const video::SColor DIGIT_AMBER(255, 255, 190, 60);
-            const video::SColor NAV_LABEL(255, 110, 165, 180);
-            const video::SColor NAV_VALUE(255, 225, 235, 240);
+            //Palette: day (light dials, dark figures, LCD readouts), dusk (dark dials, white figures) and
+            //night (black dials, dim amber), switched with bridge::currentMode() - see applyPalette().
+            video::SColor PANEL_TOP, PANEL_BOTTOM, PANEL_EDGE_HI, PANEL_EDGE_LO, BEZEL_TOP, BEZEL_BOTTOM, BEZEL_INNER, FACE_CENTRE;
+            video::SColor FACE_EDGE, SCALE_WHITE, TEXT_TITLE, TEXT_DIM, NEEDLE, NEEDLE_SHADOW, HUB_OUTER, HUB_INNER;
+            video::SColor BAND_PORT, BAND_STBD, BAND_ASTERN, LUBBER, COG_MARK, ORDER_MARK, LCD_BG, LCD_EDGE;
+            video::SColor LCD_HEADER, DIGIT_WHITE, DIGIT_RED, DIGIT_GREEN, DIGIT_AMBER, NAV_LABEL, NAV_VALUE, HULL_MARK;
+            video::SColor WIND_BARB, SHIP_HULL, SHIP_HOUSE, SCREW_HI, SCREW_LO, SCREW_SLOT, STATUS_BG;
+            video::SColor NAV_BG, NAV_EDGE, NAV_DEPTH;  //the GPS / sounder screen keeps its own grey-green LCD
+            //Backlight: 0 by day (printed dial), 1 at night and in digital. GLOW = that base x the
+            //glow setting of the command bar (bridge::glowLevel, 50 = x1, 100 = x2).
+            f32 GLOW_BASE = 0.0f;
+            f32 GLOW = 0.0f;
+
+            void applyMarine();
+
+            void applyPalette(int mode)
+            {
+                if (mode < 0 || mode >= bridge::MODE_COUNT) { mode = bridge::MODE_DUSK; }
+                const u32 c[][4][3] = {   //day, dusk, night, digital (red night vision: the night column, in red)
+                    { {184, 188, 192}, {44, 48, 53}, {14, 14, 15}, {6, 13, 7} }, //PANEL_TOP
+                    { {174, 179, 183}, {38, 42, 46}, {11, 11, 12}, {2, 6, 3} }, //PANEL_BOTTOM
+                    { {212, 215, 218}, {72, 79, 86}, {34, 30, 26}, {24, 62, 30} }, //PANEL_EDGE_HI
+                    { {104, 110, 116}, {14, 16, 18}, {3, 3, 3}, {0, 0, 0} }, //PANEL_EDGE_LO
+                    { {66, 70, 74}, {62, 67, 72}, {28, 26, 24}, {42, 74, 46} }, //BEZEL_TOP
+                    { {46, 49, 52}, {40, 43, 47}, {17, 16, 15}, {10, 24, 12} }, //BEZEL_BOTTOM
+                    { {10, 11, 12}, {8, 9, 10}, {3, 3, 3}, {0, 0, 0} }, //BEZEL_INNER
+                    { {24, 26, 28}, {22, 24, 26}, {10, 9, 8}, {4, 16, 6} }, //FACE_CENTRE
+                    { {14, 15, 16}, {12, 13, 14}, {4, 4, 4}, {0, 0, 0} }, //FACE_EDGE
+                    { {238, 240, 242}, {228, 232, 235}, {214, 142, 64}, {76, 234, 96} }, //SCALE_WHITE
+                    { {214, 218, 222}, {204, 209, 214}, {196, 128, 58}, {232, 206, 60} }, //TEXT_TITLE
+                    { {150, 156, 162}, {142, 149, 156}, {138, 94, 50}, {52, 146, 62} }, //TEXT_DIM
+                    { {255, 138, 24}, {255, 140, 26}, {232, 112, 32}, {252, 228, 72} }, //NEEDLE
+                    { {72, 76, 80}, {68, 72, 78}, {40, 36, 30}, {30, 62, 34} }, //HUB_OUTER
+                    { {22, 23, 25}, {20, 21, 23}, {10, 9, 8}, {0, 10, 2} }, //HUB_INNER
+                    { {226, 52, 46}, {232, 54, 48}, {204, 54, 40}, {226, 52, 42} }, //BAND_PORT
+                    { {46, 196, 86}, {50, 204, 90}, {60, 172, 80}, {64, 226, 84} }, //BAND_STBD
+                    { {220, 54, 48}, {224, 56, 50}, {198, 52, 40}, {214, 50, 40} }, //BAND_ASTERN
+                    { {255, 64, 48}, {255, 64, 48}, {240, 70, 42}, {255, 60, 48} }, //LUBBER
+                    { {90, 206, 255}, {90, 206, 255}, {96, 176, 226}, {176, 255, 188} }, //COG_MARK
+                    { {255, 212, 64}, {255, 214, 64}, {240, 190, 74}, {252, 228, 72} }, //ORDER_MARK
+                    { {6, 8, 9}, {6, 8, 9}, {7, 5, 3}, {0, 7, 2} }, //LCD_BG
+                    { {70, 76, 82}, {66, 72, 78}, {40, 32, 22}, {30, 84, 36} }, //LCD_EDGE
+                    { {150, 164, 146}, {24, 28, 31}, {16, 12, 8}, {6, 20, 8} }, //LCD_HEADER (the GPS / sounder screen's header line)
+                    { {240, 244, 248}, {240, 244, 248}, {250, 182, 84}, {96, 255, 116} }, //DIGIT_WHITE
+                    { {255, 110, 96}, {255, 110, 96}, {250, 96, 66}, {255, 92, 72} }, //DIGIT_RED
+                    { {100, 236, 140}, {100, 236, 140}, {128, 220, 104}, {96, 255, 116} }, //DIGIT_GREEN
+                    { {255, 200, 80}, {255, 200, 76}, {250, 192, 84}, {242, 222, 72} }, //DIGIT_AMBER
+                    { {52, 70, 60}, {120, 184, 204}, {200, 142, 76}, {214, 192, 56} }, //NAV_LABEL
+                    { {18, 26, 22}, {232, 240, 244}, {250, 184, 96}, {104, 246, 120} }, //NAV_VALUE
+                    { {112, 118, 124}, {96, 102, 110}, {60, 52, 40}, {30, 72, 34} }, //HULL_MARK
+                    { {120, 210, 255}, {130, 214, 255}, {250, 172, 74}, {252, 228, 72} }, //WIND_BARB
+                    { {164, 170, 178}, {160, 168, 176}, {146, 114, 74}, {60, 152, 70} }, //SHIP_HULL
+                    { {214, 220, 226}, {212, 218, 226}, {196, 152, 96}, {112, 224, 124} }, //SHIP_HOUSE
+                    { {140, 146, 152}, {128, 134, 142}, {60, 62, 66}, {42, 74, 46} }, //SCREW_HI
+                    { {64, 68, 72}, {52, 56, 62}, {20, 22, 26}, {10, 24, 12} }, //SCREW_LO
+                    { {28, 30, 32}, {24, 26, 30}, {8, 9, 10}, {0, 6, 2} }, //SCREW_SLOT
+                    { {166, 171, 175}, {32, 35, 39}, {9, 9, 10}, {0, 6, 2} }, //STATUS_BG
+                    { {178, 190, 172}, {7, 9, 10}, {8, 6, 3}, {0, 7, 2} }, //NAV_BG
+                    { {96, 104, 94}, {66, 72, 78}, {40, 32, 22}, {30, 84, 36} }, //NAV_EDGE
+                    { {18, 24, 20}, {255, 200, 72}, {250, 192, 84}, {242, 222, 72} }, //NAV_DEPTH
+                };
+                video::SColor* target[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER, &FACE_CENTRE, &FACE_EDGE, &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &HUB_OUTER, &HUB_INNER, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK, &ORDER_MARK, &LCD_BG, &LCD_EDGE, &LCD_HEADER, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB, &SHIP_HULL, &SHIP_HOUSE, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &STATUS_BG, &NAV_BG, &NAV_EDGE, &NAV_DEPTH };
+                //Red night vision: the hardware (plate, bezels, faces, screws) from the night column, dark; the
+                //markings, needles and figures from the dusk column - white, as if backlit - then in red
+                const bool red = (mode == bridge::MODE_RED);
+                video::SColor* lit[] = { &SCALE_WHITE, &TEXT_TITLE, &TEXT_DIM, &NEEDLE, &BAND_PORT, &BAND_STBD, &BAND_ASTERN, &LUBBER, &COG_MARK,
+                    &ORDER_MARK, &DIGIT_WHITE, &DIGIT_RED, &DIGIT_GREEN, &DIGIT_AMBER, &NAV_LABEL, &NAV_VALUE, &HULL_MARK, &WIND_BARB,
+                    &SHIP_HULL, &SHIP_HOUSE, &NAV_DEPTH };
+                for (size_t i = 0; i < sizeof(target) / sizeof(target[0]); i++) {
+                    int column = (mode < 4) ? mode : bridge::MODE_NIGHT;   //the table has day, dusk, night, digital
+                    if (red) {
+                        column = bridge::MODE_NIGHT;
+                        for (size_t j = 0; j < sizeof(lit) / sizeof(lit[0]); j++) { if (lit[j] == target[i]) { column = bridge::MODE_DUSK; } }
+                    }
+                    *target[i] = video::SColor(255, c[i][column][0], c[i][column][1], c[i][column][2]);
+                    if (red) { *target[i] = bridge::toRed(*target[i]); }
+                }
+                if (red) {
+                    BAND_STBD = video::SColor(255, 150, 50, 36);   //starboard: the dimmer band
+                    TEXT_DIM = bridge::toRed(video::SColor(255, 200, 200, 200));
+                    //The backlight shows faintly through the dial face
+                    FACE_CENTRE = video::SColor(255, 40, 9, 6);
+                    FACE_EDGE = video::SColor(255, 12, 3, 2);
+                    //Needles, readouts and values in yellow; readout frames, the GPS header and the
+                    //ship in deep blue; course and wind marks in a lighter blue
+                    const video::SColor yellow(255, 255, 212, 64), blue(255, 0, 0, 214), blueLight(255, 96, 128, 255);
+                    NEEDLE = yellow;
+                    ORDER_MARK = yellow;
+                    DIGIT_WHITE = yellow;
+                    DIGIT_AMBER = yellow;
+                    DIGIT_GREEN = yellow;
+                    NAV_VALUE = yellow;
+                    NAV_DEPTH = yellow;
+                    LCD_EDGE = blue;
+                    NAV_EDGE = blue;
+                    LCD_HEADER = video::SColor(255, 0, 0, 128);
+                    COG_MARK = blueLight;
+                    WIND_BARB = blueLight;
+                    SHIP_HULL = blue;
+                    SHIP_HOUSE = blueLight;
+                }
+                if (mode == bridge::MODE_MARINE) { applyMarine(); }
+                NEEDLE_SHADOW = video::SColor(mode == bridge::MODE_DAY ? 50 : 90, 0, 0, 0);
+                GLOW_BASE = (mode == bridge::MODE_DAY) ? 0.0f : (mode == bridge::MODE_DUSK ? 0.7f : (red ? 1.6f : (mode == bridge::MODE_MARINE ? 1.3f : 1.0f)));
+            }
+
+            //Marine: the night hardware without its warm tint, black faces; scales, figures and values
+            //lit in starboard green, needles, dial names and labels in port red
+            void applyMarine()
+            {
+                video::SColor* hardware[] = { &PANEL_TOP, &PANEL_BOTTOM, &PANEL_EDGE_HI, &PANEL_EDGE_LO, &BEZEL_TOP, &BEZEL_BOTTOM, &BEZEL_INNER,
+                    &HUB_OUTER, &HUB_INNER, &SCREW_HI, &SCREW_LO, &SCREW_SLOT, &HULL_MARK };
+                for (size_t i = 0; i < sizeof(hardware) / sizeof(hardware[0]); i++) {
+                    const u32 v = (hardware[i]->getRed() + hardware[i]->getGreen() + hardware[i]->getBlue()) / 3;
+                    *hardware[i] = video::SColor(255, v, v, v);
+                }
+                const video::SColor green(255, 116, 242, 148), greenDim(255, 80, 192, 112), red(255, 255, 72, 56), redSoft(255, 255, 104, 84);
+                FACE_CENTRE = video::SColor(255, 6, 12, 8);
+                FACE_EDGE = video::SColor(255, 1, 2, 1);
+                SCALE_WHITE = green;
+                TEXT_TITLE = redSoft;
+                TEXT_DIM = greenDim;
+                NEEDLE = red;
+                BAND_PORT = video::SColor(255, 236, 48, 38);
+                BAND_STBD = video::SColor(255, 60, 214, 100);
+                BAND_ASTERN = video::SColor(255, 236, 48, 38);
+                LUBBER = red;
+                COG_MARK = green;
+                ORDER_MARK = redSoft;
+                LCD_BG = video::SColor(255, 0, 3, 1);
+                LCD_EDGE = video::SColor(255, 30, 62, 40);
+                LCD_HEADER = video::SColor(255, 6, 14, 8);
+                DIGIT_WHITE = green;
+                DIGIT_RED = red;
+                DIGIT_GREEN = green;
+                DIGIT_AMBER = redSoft;
+                NAV_LABEL = redSoft;
+                NAV_VALUE = green;
+                NAV_DEPTH = green;
+                WIND_BARB = green;
+                SHIP_HULL = video::SColor(255, 64, 140, 86);
+                SHIP_HOUSE = green;
+                STATUS_BG = video::SColor(255, 0, 0, 0);
+                NAV_BG = video::SColor(255, 0, 3, 1);
+                NAV_EDGE = video::SColor(255, 30, 62, 40);
+            }
+
+            //Soft light around a stroke from p0 to p1 of width w: fades from 'strength' x GLOW alpha at
+            //the stroke's edge to nothing a little way out. Nothing by day.
+            void glowHalo(PanelBatch& b, const core::vector2df& p0, const core::vector2df& p1, f32 w, video::SColor col, f32 strength = 1.0f, f32 reach = 0.0f)
+            {
+                if (GLOW <= 0.0f) { return; }
+                core::vector2df d = p1 - p0;
+                const f32 len = d.getLength();
+                if (len < 1e-4f) { return; }
+                d /= len;
+                if (reach <= 0.0f) { reach = core::max_(1.5f, w * 1.2f); }
+                reach *= core::clamp(0.5f + 0.5f * GLOW, 0.5f, 1.6f); //a stronger glow spreads further
+                const core::vector2df n(-d.Y, d.X);
+                const f32 hw = w * 0.5f;
+                const video::SColor in((u32)core::clamp(GLOW * strength * 120.0f, 0.0f, 255.0f), col.getRed(), col.getGreen(), col.getBlue());
+                const video::SColor out(0, col.getRed(), col.getGreen(), col.getBlue());
+                const core::vector2df a = p0 - d * reach, e = p1 + d * reach;
+                //Both sides and both ends fade out; nothing under the stroke itself.
+                b.quad(p0 + n * hw, in, p1 + n * hw, in, p1 + n * (hw + reach), out, p0 + n * (hw + reach), out);
+                b.quad(p0 - n * (hw + reach), out, p1 - n * (hw + reach), out, p1 - n * hw, in, p0 - n * hw, in);
+                b.quad(a + n * hw, out, p0 + n * hw, in, p0 - n * hw, in, a - n * hw, out);
+                b.quad(p1 + n * hw, in, e + n * hw, out, e - n * hw, out, p1 - n * hw, in);
+            }
+
+            //A lit marking: the halo, then the stroke itself.
+            void glowLine(PanelBatch& b, const core::vector2df& p0, const core::vector2df& p1, f32 w, video::SColor col)
+            {
+                glowHalo(b, p0, p1, w, col, 0.55f);
+                b.line(p0, p1, w, col);
+            }
 
             inline video::SColor ghostOf(video::SColor c) { return video::SColor(20, c.getRed(), c.getGreen(), c.getBlue()); }
 
@@ -356,53 +500,177 @@ namespace irr
 
             const f32 NAV_WEIGHT = 1.45f;
             const f32 GAP_K = 0.07f;
+            auto weightOf = [&](GaugeKind k) { return (k == G_NAV) ? NAV_WEIGHT : 1.0f; };
 
             f32 sumWeights = 0;
-            for (size_t i = 0; i < kinds.size(); i++) { sumWeights += (kinds[i] == G_NAV) ? NAV_WEIGHT : 1.0f; }
+            for (size_t i = 0; i < kinds.size(); i++) { sumWeights += weightOf(kinds[i]); }
 
-            const f32 pad = core::max_(4.0f, H * 0.045f);
+            const f32 pad = core::max_(4.0f, core::min_(H, W * 0.25f) * 0.045f);
+
+            if (orientation == 2) {
+                //A column of dials (two or three if that makes them bigger), the status keys in a strip under them
+                const f32 statusH = (statusWidth > 0) ? core::max_(28.0f, (f32)statusWidth * 0.36f) : 0.0f;   //two lamps side by side
+                const f32 availH = H - 2.0f * pad - (statusH > 0 ? statusH + pad : 0.0f);
+                const f32 availWidth = W - 2.0f * pad;
+                const int n = (int)kinds.size();
+                auto widestIn = [&](int from, int to) {
+                    f32 widest = 0;
+                    for (int i = from; i < to; i++) { widest = core::max_(widest, weightOf(kinds[i])); }
+                    return widest;
+                };
+                int cols = 1;
+                f32 best = 0;
+                for (int c = 1; c <= core::min_(3, n); c++) {
+                    const int per = (n + c - 1) / c;
+                    f32 units = GAP_K * (f32)(c - 1);
+                    for (int k = 0; k < c; k++) { units += widestIn(k * per, core::min_(n, (k + 1) * per)); }
+                    const f32 d = core::min_(availWidth / units, availH / ((f32)per + 0.10f * (f32)(per - 1)));
+                    if (d > best * 1.02f) { best = d; cols = c; }
+                }
+                const f32 Dv = core::max_(40.0f, best);
+                gaugeD = Dv;
+                const int per = (n + cols - 1) / cols;
+                const f32 gapV = GAP_K * Dv, rowGapV = 0.10f * Dv;
+                std::vector<f32> colW(cols, 0.0f);
+                f32 groupW = gapV * (f32)(cols - 1);
+                for (int k = 0; k < cols; k++) { colW[k] = widestIn(k * per, core::min_(n, (k + 1) * per)) * Dv; groupW += colW[k]; }
+                const f32 blockH = Dv * (f32)per + rowGapV * (f32)(per - 1);
+                const f32 totalH = blockH + (statusH > 0 ? pad + statusH : 0.0f);
+                const f32 x0 = (f32)AbsoluteRect.UpperLeftCorner.X + ((f32)W - groupW) * 0.5f;
+                const f32 y0 = (f32)AbsoluteRect.UpperLeftCorner.Y + core::max_(pad, ((f32)H - totalH) * 0.5f);
+                f32 x = x0;
+                for (int k = 0; k < cols; k++) {
+                    f32 y = y0;
+                    for (int i = k * per; i < core::min_(n, (k + 1) * per); i++) {
+                        Slot sl;
+                        sl.kind = kinds[i];
+                        const f32 w = weightOf(kinds[i]) * Dv;
+                        const f32 bx = x + (colW[k] - w) * 0.5f;
+                        sl.box = core::rect<f32>(bx, y, bx + w, y + Dv);
+                        sl.c = core::vector2df(bx + w * 0.5f, y + Dv * 0.5f);
+                        sl.R = Dv * 0.5f;
+                        slots.push_back(sl);
+                        y += Dv + rowGapV;
+                    }
+                    x += colW[k] + gapV;
+                }
+                if (statusH > 0) {
+                    const f32 sw = core::min_(availWidth, core::max_(groupW, (f32)statusWidth * 2.2f));
+                    const f32 sx = (f32)AbsoluteRect.getCenter().X - sw * 0.5f;
+                    const f32 sy = y0 + blockH + pad;
+                    statusRect = core::rect<s32>((s32)sx, (s32)sy, (s32)(sx + sw), (s32)(sy + statusH));
+                }
+                else {
+                    statusRect = core::rect<s32>(0, 0, 0, 0);
+                }
+                return;
+            }
             const f32 statusSpace = (statusWidth > 0) ? (f32)statusWidth + 1.5f * pad : 0.0f;
             const f32 availW = W - 2.0f * pad - statusSpace;
 
-            f32 D = H - 2.0f * pad;
-            const f32 dFromWidth = availW / (sumWeights + GAP_K * (f32)(kinds.size() - 1));
-            if (dFromWidth < D) D = dFromWidth;
+            //Rows: split the dials in order, each row holding about the same width of instruments, and
+            //keep the row count that gives the biggest diameter. One row unless setMaxRows allows more.
+            std::vector<size_t> bestStarts(1, 0);
+            f32 D = 0;
+            const int rowLimit = (orientation == 1) ? 1 : core::max_(1, core::min_(maxRows, (int)kinds.size()));
+            for (int rows = 1; rows <= rowLimit; rows++) {
+                std::vector<size_t> starts(1, 0);
+                f32 acc = 0;
+                const f32 target = sumWeights / (f32)rows;
+                for (size_t i = 0; i < kinds.size(); i++) {
+                    const f32 w = weightOf(kinds[i]);
+                    if ((int)starts.size() < rows && acc > 0 && acc + w * 0.5f > target * (f32)starts.size()) {
+                        starts.push_back(i);
+                    }
+                    acc += w;
+                }
+                const f32 rowGapK = 0.10f;
+                f32 d = (H - 2.0f * pad) / ((f32)starts.size() + rowGapK * (f32)(starts.size() - 1));
+                for (size_t r = 0; r < starts.size(); r++) {
+                    const size_t from = starts[r], to = (r + 1 < starts.size()) ? starts[r + 1] : kinds.size();
+                    f32 rowWeight = 0;
+                    for (size_t i = from; i < to; i++) { rowWeight += weightOf(kinds[i]); }
+                    const f32 dRow = availW / (rowWeight + GAP_K * (f32)(to - from - 1));
+                    if (dRow < d) d = dRow;
+                }
+                if (d > D * 1.02f) {   //a clearly bigger dial is worth another row
+                    D = d;
+                    bestStarts = starts;
+                }
+            }
             if (D < 40.0f) D = 40.0f;
             gaugeD = D;
-
             const f32 gap = GAP_K * D;
-            const f32 groupW = sumWeights * D + gap * (f32)(kinds.size() - 1) + statusSpace;
+            const size_t rowCount = bestStarts.size();
+            const f32 rowGap = 0.10f * D;
+            const f32 blockH = D * (f32)rowCount + rowGap * (f32)(rowCount - 1);
 
-            //Centre on the SCREEN (= the middle TV on Eyefinity), but never leave the panel.
+            //Centre on the SCREEN (= the middle TV on Eyefinity), but never leave the panel. In a
+            //window of its own the panel is the screen.
             f32 screenCentreX = (f32)AbsoluteRect.getCenter().X;
-            if (Environment && Environment->getRootGUIElement()) {
+            if (Environment && Environment->getRootGUIElement() && Parent == Environment->getRootGUIElement()) {
                 screenCentreX = (f32)Environment->getRootGUIElement()->getAbsolutePosition().getCenter().X;
             }
             const f32 panelL = (f32)AbsoluteRect.UpperLeftCorner.X + pad;
             const f32 panelR = (f32)AbsoluteRect.LowerRightCorner.X - pad;
-            f32 x = screenCentreX - groupW * 0.5f;
-            if (x + groupW > panelR) x = panelR - groupW;
-            if (x < panelL) x = panelL;
-            const f32 yTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - D) * 0.5f;
+            const f32 blockTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - blockH) * 0.5f;
 
-            for (size_t i = 0; i < kinds.size(); i++) {
-                Slot s;
-                s.kind = kinds[i];
-                const f32 w = ((kinds[i] == G_NAV) ? NAV_WEIGHT : 1.0f) * D;
-                s.box = core::rect<f32>(x, yTop, x + w, yTop + D);
-                s.c = core::vector2df(x + w * 0.5f, yTop + D * 0.5f);
-                s.R = D * 0.5f;
-                slots.push_back(s);
-                x += w + gap;
+            //Every row is centred on the same axis; the status column sits right of the widest row.
+            f32 widest = 0;
+            for (size_t r = 0; r < rowCount; r++) {
+                const size_t from = bestStarts[r], to = (r + 1 < rowCount) ? bestStarts[r + 1] : kinds.size();
+                f32 rw = gap * (f32)(to - from - 1);
+                for (size_t i = from; i < to; i++) { rw += weightOf(kinds[i]) * D; }
+                if (rw > widest) widest = rw;
+            }
+            const f32 groupW = widest + statusSpace;
+            f32 groupX = screenCentreX - groupW * 0.5f;
+            if (groupX + groupW > panelR) groupX = panelR - groupW;
+            if (groupX < panelL) groupX = panelL;
+
+            for (size_t r = 0; r < rowCount; r++) {
+                const size_t from = bestStarts[r], to = (r + 1 < rowCount) ? bestStarts[r + 1] : kinds.size();
+                f32 rw = gap * (f32)(to - from - 1);
+                for (size_t i = from; i < to; i++) { rw += weightOf(kinds[i]) * D; }
+                f32 x = groupX + (widest - rw) * 0.5f;
+                const f32 yTop = blockTop + (f32)r * (D + rowGap);
+                for (size_t i = from; i < to; i++) {
+                    Slot s;
+                    s.kind = kinds[i];
+                    const f32 w = weightOf(kinds[i]) * D;
+                    s.box = core::rect<f32>(x, yTop, x + w, yTop + D);
+                    s.c = core::vector2df(x + w * 0.5f, yTop + D * 0.5f);
+                    s.R = D * 0.5f;
+                    slots.push_back(s);
+                    x += w + gap;
+                }
             }
 
             if (statusWidth > 0) {
-                const f32 sx = x - gap + 1.5f * pad;
-                statusRect = core::rect<s32>((s32)sx, (s32)yTop, (s32)(sx + statusWidth), (s32)(yTop + D));
+                const f32 sx = groupX + widest + 1.5f * pad;
+                const f32 sTop = (f32)AbsoluteRect.UpperLeftCorner.Y + (H - D) * 0.5f;
+                statusRect = core::rect<s32>((s32)sx, (s32)sTop, (s32)(sx + statusWidth), (s32)(sTop + D));
             }
             else {
                 statusRect = core::rect<s32>(0, 0, 0, 0);
             }
+        }
+
+        void GUIInstrumentPanel::setOrientation(int o)
+        {
+            orientation = core::clamp(o, 0, 2);
+            layout();
+        }
+
+        void GUIInstrumentPanel::setMaxRows(int rows)
+        {
+            maxRows = core::max_(1, rows);
+            layout();
+        }
+
+        void GUIInstrumentPanel::setOverrideFont(IGUIFont* font)
+        {
+            overrideFont = font;
         }
 
         //-------------------------------------------------------------------------------------------------
@@ -416,6 +684,15 @@ namespace irr
             s32 l = (s32)x, t = (s32)y;
             if (hCentre) { l = (s32)(x - d.Width * 0.5f); }
             if (vCentre) { t = (s32)(y - d.Height * 0.5f); }
+            //Backlit lettering: a faint copy one pixel out on each side
+            if (GLOW > 0.0f && col.getAlpha() == 255) {
+                const video::SColor halo((u32)core::min_(GLOW * 42.0f, 110.0f), col.getRed(), col.getGreen(), col.getBlue());
+                const s32 ox[4] = { -1, 1, 0, 0 }, oy[4] = { 0, 0, -1, 1 };
+                for (int k = 0; k < 4; k++) {
+                    const s32 l2 = l + ox[k], t2 = t + oy[k];
+                    font->draw(core::stringw(s), core::rect<s32>(l2, t2, l2 + (s32)d.Width + 2, t2 + (s32)d.Height + 2), halo, false, false, &AbsoluteClippingRect);
+                }
+            }
             font->draw(core::stringw(s), core::rect<s32>(l, t, l + (s32)d.Width + 2, t + (s32)d.Height + 2), col, false, false, &AbsoluteClippingRect);
         }
 
@@ -452,6 +729,22 @@ namespace irr
                 };
             //ghost = true: draw the given segments in the 'off' colour; false: draw them lit.
             auto digit = [&](f32 cx, u8 mask, bool ghost) {
+                //Backlit LCD: each lit segment bleeds a little light around it
+                if (!ghost && GLOW > 0.0f) {
+                    for (int seg = 0; seg < 7; seg++) {
+                        if (!((mask >> seg) & 1)) continue;
+                        const f32 xl = ht + g, xr = w - ht - g;
+                        switch (seg) {
+                        case 0: glowHalo(batch, P(cx, xl, ht), P(cx, xr, ht), t, on, 0.5f); break;
+                        case 1: glowHalo(batch, P(cx, w - ht, ht + g), P(cx, w - ht, h * 0.5f - g), t, on, 0.5f); break;
+                        case 2: glowHalo(batch, P(cx, w - ht, h * 0.5f + g), P(cx, w - ht, h - ht - g), t, on, 0.5f); break;
+                        case 3: glowHalo(batch, P(cx, xl, h - ht), P(cx, xr, h - ht), t, on, 0.5f); break;
+                        case 4: glowHalo(batch, P(cx, ht, h * 0.5f + g), P(cx, ht, h - ht - g), t, on, 0.5f); break;
+                        case 5: glowHalo(batch, P(cx, ht, ht + g), P(cx, ht, h * 0.5f - g), t, on, 0.5f); break;
+                        case 6: glowHalo(batch, P(cx, xl, h * 0.5f), P(cx, xr, h * 0.5f), t, on, 0.5f); break;
+                        }
+                    }
+                }
                 for (int seg = 0; seg < 7; seg++) {
                     if (!((mask >> seg) & 1)) continue;
                     const video::SColor col = ghost ? off : on;
@@ -499,11 +792,9 @@ namespace irr
         {
             const core::vector2df& c = s.c;
             const f32 R = s.R;
-            //Soft drop shadow, slightly below: the dial sits proud of the panel.
-            const core::vector2df sc(c.X, c.Y + R * 0.035f);
-            batch.sector(sc, 0, R * 0.96f, 0, 360, video::SColor(120, 0, 0, 0), video::SColor(120, 0, 0, 0), false);
-            batch.sector(sc, R * 0.96f, R * 1.07f, 0, 360, video::SColor(120, 0, 0, 0), video::SColor(0, 0, 0, 0), false);
-            //Brushed bezel, then a dark lip, then the face with a gentle radial gradient.
+            //A matte instrument case flush with the panel: a thin dark ring with a hairline lit edge,
+            //a black lip, then the black face (marine repeaters are black with white markings).
+            batch.sector(c, R * 0.995f, R * 1.01f, 0, 360, PANEL_EDGE_LO, PANEL_EDGE_LO, false);
             batch.bezelRing(c, R * 0.895f, R, BEZEL_TOP, BEZEL_BOTTOM);
             batch.sector(c, R * 0.875f, R * 0.895f, 0, 360, BEZEL_INNER, BEZEL_INNER, false);
             batch.disc(c, R * 0.876f, FACE_CENTRE, FACE_EDGE);
@@ -520,7 +811,7 @@ namespace irr
                 const f32 k = v / major;
                 const bool isMajor = fabsf(k - floorf(k + 0.5f)) < 0.001f;
                 const f32 a = valueToAngle(v, vMin, vMax, a0, a1);
-                batch.line(panelPolar(c, isMajor ? rf * 0.78f : rf * 0.855f, a), panelPolar(c, rOut, a), isMajor ? wMajor : wMinor, SCALE_WHITE);
+                glowLine(batch, panelPolar(c, isMajor ? rf * 0.78f : rf * 0.855f, a), panelPolar(c, rOut, a), isMajor ? wMajor : wMinor, SCALE_WHITE);
             }
         }
 
@@ -555,6 +846,7 @@ namespace irr
             const f32 len = rf * 0.84f, tail = rf * 0.20f;
             const f32 wBase = core::max_(2.5f, rf * 0.050f), wTip = core::max_(0.8f, rf * 0.010f), wTail = rf * 0.034f;
 
+            glowHalo(batch, c - u * tail * 0.6f, c + u * len * 0.92f, wTip * 2.0f, col, 0.45f, wBase * 1.1f);
             for (int pass = 0; pass < 2; pass++) {
                 const core::vector2df off = (pass == 0) ? core::vector2df(rf * 0.018f, rf * 0.030f) : core::vector2df(0, 0);
                 const video::SColor cc = (pass == 0) ? NEEDLE_SHADOW : col;
@@ -595,7 +887,7 @@ namespace irr
                     const bool ten = (b % 10) == 0;
                     const bool thirty = (b % 30) == 0;
                     const f32 r0 = thirty ? rf * 0.76f : (ten ? rf * 0.82f : rf * 0.87f);
-                    batch.line(panelPolar(c, r0, a), panelPolar(c, rf * 0.935f, a), (thirty || ten) ? wMajor : wMinor, SCALE_WHITE);
+                    glowLine(batch, panelPolar(c, r0, a), panelPolar(c, rf * 0.935f, a), (thirty || ten) ? wMajor : wMinor, SCALE_WHITE);
                 }
                 //Digital heading window
                 const f32 p = dh * 0.28f;
@@ -615,9 +907,10 @@ namespace irr
                         text(font, buf, p.X, p.Y, SCALE_WHITE);
                     }
                 }
-                text(font, TXT_COMPASS, c.X, c.Y - rf * 0.30f, TEXT_TITLE);
-                text(font, L"\u00B0", c.X + dw * 0.5f + dh * 0.45f, wy + dh * 0.15f, DIGIT_WHITE);
-                if (data.sogKn > 0.3f) {
+                //Gyro failure: the card no longer follows the ship, the title says so
+                text(font, data.gyroLost ? L"GYRO HS" : TXT_COMPASS, c.X, c.Y - rf * 0.30f, data.gyroLost ? DIGIT_RED : TEXT_TITLE);
+                text(font, L"\u00B0", c.X + dw * 0.5f + dh * 0.45f, wy + dh * 0.15f, SCALE_WHITE);
+                if (data.sogKn > 0.3f && !data.gpsLost) { //COG comes from the GPS
                     wchar_t buf[24];
                     swprintf(buf, 24, L"COG %03d\u00B0", ((int)(data.cog + 0.5f)) % 360);
                     text(font, buf, c.X, c.Y + rf * 0.43f, COG_MARK);
@@ -625,10 +918,10 @@ namespace irr
             }
             else {
                 //Lubber line: the ship's head, fixed at 12 o'clock.
-                batch.line(panelPolar(c, rf * 0.70f, 0), panelPolar(c, rf * 0.985f, 0), core::max_(2.0f, rf * 0.022f), LUBBER);
+                glowLine(batch, panelPolar(c, rf * 0.70f, 0), panelPolar(c, rf * 0.985f, 0), core::max_(2.0f, rf * 0.022f), LUBBER);
                 batch.tri(panelPolar(c, rf * 0.985f, -4.5f), panelPolar(c, rf * 0.985f, 4.5f), panelPolar(c, rf * 0.90f, 0), LUBBER);
                 //COG marker - only meaningful when actually making way.
-                if (data.sogKn > 0.3f) {
+                if (data.sogKn > 0.3f && !data.gpsLost) {
                     const f32 a = data.cog - hdg;
                     batch.tri(panelPolar(c, rf * 0.99f, a - 4.0f), panelPolar(c, rf * 0.99f, a + 4.0f), panelPolar(c, rf * 0.89f, a), COG_MARK);
                 }
@@ -671,7 +964,8 @@ namespace irr
                 text(font, TXT_LOG, c.X, c.Y - rf * 0.34f, TEXT_TITLE);
                 text(font, TXT_KNOTS, c.X + dw * 0.5f - unitW + dh * 0.12f, wy + dh * 0.62f, TEXT_DIM, false, true);
                 wchar_t sb[32];
-                swprintf(sb, 32, L"%ls %.1f %ls", TXT_GROUND, data.sogKn, TXT_KNOTS);
+                if (data.gpsLost) { swprintf(sb, 32, L"%ls ---", TXT_GROUND); } //SOG comes from the GPS
+                else { swprintf(sb, 32, L"%ls %.1f %ls", TXT_GROUND, data.sogKn, TXT_KNOTS); }
                 text(font, sb, c.X, c.Y + rf * 0.64f, COG_MARK);
             }
             else {
@@ -716,8 +1010,8 @@ namespace irr
                 text(font, L"\u00B0", c.X + dw * 0.5f - unitW + dh * 0.12f, wy + dh * 0.55f, TEXT_DIM, false, true);
                 //Side labels on the upper face, as printed on a real rudder indicator
                 const core::vector2df pl = panelPolar(c, rf * 0.40f, -48.0f), pr = panelPolar(c, rf * 0.40f, 48.0f);
-                text(font, TXT_PORT, pl.X, pl.Y, DIGIT_RED);
-                text(font, TXT_STBD, pr.X, pr.Y, DIGIT_GREEN);
+                text(font, TXT_PORT, pl.X, pl.Y, BAND_PORT);
+                text(font, TXT_STBD, pr.X, pr.Y, BAND_STBD);
                 //Helm order in words, so the officer can check "starboard fifteen" at a glance
                 const int ord = (int)floorf(fabsf(data.rudderOrder) + 0.5f);
                 wchar_t ob[32];
@@ -860,12 +1154,12 @@ namespace irr
                 const f32 wMinor = core::max_(1.0f, rf * 0.010f);
                 for (int b = 0; b < 360; b += 10) {
                     const bool thirty = (b % 30) == 0;
-                    batch.line(panelPolar(c, thirty ? rf * 0.78f : rf * 0.86f, (f32)b), panelPolar(c, rf * 0.935f, (f32)b),
+                    glowLine(batch, panelPolar(c, thirty ? rf * 0.78f : rf * 0.86f, (f32)b), panelPolar(c, rf * 0.935f, (f32)b),
                         thirty ? wMajor : wMinor, SCALE_WHITE);
                 }
                 //Little ship outline at the centre, so "relative to the bow" needs no explaining.
                 const f32 hl = rf * 0.26f, hw = rf * 0.10f;
-                const video::SColor hull(255, 92, 99, 110);
+                const video::SColor hull = HULL_MARK;
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X + hw, c.Y - hl * 0.25f), core::vector2df(c.X + hw, c.Y + hl * 0.7f), hull);
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X + hw, c.Y + hl * 0.7f), core::vector2df(c.X - hw, c.Y + hl * 0.7f), hull);
                 batch.tri(core::vector2df(c.X, c.Y - hl), core::vector2df(c.X - hw, c.Y + hl * 0.7f), core::vector2df(c.X - hw, c.Y - hl * 0.25f), hull);
@@ -906,10 +1200,10 @@ namespace irr
             }
             else {
                 //Wind barb pointing at the bearing the wind comes from, with the tail towards the centre.
-                const video::SColor wc(255, 120, 210, 255);
+                const video::SColor wc = WIND_BARB;
                 const core::vector2df tip = panelPolar(c, rf * 0.92f, rel);
                 const core::vector2df base = panelPolar(c, rf * 0.50f, rel);
-                batch.line(base, tip, core::max_(2.0f, rf * 0.045f), wc);
+                glowLine(batch, base, tip, core::max_(2.0f, rf * 0.045f), wc);
                 batch.tri(tip, panelPolar(c, rf * 0.66f, rel - 9.0f), panelPolar(c, rf * 0.66f, rel + 9.0f), wc);
             }
         }
@@ -947,27 +1241,27 @@ namespace irr
             if (depthValid) swprintf(depthBuf, 16, L"%.1f", data.depth);
 
             if (pass == 1) {
-                //Shadow, steel frame, LCD glass
-                batch.rect(core::rect<f32>(b.UpperLeftCorner.X + 2, b.UpperLeftCorner.Y + D * 0.03f, b.LowerRightCorner.X + 2, b.LowerRightCorner.Y + D * 0.03f), video::SColor(110, 0, 0, 0));
+                //Matte case, LCD glass
                 batch.quad(b.UpperLeftCorner, BEZEL_TOP, core::vector2df(b.LowerRightCorner.X, b.UpperLeftCorner.Y), BEZEL_TOP,
                     b.LowerRightCorner, BEZEL_BOTTOM, core::vector2df(b.UpperLeftCorner.X, b.LowerRightCorner.Y), BEZEL_BOTTOM);
                 batch.rect(core::rect<f32>(in.UpperLeftCorner.X - 1, in.UpperLeftCorner.Y - 1, in.LowerRightCorner.X + 1, in.LowerRightCorner.Y + 1), BEZEL_INNER);
-                batch.rect(in, LCD_BG);
+                batch.rect(in, NAV_BG);
                 batch.rect(core::rect<f32>(in.UpperLeftCorner.X, in.UpperLeftCorner.Y, in.LowerRightCorner.X, in.UpperLeftCorner.Y + headerH), LCD_HEADER);
                 if (fitSounder) {
-                    batch.line(core::vector2df(in.UpperLeftCorner.X + padX, ySep), core::vector2df(in.LowerRightCorner.X - padX, ySep), 1.0f, LCD_EDGE);
+                    batch.line(core::vector2df(in.UpperLeftCorner.X + padX, ySep), core::vector2df(in.LowerRightCorner.X - padX, ySep), 1.0f, NAV_EDGE);
                     if (depthH > 8.0f) {
                         if (depthValid) {
                             const f32 dRight = in.LowerRightCorner.X - padX - fh * 1.6f;
-                            segText(depthBuf, dRight - segWidth(depthBuf, depthH), depthTop, depthH, DIGIT_AMBER, ghostOf(DIGIT_AMBER));
+                            segText(depthBuf, dRight - segWidth(depthBuf, depthH), depthTop, depthH, NAV_DEPTH, ghostOf(NAV_DEPTH));
                         }
                     }
                 }
             }
             else if (pass == 2) {
                 const f32 hy = in.UpperLeftCorner.Y + headerH * 0.5f;
-                text(font, fitGPS ? TXT_GPS : TXT_NAV, in.UpperLeftCorner.X + padX, hy, NAV_LABEL, false, true);
-                if (font) {
+                text(font, fitGPS ? (data.gpsLost ? L"GPS  PAS DE POSITION" : TXT_GPS) : TXT_NAV, in.UpperLeftCorner.X + padX, hy,
+                    (fitGPS && data.gpsLost) ? DIGIT_RED : NAV_LABEL, false, true);
+                if (font && !(fitGPS && data.gpsLost)) { //no fix: no GPS time either, and room for the warning
                     const core::dimension2du td = font->getDimension(data.timeText.c_str());
                     text(font, data.timeText.c_str(), in.LowerRightCorner.X - padX - td.Width, hy, NAV_VALUE, false, true);
                 }
@@ -979,14 +1273,20 @@ namespace irr
                     wchar_t lb[40], ob[40];
                     swprintf(lb, 40, L"%02d\u00B0%06.3f'%lc", laD, (la - laD) * 60.0f, data.lat >= 0 ? L'N' : L'S');
                     swprintf(ob, 40, L"%03d\u00B0%06.3f'%lc", loD, (lo - loD) * 60.0f, data.lon >= 0 ? L'E' : L'W');
+                    //Without a fix: the last position in red, no course or speed over ground
+                    const video::SColor posCol = data.gpsLost ? DIGIT_RED : NAV_VALUE;
                     text(font, L"LAT", in.UpperLeftCorner.X + padX, yLat, NAV_LABEL, false, true);
-                    text(font, lb, valX, yLat, NAV_VALUE, false, true);
+                    text(font, lb, valX, yLat, posCol, false, true);
                     text(font, L"LON", in.UpperLeftCorner.X + padX, yLon, NAV_LABEL, false, true);
-                    text(font, ob, valX, yLon, NAV_VALUE, false, true);
+                    text(font, ob, valX, yLon, posCol, false, true);
 
                     wchar_t cb[24], sb[24];
                     swprintf(cb, 24, L"%03d\u00B0", ((int)(data.cog + 0.5f)) % 360);
                     swprintf(sb, 24, L"%.1f %ls", data.sogKn, TXT_KNOTS);
+                    if (data.gpsLost) {
+                        swprintf(cb, 24, L"---");
+                        swprintf(sb, 24, L"---");
+                    }
                     const f32 midX = (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f;
                     text(font, L"COG", in.UpperLeftCorner.X + padX, yCog, NAV_LABEL, false, true);
                     text(font, cb, valX, yCog, NAV_VALUE, false, true);
@@ -996,22 +1296,34 @@ namespace irr
 
                 if (fitSounder) {
                     text(font, TXT_SOUNDER, in.UpperLeftCorner.X + padX, depthTop + depthH * 0.5f, NAV_LABEL, false, true);
+                    //Depth alarm: its limit under the label, red while the depth is below it
+                    if (data.depthAlarmLimit > 0) {
+                        wchar_t ab[32];
+                        swprintf(ab, 32, data.depthAlarm ? L"ALARME < %.0f m" : L"alarme %.0f m", data.depthAlarmLimit);
+                        text(font, ab, in.UpperLeftCorner.X + padX, depthTop + depthH * 0.5f + fh * 1.1f, data.depthAlarm ? DIGIT_RED : NAV_LABEL, false, true);
+                    }
                     if (depthValid) {
-                        text(font, L"m", in.LowerRightCorner.X - padX - fh * 0.9f, depthTop + depthH - fh * 0.5f, DIGIT_AMBER);
+                        text(font, L"m", in.LowerRightCorner.X - padX - fh * 0.9f, depthTop + depthH - fh * 0.5f, NAV_DEPTH);
                     }
                     else {
-                        text(font, TXT_NO_DEPTH, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, depthTop + depthH * 0.5f, DIGIT_AMBER);
+                        text(font, TXT_NO_DEPTH, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, depthTop + depthH * 0.5f, NAV_DEPTH);
                     }
                 }
 
-                //Footer: tide if the scenario shows it, frame rate small and dim for the instructor.
-                if (fitTide) {
+                //Footer: man overboard mark first (bearing and distance to steer back to it), else the
+                //tide if the scenario shows it; frame rate small and dim for the instructor.
+                if (data.mobOn) {
+                    wchar_t mb[48];
+                    swprintf(mb, 48, L"MOB  %03d\u00B0  %.2f NM", ((int)(data.mobBrg + 0.5f)) % 360, data.mobNm);
+                    text(font, mb, in.UpperLeftCorner.X + padX, yFooter, DIGIT_RED, false, true);
+                }
+                else if (fitTide) {
                     wchar_t tb[32];
                     swprintf(tb, 32, L"%ls %+.1f m", TXT_TIDE, data.tideHeight);
                     text(font, tb, in.UpperLeftCorner.X + padX, yFooter, NAV_LABEL, false, true);
                 }
                 //PAUSE in the footer centre - the header is fully used by the date/time.
-                if (data.paused) { text(font, TXT_PAUSE, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, yFooter, DIGIT_AMBER); }
+                if (data.paused) { text(font, TXT_PAUSE, (in.UpperLeftCorner.X + in.LowerRightCorner.X) * 0.5f, yFooter, NAV_DEPTH); }
                 wchar_t fb[16];
                 swprintf(fb, 16, L"%u fps", data.fps);
                 if (font) {
@@ -1090,7 +1402,7 @@ namespace irr
                 drawScale(c, rf, vMin, vMax, a0, a1, 5.0f, 1.0f);
 
                 //fixed horizon reference, on the free left-hand side
-                batch.line(core::vector2df(c.X - rf * 0.78f, c.Y), core::vector2df(c.X - rf * 0.55f, c.Y),
+                glowLine(batch, core::vector2df(c.X - rf * 0.78f, c.Y), core::vector2df(c.X - rf * 0.55f, c.Y),
                     core::max_(1.0f, rf * 0.012f), TEXT_DIM);
 
                 //ship silhouette, side view (x forward, y up), turning with the needle
@@ -1099,9 +1411,9 @@ namespace irr
                 const f32 hull[] = { 0.0f, -0.02f,  -0.40f, 0.02f,  -0.36f, -0.08f,  0.24f, -0.09f,  0.42f, 0.06f,  0.36f, 0.03f };
                 const f32 house[] = { -0.20f, 0.02f,  -0.31f, 0.02f,  -0.31f, 0.12f,  -0.09f, 0.12f,  -0.09f, 0.02f };
                 const f32 bridge[] = { -0.18f, 0.12f,  -0.28f, 0.12f,  -0.28f, 0.17f,  -0.11f, 0.17f,  -0.11f, 0.12f };
-                drawShape(o, hull, 6, rf * 0.85f, ang, video::SColor(255, 150, 158, 170));
-                drawShape(o, house, 5, rf * 0.85f, ang, video::SColor(255, 205, 210, 218));
-                drawShape(o, bridge, 5, rf * 0.85f, ang, video::SColor(255, 205, 210, 218));
+                drawShape(o, hull, 6, rf * 0.85f, ang, SHIP_HULL);
+                drawShape(o, house, 5, rf * 0.85f, ang, SHIP_HOUSE);
+                drawShape(o, bridge, 5, rf * 0.85f, ang, SHIP_HOUSE);
 
                 const f32 p = dh * 0.28f;
                 batch.rect(core::rect<f32>(c.X - dw * 0.5f - p - 1, wy - p - 1, c.X + dw * 0.5f + p + 1, wy + dh + p + 1), LCD_EDGE);
@@ -1123,11 +1435,11 @@ namespace irr
                 const f32 up = peakValue(0), down = peakValue(1);
                 if (up > 0.2f) {
                     const f32 a = valueToAngle(panelClamp(up, 0.0f, vMax), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 if (down > 0.2f) {
                     const f32 a = valueToAngle(panelClamp(-down, vMin, 0.0f), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 drawNeedle(c, rf, needleA, NEEDLE);
             }
@@ -1181,11 +1493,11 @@ namespace irr
                 const f32 stbd = peakValue(2), port = peakValue(3);
                 if (stbd > 0.3f) {
                     const f32 a = valueToAngle(panelClamp(stbd, 0.0f, vMax), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 if (port > 0.3f) {
                     const f32 a = valueToAngle(panelClamp(-port, vMin, 0.0f), vMin, vMax, a0, a1);
-                    batch.line(panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
+                    glowLine(batch, panelPolar(c, rf * 0.80f, a), panelPolar(c, rf * 0.99f, a), wT, ORDER_MARK);
                 }
                 drawNeedle(c, rf, needleA, NEEDLE);
             }
@@ -1195,9 +1507,18 @@ namespace irr
         {
             if (!IsVisible) { return; }
 
+            //Day, dusk or night colours, whichever the bridge is in
+            static int paletteShown = -1;
+            if (paletteShown != bridge::currentMode()) {
+                paletteShown = bridge::currentMode();
+                applyPalette(paletteShown);
+            }
+
+            GLOW = GLOW_BASE * (f32)core::clamp(bridge::glowLevel(), 0, 100) / 50.0f;
+
             video::IVideoDriver* driver = Environment->getVideoDriver();
             IGUISkin* skin = Environment->getSkin();
-            IGUIFont* font = skin ? skin->getFont() : 0;
+            IGUIFont* font = overrideFont ? overrideFont : (skin ? skin->getFont() : 0);
 
             //Console plate: vertical gradient with a lit top edge and a shadowed bottom edge.
             const core::rect<s32>& r = AbsoluteRect;
@@ -1215,15 +1536,15 @@ namespace irr
                     core::vector2df(r.UpperLeftCorner.X + in, r.UpperLeftCorner.Y + in), core::vector2df(r.LowerRightCorner.X - in, r.UpperLeftCorner.Y + in),
                     core::vector2df(r.UpperLeftCorner.X + in, r.LowerRightCorner.Y - in), core::vector2df(r.LowerRightCorner.X - in, r.LowerRightCorner.Y - in) };
                 for (int i = 0; i < 4; i++) {
-                    batch.disc(screws[i], sr, video::SColor(255, 150, 155, 162), video::SColor(255, 70, 74, 80));
-                    batch.line(screws[i] - core::vector2df(sr * 0.6f, sr * 0.6f), screws[i] + core::vector2df(sr * 0.6f, sr * 0.6f), core::max_(1.0f, sr * 0.3f), video::SColor(255, 40, 42, 46));
+                    batch.disc(screws[i], sr, SCREW_HI, SCREW_LO);
+                    batch.line(screws[i] - core::vector2df(sr * 0.6f, sr * 0.6f), screws[i] + core::vector2df(sr * 0.6f, sr * 0.6f), core::max_(1.0f, sr * 0.3f), SCREW_SLOT);
                 }
                 //Recess behind the status column
                 if (statusRect.getWidth() > 0) {
                     const f32 m = (f32)r.getHeight() * 0.02f;
                     const core::rect<f32> sr2((f32)statusRect.UpperLeftCorner.X - m, (f32)statusRect.UpperLeftCorner.Y - m, (f32)statusRect.LowerRightCorner.X + m, (f32)statusRect.LowerRightCorner.Y + m);
                     batch.rect(core::rect<f32>(sr2.UpperLeftCorner.X - 1, sr2.UpperLeftCorner.Y - 1, sr2.LowerRightCorner.X + 1, sr2.LowerRightCorner.Y + 1), PANEL_EDGE_LO);
-                    batch.rect(sr2, video::SColor(255, 34, 37, 43));
+                    batch.rect(sr2, STATUS_BG);
                 }
             }
             for (size_t i = 0; i < slots.size(); i++) {

@@ -27,6 +27,8 @@
 #include "GUIRectangle.hpp"
 #include "GUIInstrumentPanel.hpp" //kyara: instrument console
 #include "GUIEngineLever.hpp"     //kyara: styled engine levers
+#include "GUIHelmLever.hpp"       //the helm, for a station without a hardware console
+#include "PanelDock.hpp"          //placement of the controls and weather windows
 #include "RadarCalculation.hpp"
 #include "ShipLights.hpp" //KYARA FEUX TAB: SIT_COUNT / OVERRIDE_SLOTS size the id ranges below
 #include <vector>
@@ -34,6 +36,11 @@
 
 // Forward declarations
 class SimulationModel;
+class ConsoleWindow;
+class SonarWindow;
+class StationScreen;
+
+namespace bridge { class BridgeSkin; class CommandBar; }
 
 struct GUIData {
     irr::f32 radarOffsetX, radarOffsetY;
@@ -65,10 +72,15 @@ struct GUIData {
     irr::f32 depth;
     irr::f32 weather;
     irr::f32 lightningFlash;   // KYARA 0..1
+    irr::u32 lightLevel = 255; //daylight of the scene, 0 (night) .. about 255 (noon), for the palette
     irr::f32 rain;
     irr::f32 visibility;
     irr::f32 windDirection;
     irr::f32 windSpeed;
+    irr::f32 windDirectionNow = 0;   //with the swings of the wind (wind dial)
+    irr::f32 windSpeedNow = 0;       //with the gusts (wind dial)
+    int networkPalette = -1;         //secondary: the colours the primary shows (-1: its own choice)
+    int networkGlow = -1;            //secondary: the primary's glow of the lit instruments
     irr::f32 streamDirection;
     irr::f32 streamSpeed;
     irr::gui::IGUIScrollBar* magSlider;
@@ -92,6 +104,22 @@ struct GUIData {
 
     irr::f32 guiRadarCursorBrg;
     irr::f32 guiRadarCursorRangeNm;
+    //Failures given by the instructor, depth alarm, man overboard mark
+    bool gyroLost = false;
+    bool gpsLost = false;
+    bool radarFailed = false;
+    std::vector<std::wstring> alertText;  //bridge alert list
+    std::wstring instructorMessage;       //from the instructor station, shown for 30 s
+    bool spectator = false;               //multiplayer instructor camera
+    std::vector<std::wstring> spectatorNames;
+    std::vector<bool> spectatorPresent;
+    int spectatorTarget = 0, spectatorView = 0;
+    irr::f32 spectatorSpeedKts = 0, spectatorHeading = 0;
+    std::vector<bool> alertAcked;
+    irr::f32 depthAlarmLimit = 0;   //m, 0 = off
+    bool depthAlarm = false;        //under the limit now
+    bool mobOn = false;
+    irr::f32 mobBrg = 0, mobNm = 0; //from own ship
     irr::s32 arpaListSelection;
     std::vector<ARPAEstimatedState> arpaContactStates;
     std::string currentTime;
@@ -285,10 +313,166 @@ public:
         GUI_ID_INSTR_LIGHTS_0,                                                // 0 off, 1 dim, 2 bright
         GUI_ID_INSTR_LIGHTS_END = GUI_ID_INSTR_LIGHTS_0 + 3,
         GUI_ID_OWN_DECK_LIGHTS_CHECKBOX = GUI_ID_INSTR_LIGHTS_END,
+        GUI_ID_DETACH_CONSOLE_BUTTON, //instrument console in its own window (second screen)
+        //KYARA FEUX EDIT: in-simulator lamp placement
+        GUI_ID_LIGHTS_EDIT_BUTTON,
+        GUI_ID_LEDIT_LIST,
+        GUI_ID_LEDIT_MIRROR,
+        GUI_ID_LEDIT_SPACING_DOWN,
+        GUI_ID_LEDIT_SPACING_UP,
+        GUI_ID_LEDIT_SAVE,
+        GUI_ID_LEDIT_REVERT,
+        GUI_ID_LEDIT_CLOSE,
+        GUI_ID_LEDIT_ROLE,
+        GUI_ID_LEDIT_DELETE,
+        GUI_ID_LEDIT_CLICK_MOVE,
+        GUI_ID_LEDIT_CLICK_ADD,
+        GUI_ID_LEDIT_TYPE,
+        GUI_ID_LEDIT_PROPOSE,
+        GUI_ID_LEDIT_MOVE_UP,
+        GUI_ID_LEDIT_MOVE_DOWN,
+        GUI_ID_LEDIT_MOVE_FWD,
+        GUI_ID_LEDIT_MOVE_AFT,
+        GUI_ID_LEDIT_MOVE_PORT,
+        GUI_ID_LEDIT_MOVE_STBD,
+        GUI_ID_LEDIT_STEP,
+        GUI_ID_LEDIT_COLOUR_0,
+        GUI_ID_LEDIT_COLOUR_END = GUI_ID_LEDIT_COLOUR_0 + 6,
+        //The "Taille et flottaison" window
+        GUI_ID_SIZE_EDIT_BUTTON,
+        GUI_ID_SEDIT_LENGTH_BOX,
+        GUI_ID_SEDIT_LENGTH_APPLY,
+        GUI_ID_SEDIT_LENGTH_MINUS,
+        GUI_ID_SEDIT_LENGTH_PLUS,
+        GUI_ID_SEDIT_DRAUGHT_BOX,
+        GUI_ID_SEDIT_DRAUGHT_APPLY,
+        GUI_ID_SEDIT_RAISE,
+        GUI_ID_SEDIT_LOWER,
+        GUI_ID_SEDIT_SAVE,
+        GUI_ID_SEDIT_REVERT,
+        GUI_ID_SEDIT_CLOSE,
+        //The "Écrans éclairés" window
+        GUI_ID_INSTR_EDIT_BUTTON,
+        GUI_ID_IEDIT_LIST,
+        GUI_ID_IEDIT_TOGGLE,
+        GUI_ID_IEDIT_SAVE,
+        GUI_ID_IEDIT_REVERT,
+        GUI_ID_IEDIT_CLOSE,
+        //Command bar: the palette switch
+        GUI_ID_PALETTE_DAY,
+        GUI_ID_PALETTE_DUSK,
+        GUI_ID_PALETTE_NIGHT,
+        GUI_ID_PALETTE_DIGITAL,
+        GUI_ID_PALETTE_RED,
+        GUI_ID_PALETTE_MARINE,
+        GUI_ID_PALETTE_AUTO,
+        GUI_ID_GLOW_SCROLL_BAR,
+        GUI_ID_WEATHER_BUTTON,
+        GUI_ID_SONAR_BUTTON,
+        GUI_ID_STATION_BUTTON,
+        GUI_ID_LINES_COMBO,              //the line chosen on the AMARRES page of CONTROLES
+        GUI_ID_DETACH_RADAR_BUTTON,
+        GUI_ID_RADAR_FULLSCREEN_BUTTON,
+        //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
+        GUI_ID_RADAR_VECTOR_LEN_BUTTON,
+        GUI_ID_RADAR_TRAIL_LEN_BUTTON,
+        GUI_ID_RADAR_COAST_BUTTON,
+        GUI_ID_RADAR_CPA_BUTTON,
+        GUI_ID_RADAR_TCPA_BUTTON,
+        GUI_ID_RADAR_CPA_ALARM_BUTTON,
+        GUI_ID_RADAR_PI_BUTTON,
+        GUI_ID_RADAR_PI_CLEAR_BUTTON,
+        GUI_ID_RADAR_TRIAL_BUTTON,
+        GUI_ID_RADAR_TRIAL_CRS_DOWN,
+        GUI_ID_RADAR_TRIAL_CRS_UP,
+        GUI_ID_RADAR_TRIAL_SPD_DOWN,
+        GUI_ID_RADAR_TRIAL_SPD_UP,
+        GUI_ID_RADAR_TRIAL_DELAY_DOWN,
+        GUI_ID_RADAR_TRIAL_DELAY_UP,
+        //Training controls (CONTROLES window): failures (working / failed for each), sound signals,
+        //echo sounder alarm, man overboard mark, debrief report
+        GUI_ID_FAILURE_KEY_FIRST,
+        GUI_ID_FAILURE_KEY_LAST = GUI_ID_FAILURE_KEY_FIRST + 14, //failure f to level l: FIRST + 3 * f + l
+        GUI_ID_SIGNAL_KEY_FIRST,
+        GUI_ID_SIGNAL_KEY_LAST = GUI_ID_SIGNAL_KEY_FIRST + 7,
+        GUI_ID_DEPTH_ALARM_KEY_FIRST,
+        GUI_ID_DEPTH_ALARM_KEY_LAST = GUI_ID_DEPTH_ALARM_KEY_FIRST + 4,
+        GUI_ID_MOB_MARK_KEY,
+        GUI_ID_MOB_CLEAR_KEY,
+        GUI_ID_DEBRIEF_KEY,
+        GUI_ID_FAILURE_DELAY_KEY_FIRST,
+        GUI_ID_FAILURE_DELAY_KEY_LAST = GUI_ID_FAILURE_DELAY_KEY_FIRST + 4,
+        GUI_ID_REPAIR_ALL_KEY,
+        GUI_ID_FAILURE_REPORTED_KEY,
 
     };
 
     bool getShowInterface() const;
+    //True when the 3D view only fills the top of the screen (2D interface shown with the console
+    //below it). False when the 3D view fills the screen - interface hidden, or console detached.
+    bool getCompact3dView() const;
+
+    //Instrument console in a separate window, so it can go on another screen and leave the whole
+    //main screen to the bridge view. The window's place is remembered for the next session.
+    void toggleConsoleDetached();
+    bool isConsoleDetached() const { return consoleDetached; }
+    //Call before load(). Instance: which copy of the simulator this is on the PC (1 for the first), so
+    //that each copy keeps its own console window placement. Screen: desktop area of a screen given
+    //to the console (launcher -console N, bc5.ini console_monitor) - the console opens there, without
+    //a frame, filling it, and that placement is not saved.
+    void setInstanceNumber(irr::u32 instance) { consoleInstance = instance; }
+    void setConsoleScreen(const irr::core::rect<irr::s32>& area) { consoleScreen = area; consoleOnScreen = true; }
+    //Call once per frame, after the main window's endScene(): handles the console window's input and
+    //draws it. Restores the driver's screen size for the main window before returning.
+    void renderDetachedConsole();
+    //Pass to the main window's beginScene() (switches the OpenGL context back from the console window).
+    const irr::video::SExposedVideoData& getMainVideoData() const;
+    //Saves the console window placement and puts the console back. Call before the device is dropped.
+    void shutdownConsoleWindow();
+
+    //Large radar in a window of its own, drawn by this simulator (no second copy of it): it can go on
+    //another screen, full screen, while the main screen keeps the bridge view. Same picture and
+    //controls as the large radar on the main screen, scaled to the window. Its place is remembered.
+    bool isRadarDetached() const { return radarDetached; }
+    //Done at the start of the next renderDetachedRadar() (asked from a button of the radar itself).
+    void requestRadarDetached(bool detached) { radarDetachRequest = detached ? 1 : 0; }
+    void requestRadarFullScreenToggle() { radarFullScreenRequest = true; }
+    //Call before load(): desktop area of a screen given to the radar (launcher -radar N, bc5.ini
+    //radar_screen) - the radar opens there at the start, full screen, and that placement is not saved.
+    void setRadarScreen(const irr::core::rect<irr::s32>& area) { radarScreenArea = area; radarOnScreen = true; }
+    //Call once per frame, after the main window's endScene() (and the console window's): handles the
+    //radar window's input and draws it. Restores the driver's screen size before returning.
+    void renderDetachedRadar();
+    //Sonar station (360 degree sonar and fish finder) in a window of its own
+    void setSonarScreen(const irr::core::rect<irr::s32>& area) { sonarScreenArea = area; sonarOnScreen = true; }
+    void toggleSonar();
+    void renderSonar();
+    void shutdownSonarWindow();
+    //Instructor screen: the controls and weather windows together, in a window of their own (a
+    //second monitor, portrait or landscape). Call before load(): the screen given to it (launcher
+    //-station N, bc5.ini station_screen) - it opens there at the start, filling it - and how the
+    //two windows share it (0 from its shape, 1 one over the other, 2 side by side).
+    void setStationScreen(const irr::core::rect<irr::s32>& area) { stationScreenArea = area; stationOnScreen = true; }
+    void setStationLayout(int layout) { stationLayout = layout; }
+    void toggleStation();
+    bool isStationOpen() const;
+    //Once per frame, after the other windows: its input, then its frame
+    void renderStation();
+    void shutdownStationWindow();
+    //Saves the radar window placement and closes it. Call before the device is dropped.
+    void shutdownRadarWindow();
+
+    //Large radar tools (vector/trail lengths, coastline, CPA alarm, parallel index lines, trial
+    //manoeuvre): true if the button was one of them.
+    bool handleRadarToolButton(irr::s32 id);
+    //Training controls of the CONTROLES window (failures, sound signals, depth alarm, MOB, debrief):
+    //true if the button was one of them.
+    bool handleTrainingButton(irr::s32 id);
+    //Mouse on the large radar's scope (main screen, or the radar window during its pass): presses and
+    //releases go to the radar (track a target, draw a parallel index line), the wheel changes the
+    //range. True if the event was used up (the wheel).
+    bool scopeMouseEvent(const irr::SEvent& event);
+    bool isOnLargeScope(irr::core::position2di p) const;
     bool getSmallRadarEnabled() const; //kyara: false when the instrument console replaces the small radar
     //kyara
     void togglePrimaryControls();
@@ -296,6 +480,41 @@ public:
     //KYARA FEUX TAB
     void refreshLightsTab();       // pull the selected vessel's light state into both tabs
     int getLightsVessel() const;   // -1 = own ship, 0.. = other ship
+    //KYARA FEUX EDIT: the "Placement des feux" window
+    void openLightEditor(int vessel);
+    void closeLightEditor();
+    void refreshLightEditor();
+    //Click placement in the light editor: its keys, and a click on the vessel in the view
+    void lightEditorAction(irr::s32 id);
+    void lightEditorClick(const irr::core::line3df& worldRay);
+    void setLightEditorStatus(const std::wstring& text, bool isError);
+    //The "Taille et flottaison" window
+    void openSizeEditor(int vessel);
+    int getSizeVessel() const;     //ship picked in the Taille tab: -1 = own ship, 0.. = other ship
+    //bc5.ini show_colreg_tab / show_size_tool / show_instrument_tool: hide the Feux and Taille
+    //tabs and the lit-instruments tool from trainees. Called before load().
+    void setInstructorTools(bool colregTab, bool sizeTool, bool instrumentTool);
+    //Day / dusk / night / digital colours: a bridge::Mode, or -1 to follow the daylight
+    void setPaletteChoice(int choice);
+    //Several screens seen as one (Surround / Eyefinity): the console, levers and command bar are on
+    //the middle screen (consoleArea, the whole window otherwise). With triple_screen=1 the side
+    //screens then show the bridge view down to the bottom (sideScreensFree).
+    irr::core::rect<irr::s32> getConsoleArea() const { return consoleArea; }
+    bool getSideScreensFree() const { return sideScreensFree; }
+    //Glow of the lit instruments, 0..100 (50 = normal)
+    void setGlowLevel(int level);
+    //The weather window (METEO): opens or closes it
+    void toggleWeatherPanel();
+    //The "Écrans éclairés" window: which screens and gauges of the own ship glow at night
+    void openInstrumentEditor();
+    void closeInstrumentEditor();
+    void refreshInstrumentEditor();
+    void setInstrumentEditorStatus(const std::wstring& text, bool isError);
+    void instrumentEditorListPicked(); //a line of the list was chosen
+    void closeSizeEditor();
+    void refreshSizeEditor();
+    void setSizeEditorStatus(const std::wstring& text, bool isError);
+    bool getSizeEditorValue(int boxId, irr::f32& out) const; //false if the box holds no number
     irr::s32 adjustMagnification(irr::s32 delta); //Returns the new raw scrollbar position
     void toggleShow2dInterface();
     void show2dInterface();
@@ -324,10 +543,16 @@ public:
     void cycleVRMColour() { vrmColourIndex = (vrmColourIndex + 1) % 6; }
 
     void showLogWindow();
+    //A line chosen on the AMARRES page (-1: none)
+    void selectLine(int index);
+    //The ACQUITTER key of the alert list is under the point (handled before the GUI sees the click)
+    bool ackKeyAt(irr::s32 x, irr::s32 y) const;
     void drawGUI();
     void setExtraControlsWindowVisible(bool windowVisible);
+    void toggleExtraControlsWindow();
     void setLinesControlsWindowVisible(bool windowVisible);
     void setLinesControlsText(std::string textToShow);
+    void setLinesControlsText(const std::wstring& textToShow);
     bool getAnchorLine() const;
 
 private:
@@ -351,6 +576,7 @@ private:
     irr::gui::IGUIScrollBar* portScrollbar;
     irr::gui::IGUIScrollBar* stbdScrollbar;
     irr::gui::OutlineScrollBar* wheelScrollbar;
+    irr::gui::GUIHelmLever* helmLever = 0;   //console layout: the helm under the engine levers (sends the wheel slider's event)
     irr::gui::IGUIScrollBar* bowThrusterScrollbar;
     irr::gui::IGUIScrollBar* sternThrusterScrollbar;
     irr::gui::IGUIStaticText* portText;
@@ -485,6 +711,130 @@ private:
     //KYARA: instrument console (replaces the text data box, heading tape and small radar in the normal view)
     irr::gui::GUIInstrumentPanel* instrumentPanel = 0;
     bool instrumentsEnabled = true;       //bc5.ini classic_panel=1 turns it off
+
+    //Detached console: the panel and its status column (RADAR, pumps, ack) are moved under
+    //consoleHost - a parentless element, so they leave the main GUI tree - and drawn in consoleWindow.
+    ConsoleWindow* consoleWindow = 0;
+    irr::gui::IGUIElement* consoleHost = 0;
+    bool consoleDetached = false;
+    bool consoleWindowUsed = false;                  //the OpenGL drawable has been switched at least once
+    irr::core::rect<irr::s32> consolePanelAttachedRect;
+    irr::core::dimension2du consoleLaidOutSize;
+    irr::gui::IGUIElement* consoleInputTarget = 0;   //element under a button press in the console window
+    irr::gui::IGUIButton* detachConsoleButton = 0;
+    irr::u32 consoleLastRenderMs = 0;
+    irr::u32 consoleFrameMs = 33;                    //console window refresh, ~30 Hz
+    irr::u32 consoleRenderCount = 0, consoleRateStartMs = 0, consoleRenderRate = 0;
+    irr::video::SExposedVideoData noVideoData;
+    std::string consoleFontName;                     //bc5.ini font, for bigger lettering in a big console window
+    irr::s32 consoleBaseFontSize = 12;
+    irr::f32 consoleAttachedGaugeD = 0;              //dial diameter on the main screen
+    void layoutDetachedConsole(const irr::core::dimension2du& size);
+    //Detached console: how the dials are arranged (0 automatic, 1 a row, 2 a column), chosen with the key in
+    //the window's corner or its right-click menu, and kept in consoleWindow.ini
+    int consoleOrientation = 0;
+    bool consoleMenuOpen = false;
+    irr::core::position2di consoleMenuAt;
+    int consoleMenuHover = -1;
+    bool consoleKeyHover = false;
+    void setConsoleOrientation(int orientation);
+    bool consoleLooksVertical() const;
+    irr::core::rect<irr::s32> consoleOrientationKey() const;
+    irr::core::rect<irr::s32> consoleMenuItem(int item) const;
+    void drawConsoleWindowExtras();
+    irr::s32 consolePlaceX = 80, consolePlaceY = 80;  //console window placement (consoleWindow.ini)
+    irr::u32 consolePlaceW = 0, consolePlaceH = 0;
+    irr::u32 consoleInstance = 1;                    //copy of the simulator: consoleWindow-N.ini from the second
+    bool consoleOnScreen = false;                    //console given a screen of its own
+    irr::core::rect<irr::s32> consoleScreen;
+    void setConsoleDetached(bool detached);
+    void dispatchConsoleWindowInput();
+    void applyDetachedConsoleVisibility();
+    void saveConsolePlacement(bool detached);
+    irr::u32 mainWindowFPS() const;                  //driver FPS minus the console and radar windows' own frames
+
+    //Detached radar. The radar's elements stay in the GUI tree: for each of its frames and input events
+    //the GUI is switched to the large radar layout (main-screen coordinates), drawn into radarTarget, and
+    //switched back; radarTarget is then drawn, scaled, into radarWindow.
+    ConsoleWindow* radarWindow = 0;
+    bool radarDetached = false;
+    bool radarWindowUsed = false;
+    irr::video::ITexture* radarTarget = 0;
+    std::vector<irr::gui::IGUIElement*> radarElements;     //root elements shown by the large radar only
+    std::vector<irr::gui::IGUIElement*> radarPassHidden;   //hidden for the radar pass, shown again after
+    bool inRadarPass = false;
+    bool radarPassShowInterface = true;                    //the main screen's, during a radar pass
+    bool radarPassRootHidden = false;                      //the main screen's interface was hidden altogether (F)
+    irr::core::rect<irr::s32> radarSource;                 //part of the layout shown in the window
+    irr::f32 radarScale = 1.0f;                            //window pixels per layout pixel
+    irr::core::position2di radarOrigin;                    //window position of radarSource's corner
+    irr::core::position2di radarMouse;                     //last mouse position in the window, layout coordinates
+    bool radarMouseInside = false;
+    bool radarMouseDown = false;
+    int radarDetachRequest = -1;                           //-1 none, 0 attach, 1 detach
+    bool radarFullScreenRequest = false;
+    irr::u32 radarLastRenderMs = 0;
+    irr::u32 radarFrameMs = 16;
+    irr::u32 radarRenderCount = 0, radarRateStartMs = 0, radarRenderRate = 0;
+    irr::s32 radarPlaceX = 120, radarPlaceY = 120;         //radar window placement (radarWindow.ini)
+    irr::u32 radarPlaceW = 0, radarPlaceH = 0;
+    bool radarPlaceFullScreen = false;
+    bool radarOnScreen = false;                            //radar given a screen of its own
+    irr::core::rect<irr::s32> radarScreenArea;
+    SonarWindow* sonarWindow = 0;
+    bool sonarOnScreen = false;
+    irr::core::rect<irr::s32> sonarScreenArea;
+    irr::gui::IGUIButton* sonarButton = 0;
+    //Instructor screen
+    ConsoleWindow* stationWindow = 0;
+    StationScreen* stationHost = 0;
+    irr::gui::IGUIButton* stationButton = 0;
+    bool stationWindowUsed = false;
+    bool stationAllowed = false;                           //not on a secondary display, in VR or as a spectator
+    bool stationOnScreen = false;
+    irr::core::rect<irr::s32> stationScreenArea;
+    int stationLayout = 0;
+    irr::gui::IGUIElement* stationInputTarget = 0;         //window under a button press
+    irr::gui::IGUIElement* stationHovered = 0;             //window under the mouse
+    irr::u32 stationLastRenderMs = 0, stationFrameMs = 33;
+    irr::u32 stationRenderCount = 0, stationRateStartMs = 0, stationRenderRate = 0;
+    irr::u32 stationLastClickMs = 0;
+    irr::core::position2di stationLastClick;
+    irr::s32 stationPlaceX = 60, stationPlaceY = 60;       //placement (stationWindow.ini)
+    irr::u32 stationPlaceW = 0, stationPlaceH = 0;
+    bool stationPlaceFullScreen = false;
+    void openStation();
+    void closeStation();
+    void saveStationPlacement(bool open);
+    void dispatchStationInput();
+    bool panelOnStation(irr::gui::IGUIElement* panel) const;
+    //A window of the instructor screen shown on the bridge screen for a while, and back
+    void lendPanelToBridge(irr::gui::IGUIElement* panel);
+    void returnPanelToStation(irr::gui::IGUIElement* panel);
+    irr::gui::IGUIButton* detachRadarButton = 0;
+    irr::gui::IGUIButton* radarFullScreenButton = 0;
+    //Large radar tools
+    irr::gui::IGUIButton* radarVectorLenButton = 0;
+    irr::gui::IGUIButton* radarTrailLenButton = 0;
+    irr::gui::IGUIButton* radarCoastButton = 0;
+    irr::gui::IGUIButton* radarCpaButton = 0;
+    irr::gui::IGUIButton* radarTcpaButton = 0;
+    irr::gui::IGUIButton* radarCpaAlarmButton = 0;
+    irr::gui::IGUIButton* radarPIButton = 0;
+    irr::gui::IGUIButton* radarPIClearButton = 0;
+    irr::gui::IGUIButton* radarTrialButton = 0;
+    irr::gui::IGUIButton* radarTrialButtons[6] = { 0, 0, 0, 0, 0, 0 }; //course -/+, speed -/+, delay -/+
+    irr::gui::IGUIStaticText* radarTrialValues[3] = { 0, 0, 0 };       //course, speed, delay
+    bool scopeLeftDown = false;                            //left press on the scope, its release goes there too
+    std::wstring lastReportText;                           //debrief tab: where the last report went
+    void updateRadarToolButtons();
+    void drawRadarAlerts(irr::s32 centreX, irr::s32 centreY, irr::s32 radius);
+    void setRadarDetached(bool detached);
+    void enterRadarPass();
+    void exitRadarPass();
+    void dispatchRadarWindowInput();
+    void saveRadarPlacement(bool detached);
+    void updateRadarWindowButtons();
     bool instrumentExtraRPM = false;      //bc5.ini instrument_extra
     bool instrumentExtraWind = false;
     irr::f32 guiCOG = 0;                  //deg
@@ -516,6 +866,7 @@ private:
     irr::gui::IGUICheckBox* heaveLineIn;
     irr::gui::IGUICheckBox* anchorLine;
     irr::gui::IGUIListBox* linesList;
+    irr::gui::IGUIComboBox* linesCombo = 0;   //"Aucune" then the lines: the choice on the AMARRES page
     irr::gui::IGUIStaticText* linesText;
 
     irr::gui::IGUIStaticText* pump1On;
@@ -549,7 +900,7 @@ private:
     irr::f32 guiPitch = 0; // KYARA HOULE
     irr::f32 guiRoll = 0;  // KYARA HOULE
     bool guiRadarOn;
-    irr::f32 guiRadarRangeNm;
+    irr::f32 guiRadarRangeNm = 1.0f; //not 0: the cursor maths divide by it before the first update
     int guiRadarRangeRingBrightness = 0;   //kyara: mirrors the radar's range-ring brightness cycle
     irr::f32 guiRadarGain;
     irr::f32 guiRadarClutter;
@@ -570,6 +921,22 @@ private:
     irr::s32 smallRadarScreenCentreX;
     irr::s32 smallRadarScreenCentreY;
     irr::s32 smallRadarScreenRadius;
+    bool guiGyroLost = false, guiGpsLost = false, guiRadarFailed = false, guiDepthAlarm = false, guiMobOn = false;
+    std::vector<std::wstring> guiAlertText;  //bridge alert list
+    std::vector<bool> guiAlertAcked;
+    std::wstring guiInstructorMessage;
+    bool guiSpectator = false;
+    std::vector<std::wstring> guiSpectatorNames;
+    std::vector<bool> guiSpectatorPresent;
+    int guiSpectatorTarget = 0, guiSpectatorView = 0;
+    irr::f32 guiSpectatorSpeedKts = 0, guiSpectatorHeading = 0;
+    std::vector<irr::gui::IGUIElement*> spectatorHidden; //the bridge's controls, kept hidden for the instructor camera
+    bool spectatorHiddenSet = false;
+    void drawSpectatorOverlay();
+    void drawBridgeAlerts();
+    void drawInstructorMessage();
+    int trainDelayIndex = 0;                 //failures: now, in 1, 3, 5 min, or at random
+    irr::f32 guiDepthAlarmLimit = 0, guiMobBrg = 0, guiMobNm = 0;
     std::vector<ARPAEstimatedState> arpaContactStates;
     std::string guiTime;
     bool singleEngine;
@@ -612,6 +979,68 @@ private:
     irr::gui::IGUIButton* instrLightsButton[3] = {};
     irr::gui::IGUICheckBox* ownDeckLightsBox = 0;
     irr::gui::IGUIStaticText* interiorStatusText = 0;
+    //KYARA FEUX EDIT
+    irr::gui::IGUIWindow* lightEditWindow = 0;
+    irr::gui::IGUIListBox* lightEditList = 0;
+    irr::gui::IGUIStaticText* lightEditReadout = 0;
+    irr::gui::IGUICheckBox* lightEditMirror = 0;
+    irr::gui::IGUIStaticText* lightEditSpacingText = 0;
+    irr::gui::IGUIStaticText* lightEditStatus = 0;
+    int lightEditRevision = -1;
+    bool lightEditClickAdd = false;          //a click on the vessel adds a lamp (else moves the selected one)
+    int lightEditNewType = 0;                //what a click adds (see openLightEditor)
+    int lightEditColour = 0;                 //the colour of a free light
+    irr::gui::IGUIButton* lightEditMoveKey = 0;
+    irr::gui::IGUIButton* lightEditAddKey = 0;
+    irr::gui::IGUIButton* lightEditTypeKey = 0;
+    irr::gui::IGUIButton* lightEditColourKeys[6] = { 0, 0, 0, 0, 0, 0 };
+    irr::gui::IGUIStaticText* lightEditColourShow = 0;
+    int lightEditStep = 1;                   //index into the move keys' steps (5 cm .. 5 m)
+    irr::gui::IGUIButton* lightEditStepKey = 0;
+    //Size and waterline window
+    irr::gui::IGUIWindow* sizeEditWindow = 0;
+    irr::gui::IGUIComboBox* sizeVesselBox = 0;
+    bool showColregTab = true;
+    bool showSizeTool = true;
+    bool showInstrumentTool = true;
+    //Bridge look: the skin, the command bar under the console, and the palette in use
+    bridge::BridgeSkin* bridgeSkin = 0;
+    bridge::CommandBar* commandBar = 0;
+    irr::core::rect<irr::s32> commandBarRect;
+    irr::core::stringw iconSpace;          //leading spaces that leave room for a key's icon
+    int paletteChoice = -1;                //-1 = follows the daylight, else bridge::Mode
+    irr::core::rect<irr::s32> consoleArea;  //where the console and the command bar go
+    bool sideScreensFree = false;           //side screens: 3D view to the bottom, nothing drawn over it
+    int paletteAutoMode = 1;               //what "auto" last settled on (with hysteresis)
+    static const int PALETTE_KEYS = 7;
+    irr::gui::IGUIButton* paletteButton[PALETTE_KEYS] = {}; //JOUR, CREP., NUIT, DIGITAL, ROUGE, MARINE, AUTO
+    irr::gui::IGUIScrollBar* glowScrollbar = 0;             //LUEUR
+    irr::gui::IGUIButton* weatherButton = 0;                //METEO
+    class WeatherPanel* weatherPanel = 0;
+    void placeWeatherPanel();
+    bool magnificationOwned = false;          //made with new (classic layout): this class drops it
+    class ControlsPanel* controlsPanel = 0;   //the controls window as shown (over extraControlsWindow's widgets)
+    void placeOverView(irr::gui::IGUIElement* panel);
+    //Where the controls and weather windows go: centre, docked right / left, or where dragged.
+    //Kept in panelPlace.ini in the user folder, so a docked window opens docked next time.
+    int panelPlace = 0;                            //bridge::PanelPlace
+    irr::core::rect<irr::s32> panelFreeRect;       //PLACE_FREE: where it was dropped
+    void hookPanelDock(bridge::PanelDock& dock);
+    void setPanelPlace(int place);
+    void loadPanelPlace();
+    void savePanelPlace() const;
+    void layoutCommandBar();
+    void applyPaletteMode(int mode);
+    irr::gui::IGUIWindow* instrEditWindow = 0;
+    irr::gui::IGUIListBox* instrEditList = 0;
+    irr::gui::IGUIStaticText* instrEditStatus = 0;
+    irr::gui::IGUIStaticText* instrEditCount = 0;
+    int instrEditShownRevision = -1;
+    irr::gui::IGUIStaticText* sizeEditReadout = 0;
+    irr::gui::IGUIEditBox* sizeEditLengthBox = 0;
+    irr::gui::IGUIEditBox* sizeEditDraughtBox = 0;
+    irr::gui::IGUIStaticText* sizeEditStatus = 0;
+    int sizeEditShownRevision = -1;
 
     //Different locations for heading indicator depending on GUI visibility
     irr::core::rect<irr::s32> stdHdgIndicatorPos;

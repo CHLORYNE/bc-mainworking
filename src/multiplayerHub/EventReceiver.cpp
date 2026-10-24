@@ -35,17 +35,22 @@
                 if (id == pauseButtonID) {
                     accelerator = 0;
                 } else if (id == runButtonID) {
-                    accelerator = 1;
+                    accelerator = speed;
                 }
             }
 		}
 
+        //Typing a message to the students: the keys are the text, not shortcuts
+        if (event.EventType == irr::EET_KEY_INPUT_EVENT && guienv && guienv->getFocus() &&
+            guienv->getFocus()->getType() == irr::gui::EGUIET_EDIT_BOX) {
+            return false;
+        }
         if (event.EventType == irr::EET_KEY_INPUT_EVENT) {
             if (event.KeyInput.Key==irr::KEY_KEY_0)
             {
                 accelerator = 0;
-            } else if ((event.KeyInput.Key==irr::KEY_KEY_0) || (event.KeyInput.Key == irr::KEY_RETURN)) {
-                    accelerator = 1;
+            } else if (event.KeyInput.Key == irr::KEY_RETURN) {
+                accelerator = speed;
             }
         }
         return false;

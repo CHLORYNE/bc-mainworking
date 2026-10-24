@@ -34,6 +34,14 @@ namespace gui
 			showScale = on; scaleMajor = majorTicks; scaleMinorPerMajor = minorPerMajor;
 		}
 
+		//! Radar console knob look: printed 300 degree scale (7 o'clock to 5 o'clock), lit value arc,
+		//! fluted rubber skirt and metal cap with a pointer line, turning with the value. Operated
+		//! like a real knob - grab and turn (no jump to where you click) - or with the mouse wheel.
+		void setKnobStyle(bool on, video::SColor accent = video::SColor(255, 255, 176, 0))
+		{
+			knobStyle = on; knobAccent = accent;
+		}
+
 		//! called if an event happened.
 		virtual bool OnEvent(const SEvent& event);
 
@@ -105,6 +113,16 @@ namespace gui
 		video::SColor OverrideColor = video::SColor(255, 0, 0, 0);
 		bool       HasOverride = false;
 		u32        LineThickness = 1;
+		//Knob style (setKnobStyle)
+		bool knobStyle = false;
+		video::SColor knobAccent = video::SColor(255, 255, 176, 0);
+		f32 knobLastAngle = 0;     //pointer angle at the previous drag event, deg
+		f32 knobDragValue = 0;     //unrounded value while turning
+		bool knobHovered = false;
+		void drawKnob(const core::vector2d<s32>& absoluteCentre);
+		bool knobEvent(const SEvent& event);
+		f32 mouseAngle(const core::position2di& p) const;  //deg, clockwise from 12 o'clock
+		void sendChanged();
 		//BUTTON CHANGE RADAR
 		bool showScale = false;
 		s32  scaleMajor = 4;

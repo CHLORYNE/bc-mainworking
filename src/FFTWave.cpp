@@ -240,7 +240,9 @@ void cFFT::fft(complex* input, complex* output, int stride, int offset) {
 //MAIN WAVE CODE:
 
 float cOcean::uniformRandomVariable() {
-	return (float)rand()/RAND_MAX;
+	//Own generator (an LCG): repeatable, and does not reseed or consume the program's rand()
+	rngState = rngState * 1664525u + 1013904223u;
+	return (float)(rngState >> 8) / (float)(1u << 24);
 }
 
 complex cOcean::gaussianRandomVariable() {
@@ -256,7 +258,7 @@ complex cOcean::gaussianRandomVariable() {
 
 cOcean::cOcean(const int N, const float A, const vector2 w, const float length) :
 	g(9.81), N(N), Nplus1(N+1), A(A), w(w), length(length),
-	vertices(0), h_tilde(0), h_tilde_slopex(0), h_tilde_slopez(0), h_tilde_dx(0), h_tilde_dz(0), fft(0)
+	vertices(0), gauss(0), gaussNeg(0), rngState(10u), h_tilde(0), h_tilde_slopex(0), h_tilde_slopez(0), h_tilde_dx(0), h_tilde_dz(0), fft(0)
 {
 	h_tilde        = new complex[N*N];
 	h_tilde_slopex = new complex[N*N];
@@ -266,24 +268,22 @@ cOcean::cOcean(const int N, const float A, const vector2 w, const float length) 
 	fft            = new cFFT(N);
 	vertices       = new vertex_ocean[Nplus1*Nplus1];
 
+	gauss          = new complex[Nplus1*Nplus1];
+	gaussNeg       = new complex[Nplus1*Nplus1];
+
 	int index;
 
-	//seed random number generator with srand, so we get repeatable random waves
-    srand(10);
+	//The random part of every wave, once (repeatable: own generator, fixed seed)
+	for (int i = 0; i < Nplus1 * Nplus1; i++) {
+		gauss[i] = gaussianRandomVariable();
+		gaussNeg[i] = gaussianRandomVariable();
+	}
 
-	//NOTE: Code from here duplicated in hTilde()
-	complex htilde0, htilde0mk_conj;
 	for (int m_prime = 0; m_prime < Nplus1; m_prime++) {
 		for (int n_prime = 0; n_prime < Nplus1; n_prime++) {
 			index = m_prime * Nplus1 + n_prime;
 
-			htilde0        = hTilde_0( n_prime,  m_prime);
-			htilde0mk_conj = hTilde_0(-n_prime, -m_prime).conj();
-
-			vertices[index].a  = htilde0.a;
-			vertices[index].b  = htilde0.b;
-			vertices[index]._a = htilde0mk_conj.a;
-			vertices[index]._b = htilde0mk_conj.b;
+			setInitialAmplitudes(index, n_prime, m_prime);
 
 			vertices[index].ox = vertices[index].x =  (n_prime - N / 2.0f) * length / N;
 			vertices[index].oy = vertices[index].y =  0.0f;
@@ -306,6 +306,19 @@ cOcean::~cOcean() {
 	if (h_tilde_dz)		delete [] h_tilde_dz;
 	if (fft)		delete fft;
 	if (vertices)		delete [] vertices;
+	if (gauss)		delete [] gauss;
+	if (gaussNeg)		delete [] gaussNeg;
+}
+
+//h~0 for this wave and its opposite, from the stored random numbers and the present spectrum
+void cOcean::setInitialAmplitudes(int index, int n_prime, int m_prime) {
+	const complex htilde0 = gauss[index] * sqrtf(phillips(n_prime, m_prime) / 2.0f);
+	complex htilde0mk_conj = gaussNeg[index] * sqrtf(phillips(-n_prime, -m_prime) / 2.0f);
+	htilde0mk_conj = htilde0mk_conj.conj();
+	vertices[index].a  = htilde0.a;
+	vertices[index].b  = htilde0.b;
+	vertices[index]._a = htilde0mk_conj.a;
+	vertices[index]._b = htilde0mk_conj.b;
 }
 
 float cOcean::dispersion(int n_prime, int m_prime) {
@@ -357,18 +370,9 @@ complex cOcean::hTilde_0(int n_prime, int m_prime) {
 complex cOcean::hTilde(float t, int n_prime, int m_prime) {
 	int index = m_prime * Nplus1 + n_prime;
 
-	if (reInitialiseWaves) { //NOTE: Code duplication from constructor here
+	if (reInitialiseWaves) { //New sea state: the same waves, rescaled to the new spectrum
 
-        complex htilde0, htilde0mk_conj;
-        htilde0        = hTilde_0( n_prime,  m_prime);
-        htilde0mk_conj = hTilde_0(-n_prime, -m_prime).conj();
-        
-        //std::cout << htilde0.a << " " << htilde0.b << std::endl;
-
-        vertices[index].a  = htilde0.a;
-        vertices[index].b  = htilde0.b;
-        vertices[index]._a = htilde0mk_conj.a;
-        vertices[index]._b = htilde0mk_conj.b;
+        setInitialAmplitudes(index, n_prime, m_prime);
 
         vertices[index].ox = vertices[index].x =  (n_prime - N / 2.0f) * length / N;
         vertices[index].oy = vertices[index].y =  0.0f;
@@ -443,9 +447,7 @@ void cOcean::resetParameters(float A, vector2 w)
 
     this->A = A;
     this->w = w;
-    reInitialiseWaves = true;
-    //seed random number generator with srand, so we get repeatable random waves
-    srand(10);
+    reInitialiseWaves = true; //the stored random numbers keep the same sea, only rescaled
 }
 
 //From OpenCV via http://stackoverflow.com/a/20723890

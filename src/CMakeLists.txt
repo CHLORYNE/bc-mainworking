@@ -28,6 +28,7 @@ endif (NOT APPLE)
 # optional tools
 add_subdirectory(controller)
 add_subdirectory(editor)
+add_subdirectory(fireEditor)
 add_subdirectory(iniEditor)
 add_subdirectory(launcher)
 add_subdirectory(multiplayerHub)
@@ -77,9 +78,17 @@ set(BC_SOURCES
     OutlineScrollBar.cpp
     OwnShip.cpp
     GUIEngineLever.cpp
+    GUIHelmLever.cpp
+    PanelDock.cpp
+    StationUi.cpp
+    StationScreen.cpp
     RadarCalculation.cpp
     RadarScreen.cpp
     Rain.cpp
+    Snow.cpp
+    WeatherPanel.cpp
+    ControlsPanel.cpp
+    launcher/HudText.cpp
     ScenarioChoice.cpp
     ScenarioDataStructure.cpp
     ScrollDial.cpp
@@ -100,9 +109,17 @@ set(BC_SOURCES
     Splash.cpp
     ScreenSpray.cpp
     ShipLights.cpp
+    ShipLightsPropose.cpp
     LoadingScreen.cpp
+    IncidentConfig.cpp
+    chartView/ChartView.cpp
+    chartView/ChartDraw.cpp
     HullMotion.cpp
     GUIInstrumentPanel.cpp
+    ConsoleWindow.cpp
+    Sonar.cpp
+    SonarWindow.cpp
+    ExerciseLog.cpp
     BCTerrainSceneNode.cpp
     BCTerrainTriangleSelector.cpp
 )

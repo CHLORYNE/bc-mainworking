@@ -85,12 +85,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\AdminLock.cpp" />
     <ClCompile Include="..\IniFile.cpp" />
     <ClCompile Include="..\Lang.cpp" />
     <ClCompile Include="..\Utilities.cpp" />
     <ClCompile Include="..\iniEditor\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\AdminLock.hpp" />
+    <ClInclude Include="..\GUIPanelDraw.hpp" />
+    <ClInclude Include="..\UiTheme.hpp" />
     <ClInclude Include="..\IniFile.hpp" />
     <ClInclude Include="..\Lang.hpp" />
     <ClInclude Include="..\Utilities.hpp" />

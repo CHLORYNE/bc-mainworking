@@ -39,6 +39,7 @@ struct RadarData {
     irr::f32 solidHeight;
     void* contact;
     irr::u32 mmsi; // NEW: Store Real MMSI
+    std::string name; //the vessel's name as shown (multiplayer: the student's station)
     bool hidden;
     std::string racon; //Racon code if set
     irr::f32 raconOffsetTime;

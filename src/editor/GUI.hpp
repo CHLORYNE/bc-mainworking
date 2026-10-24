@@ -26,6 +26,9 @@
 #include "PositionDataStruct.hpp"
 #include "../ScenarioDataStructure.hpp"
 
+class ChartView;
+namespace Ui { class Button; }
+
 class GUIMain //Create, build and update GUI
 {
 public:
@@ -72,11 +75,19 @@ public:
         GUI_ID_DRIFTING_CHECKBOX,
         GUI_ID_GENERAL_WINDOW,    // NEW: ID for the UI Window
         GUI_ID_TOGGLE_UI_BUTTON,   // NEW: ID for the Show/Hide button
+        GUI_ID_CHARTSTYLE_BUTTON,  // Chart background: nautical chart day / night, original map, HD image
+        GUI_ID_TAB_EXERCISE,       // Side panel tabs: exercise, ships, route, weather
+        GUI_ID_TAB_SHIPS,
+        GUI_ID_TAB_ROUTE,
+        GUI_ID_TAB_WEATHER,
     };
+    ~GUIMain();
     //kyara
     void updateShipImageDisplay(std::string shipName);
 
-    void updateGuiData(ScenarioData scenarioInfo, irr::s32 mapOffsetX, irr::s32 mapOffsetZ, irr::f32 metresPerPx, const std::vector<PositionData>& buoys, irr::video::ITexture* displayMapTexture, irr::s32 selectedShip, irr::s32 selectedLeg, irr::f32 terrainLong, irr::f32 terrainLongExtent, irr::f32 terrainXWidth, irr::f32 terrainLat, irr::f32 terrainLatExtent, irr::f32 terrainZWidth);
+    // Draw the chart, the ships and the GUI. hoverShip: ship under the cursor (0 own ship, 1.. other ships, -1 none).
+    void updateGuiData(ScenarioData scenarioInfo, ChartView& chart, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip, bool draggingShip, irr::core::position2di mouse);
+    void selectShip(irr::s32 shipIndex); // As if chosen in the ship list: 0 own ship, 1.. other ships
     void updateEditBoxes(); //Trigger an update of the edit boxes (carried out in next updateGuiData)
     irr::f32 getEditBoxCourse() const;
     irr::f32 getEditBoxSpeed() const;
@@ -106,6 +117,9 @@ public:
     // NEW: UI Toggles
     void hideUI();
     void toggleUI();
+    void setActiveTab(int tab); //0 exercise, 1 ships, 2 route, 3 weather
+    void setWorldName(const std::string& world); //shown under the panel title
+    irr::core::recti getMapViewport() const; //the chart's part of the window (beside the side panel)
 
 private:
 
@@ -114,15 +128,30 @@ private:
     irr::IrrlichtDevice* device;
     irr::gui::IGUIEnvironment* guienv;
 
-    irr::gui::IGUIButton* zoomIn;
-    irr::gui::IGUIButton* zoomOut;
+    //Side panel: header, tabs, pages, and Apply / Save at the bottom. The ship selection card is shared
+    //by the Ships and Route tabs.
+    irr::gui::IGUIElement* sidebar;
+    irr::gui::IGUIElement* shipStrip;
+    irr::gui::IGUIElement* pages[4];
+    Ui::Button* tabButtons[4];
+    int activeTab;
+    bool sidebarShown;
+    irr::s32 sidebarWidth;
+    bool french;
+    irr::gui::IGUIFont* titleFont;
+    irr::gui::IGUIFont* textFont;
+    irr::gui::IGUIFont* smallFont;
+    irr::gui::IGUIFont* mapFont;          //map labels and status bar keep the smaller font
+    irr::gui::IGUIFont* originalSkinFont; //given back to the start screen
+    std::string worldShown;
 
-    irr::gui::IGUIWindow* guiWindow;
-    irr::gui::IGUIWindow* generalDataWindow;
-
-    irr::gui::IGUITabControl* tabControl;
+    irr::gui::IGUIElement* zoomIn;
+    irr::gui::IGUIElement* zoomOut;
+    irr::gui::IGUIElement* chartStyleButton;
+    std::wstring chartStyleShown;
 
     irr::gui::IGUIStaticText* dataDisplay;
+    irr::gui::IGUIStaticText* routeHint;
     irr::gui::IGUIEditBox* descriptionEdit;
     irr::gui::IGUIComboBox* shipSelector;
     irr::gui::IGUIListBox* legSelector;
@@ -130,23 +159,20 @@ private:
     irr::gui::IGUIEditBox* legSpeedEdit;
     irr::gui::IGUIEditBox* legDistanceEdit;
     irr::gui::IGUIEditBox* mmsiEdit;
-    irr::gui::IGUIButton* changeLeg;
-    //kyara- adding boat pictures 
+    irr::gui::IGUIElement* changeLeg;
     irr::gui::IGUIImage* shipImageDisplay;
     irr::gui::IGUIStaticText* shipImageNotFoundText;
     bool hasValidImage;
-    //irr::gui::IGUIButton* changeLegCourseSpeed;
-    //kyara back button
-    irr::gui::IGUIButton* backButton;
-    irr::gui::IGUIButton* toggleUIButton; // NEW: The Hide/Show button
+    irr::gui::IGUIElement* backButton;
+    irr::gui::IGUIElement* toggleUIButton; // Collapses / shows the side panel
     bool returnToMenuFlag;
 
-    irr::gui::IGUIButton* addShip;
-	irr::gui::IGUIButton* deleteShip;
-    irr::gui::IGUIButton* addLeg;
-    irr::gui::IGUIButton* deleteLeg;
-    irr::gui::IGUIButton* moveShip;
-    irr::gui::IGUIButton* setMMSI;
+    irr::gui::IGUIElement* addShip;
+	irr::gui::IGUIElement* deleteShip;
+    irr::gui::IGUIElement* addLeg;
+    irr::gui::IGUIElement* deleteLeg;
+    irr::gui::IGUIElement* moveShip;
+    irr::gui::IGUIElement* setMMSI;
 
     irr::gui::IGUICheckBox* isDrifting;
 
@@ -169,8 +195,8 @@ private:
     irr::gui::IGUIStaticText* overwriteWarning;
     irr::gui::IGUIStaticText* notMultiplayerNameWarning;
     irr::gui::IGUIStaticText* multiplayerNameWarning;
-    irr::gui::IGUIButton* apply;
-    irr::gui::IGUIButton* save;
+    irr::gui::IGUIElement* apply;
+    irr::gui::IGUIElement* save;
 
 
     irr::f32 mapCentreX;
@@ -181,8 +207,12 @@ private:
 
     ScenarioData oldScenarioInfo; //Keep a copy of the data we have already displayed, so the dialog boxes only get updated when needed
 
-    void drawInformationOnMap(const irr::f32& time, const irr::s32& mapOffsetX, const irr::s32& mapOffsetZ, const irr::f32& metresPerPx, const irr::f32& ownShipPosX, const irr::f32& ownShipPosZ, const irr::f32& ownShipHeading, const std::vector<PositionData>& buoys, const std::vector<OtherShipData>& otherShips, const irr::s32& selectedShip, const irr::s32& selectedLeg);
+    void drawInformationOnMap(ChartView& chart, const ScenarioData& scenarioInfo, const std::vector<PositionData>& buoys, irr::s32 selectedShip, irr::s32 selectedLeg, irr::s32 hoverShip);
+    void drawStatusBar(ChartView& chart, irr::core::position2di mouse, bool draggingShip);
+    void drawLabel(ChartView& chart, const std::wstring& text, irr::core::position2di at, irr::video::SColor colour);
     void updateDropDowns(const std::vector<OtherShipData>& otherShips, irr::s32 selectedShip, irr::f32 time);
+    std::wstring legLabel(const OtherShipData& ship, irr::u32 leg) const; //"1  090.0\u00B0  8.0 kn  2.00 NM"
+    void placeToolbar(); //map buttons, beside the side panel or at the window edge
     bool manuallyTriggerGUIEvent(irr::gui::IGUIElement* caller, irr::gui::EGUI_EVENT_TYPE eType);
     std::wstring f32To3dp(irr::f32 value) const;
     std::wstring f32To4dp(irr::f32 value) const;

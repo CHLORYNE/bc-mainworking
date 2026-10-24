@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simulator", "bridgecommand.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simulator-ed", "bridgecommand-ed.vcxproj", "{C92A29FC-4E4E-4184-82FF-C2D2FF3839E4}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simulator-fe", "bridgecommand-fe.vcxproj", "{7618040E-6E09-4EBA-958F-9438D759F5CC}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simulator-ini", "bridgecommand-ini.vcxproj", "{52064039-8E75-4FBE-9860-6ED905990E6E}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simulator-mc", "bridgecommand-mc.vcxproj", "{6A8FD0B5-B788-4332-8534-C599512EA0F4}"
@@ -51,6 +53,14 @@ Global
 		{C92A29FC-4E4E-4184-82FF-C2D2FF3839E4}.Release|x64.ActiveCfg = Release|x64
 		{C92A29FC-4E4E-4184-82FF-C2D2FF3839E4}.Release|x64.Build.0 = Release|x64
 		{C92A29FC-4E4E-4184-82FF-C2D2FF3839E4}.Release|x86.ActiveCfg = Release|Win32
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Debug|Win32.ActiveCfg = Debug|Win32
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Debug|x64.ActiveCfg = Release|x64
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Debug|x64.Build.0 = Release|x64
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Debug|x86.ActiveCfg = Debug|x64
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Release|Win32.ActiveCfg = Release|Win32
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Release|x64.ActiveCfg = Release|x64
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Release|x64.Build.0 = Release|x64
+		{7618040E-6E09-4EBA-958F-9438D759F5CC}.Release|x86.ActiveCfg = Release|Win32
 		{52064039-8E75-4FBE-9860-6ED905990E6E}.Debug|Win32.ActiveCfg = Debug|Win32
 		{52064039-8E75-4FBE-9860-6ED905990E6E}.Debug|x64.ActiveCfg = Release|x64
 		{52064039-8E75-4FBE-9860-6ED905990E6E}.Debug|x64.Build.0 = Release|x64

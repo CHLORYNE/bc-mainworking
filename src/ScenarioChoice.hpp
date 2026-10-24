@@ -20,32 +20,24 @@
 #include "irrlicht.h"
 #include "Lang.hpp"
 #include "OperatingModeEnum.hpp"
-#include <asio.hpp> //To find hostname
 #include <string>
-#include <vector>
 
+//Start screen: the exercises in a list, with a quick view of the selected one (chart with the ships and
+//their routes, own ship, conditions, traffic, incident, description), and how this station runs
+//(exercise, secondary display, multiplayer).
 class ScenarioChoice
 {
 public:
-    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language);
+    //fontName: bc5.ini font. french: French wording for the screen.
+    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language, const std::string& fontName, bool french);
     void chooseScenario(std::string& scenarioName, std::string& hostname, irr::u32& udpPort, OperatingMode::Mode& mode, std::string scenarioPath);
 
 private:
-    void getScenarioList(std::vector<std::string>&scenarioList, std::vector<std::string>&scenarioDescription, std::string scenarioPath);
     irr::IrrlichtDevice* device;
     irr::gui::IGUIEnvironment* gui;
     Lang* language;
-
-    enum GUI_ELEMENTS// Define some values that we'll use to identify individual GUI controls.
-    {
-        GUI_ID_SCENARIO_LISTBOX = 101,
-        GUI_ID_OK_BUTTON,
-        GUI_ID_SECONDARY_CHECKBOX,
-        GUI_ID_MULTIPLAYER_CHECKBOX
-    };
-
+    std::string fontName;
+    bool french;
 };
 
 #endif
-
-

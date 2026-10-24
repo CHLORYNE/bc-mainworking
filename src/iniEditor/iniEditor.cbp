@@ -82,6 +82,8 @@
 		</Compiler>
 		<Unit filename="../IniFile.cpp" />
 		<Unit filename="../IniFile.hpp" />
+		<Unit filename="../AdminLock.cpp" />
+		<Unit filename="../AdminLock.hpp" />
 		<Unit filename="../Lang.cpp" />
 		<Unit filename="../Lang.hpp" />
 		<Unit filename="../Utilities.cpp" />

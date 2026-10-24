@@ -20,9 +20,29 @@
 #include "Utilities.hpp"
 #include "Constants.hpp"
 #include "Leg.hpp"
+#include "BridgeSkin.hpp"
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include <vector>
+#include <sstream>
+#include <iomanip>
+#include <type_traits>
+
+namespace
+{
+    //Numbers for the network message. lexical_cast keeps only 6 significant digits, so an absolute
+    //position of 150 000 m arrived in 1 m steps (the secondary's ship stuttered) and the scenario
+    //time in 1 s steps after a day. Ten digits keep centimetres and milliseconds.
+    template <typename T>
+    std::string netText(T value)
+    {
+        std::ostringstream out;
+        if (std::is_floating_point<T>::value) { out << std::setprecision(10); }
+        out << value;
+        return out.str();
+    }
+}
 
 NetworkPrimary::NetworkPrimary(int port, irr::IrrlichtDevice* dev) //Constructor
 {
@@ -116,6 +136,8 @@ void NetworkPrimary::connectToServer(std::string hostnames)
 
             /* Initiate the connection, allocating the maximum number of channels. */
             peer = enet_host_connect (client, & address, ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT, 0);
+            wantedAddresses.push_back(address);
+            wantedPeers.push_back(peer);
             //Note we don't store peer pointer, as we broadcast to all connected peers.
             if (peer == NULL)
             {
@@ -134,7 +156,8 @@ void NetworkPrimary::connectToServer(std::string hostnames)
                 /* received. Reset the peer in the event the 1 second */
                 /* had run out without any significant event. */
                 enet_peer_reset (peer);
-                device->getLogger()->log("ENet connection failed to:");
+                wantedPeers.back() = 0; //tried again from update()
+                device->getLogger()->log("ENet connection failed to (will retry):");
                 device->getLogger()->log(thisHostname.c_str());
             }
         }
@@ -156,6 +179,7 @@ void NetworkPrimary::update()
     if (!networkRequested) {
         return;
     }
+    retryConnections();
     receiveNetwork();
     sendNetwork();
 }
@@ -181,12 +205,27 @@ void NetworkPrimary::receiveNetwork()
     //Also now a while loop, so several packets arriving in one frame are all drained rather than
     //one per frame.
     while (enet_host_service(client, &event, 0) > 0) {
+        if (event.type == ENET_EVENT_TYPE_CONNECT) {
+            device->getLogger()->log("ENet: a display is connected.");
+            //The exercise at once, so that a display started late does not wait for the next one
+            //(every 100th frame)
+            if (model) {
+                const std::string scenario = generateSendStringScn();
+                ENetPacket* packet = enet_packet_create(scenario.c_str(), scenario.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                enet_peer_send(event.peer, 0, packet);
+            }
+        }
+        if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+            //Gone, or never answered: tried again in a moment
+            for (size_t i = 0; i < wantedPeers.size(); i++) {
+                if (wantedPeers[i] == event.peer) { wantedPeers[i] = 0; }
+            }
+        }
         if (event.type==ENET_EVENT_TYPE_RECEIVE) {
 
             //Convert into a string, max length 8192
-            char tempString[8192]; //Fixme: Think if this is long enough
-            snprintf(tempString,8192,"%s",event.packet -> data);
-            std::string receivedStrings(tempString);
+            //The whole packet (no length limit), and never past its end even without a final 0
+            std::string receivedStrings((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
             std::vector<std::string> receivedData  = Utilities::split(receivedStrings,'|');
 
@@ -326,22 +365,14 @@ void NetworkPrimary::receiveNetwork()
                                             if (whichPump==1) {
                                                 if (rudderFunction==0) {
                                                     model->setRudderPumpState(1,false);
-                                                    model->setAlarm(true);
                                                 } else {
                                                     model->setRudderPumpState(1,true);
-                                                    if (model->getRudderPumpState(2)) {
-                                                        model->setAlarm(false); //Only turn off alarm if other pump is working
-                                                    }
                                                 }
                                             } else if (whichPump==2) {
                                                 if (rudderFunction==0) {
                                                     model->setRudderPumpState(2,false);
-                                                    model->setAlarm(true);
                                                 } else {
                                                     model->setRudderPumpState(2,true);
-                                                    if (model->getRudderPumpState(1)) {
-                                                        model->setAlarm(false); //Only turn off alarm if other pump is working
-                                                    }
                                                 }
                                             }
                                         }
@@ -423,6 +454,18 @@ void NetworkPrimary::receiveNetwork()
     }
 }
 
+void NetworkPrimary::retryConnections()
+{
+    const irr::u32 now = device->getTimer()->getRealTime();
+    if (now - lastRetryMs < 2000) { return; }
+    lastRetryMs = now;
+    for (size_t i = 0; i < wantedAddresses.size(); i++) {
+        if (wantedPeers[i]) { continue; }
+        //Not waited for: the answer comes as a CONNECT event, or a DISCONNECT if no one is there
+        wantedPeers[i] = enet_host_connect(client, &wantedAddresses[i], ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT, 0);
+    }
+}
+
 void NetworkPrimary::shutdownAllSecondaries(void)
 {
   sendNetwork("SD"); //SD to Shutdown
@@ -481,15 +524,15 @@ std::string NetworkPrimary::generateSendStringShort()
     std::string stringToSend = "OS"; //Own ship only
 
     //1 Position, speed etc
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPosX()));
+    stringToSend.append(netText(model->getPosX()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPosZ()));
+    stringToSend.append(netText(model->getPosZ()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getHeading()));
+    stringToSend.append(netText(model->getHeading()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRateOfTurn()));
+    stringToSend.append(netText(model->getRateOfTurn()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getSOG()*MPS_TO_KTS));
+    stringToSend.append(netText(model->getSOG()*MPS_TO_KTS));
 
     return stringToSend;
 }
@@ -501,81 +544,82 @@ std::string NetworkPrimary::generateSendString()
 
     std::string stringToSend = "BC";
     //0 Time:
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getTimestamp())); //Current timestamp
+    stringToSend.append(netText(model->getTimestamp())); //Current timestamp
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getTimeOffset())); //Timestamp of start of first day of scenario
+    stringToSend.append(netText(model->getTimeOffset())); //Timestamp of start of first day of scenario
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getTimeDelta())); //Time from start day of scenario
+    stringToSend.append(netText(model->getTimeDelta())); //Time from start day of scenario
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getAccelerator())); //Current accelerator
+    stringToSend.append(netText(model->getAccelerator())); //Current accelerator
     stringToSend.append("#");
 
     //1 Position, speed etc
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPosX()));
+    stringToSend.append(netText(model->getPosX()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPosZ()));
+    stringToSend.append(netText(model->getPosZ()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getHeading()));
+    stringToSend.append(netText(model->getHeading()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRateOfTurn()));
+    stringToSend.append(netText(model->getRateOfTurn()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPitch())); //KYARA HOULE: pitch, deg + bow up
+    stringToSend.append(netText(model->getPitch())); //KYARA HOULE: pitch, deg + bow up
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRoll())); //KYARA HOULE: roll, deg + starboard
+    stringToSend.append(netText(model->getRoll())); //KYARA HOULE: roll, deg + starboard
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getSOG()*MPS_TO_KTS));
+    stringToSend.append(netText(model->getSOG()*MPS_TO_KTS));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getCOG()));
+    stringToSend.append(netText(model->getCOG()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRudder()));
+    stringToSend.append(netText(model->getRudder()));
     stringToSend.append(":");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getWheel()));
+    stringToSend.append(netText(model->getWheel()));
     stringToSend.append(":");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPortEngineRPM()));
+    stringToSend.append(netText(model->getPortEngineRPM()));
     stringToSend.append(":");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStbdEngineRPM()));
+    stringToSend.append(netText(model->getStbdEngineRPM()));
     stringToSend.append("#");
 
     //2 Numbers: Number Other, Number buoys, Number MOB #
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getNumberOfOtherShips()));
+    stringToSend.append(netText(model->getNumberOfOtherShips()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getNumberOfBuoys()));
+    stringToSend.append(netText(model->getNumberOfBuoys()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getManOverboardVisible()? 1 : 0));
+    stringToSend.append(netText(model->getManOverboardVisible()? 1 : 0));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getLines()->getNumberOfLines()));
+    stringToSend.append(netText(model->getLines()->getNumberOfLines()));
     stringToSend.append("#");
 
     //3 Each 'Other' (Pos X (abs), Pos Z, angle, rate of turn, SART, MMSI |) #
     for(int number = 0; number < (int)model->getNumberOfOtherShips(); number++ ) {
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getOtherShipPosX(number)));
+        stringToSend.append(netText(model->getOtherShipPosX(number)));
         stringToSend.append(",");
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getOtherShipPosZ(number)));
+        stringToSend.append(netText(model->getOtherShipPosZ(number)));
         stringToSend.append(",");
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getOtherShipHeading(number)));
+        stringToSend.append(netText(model->getOtherShipHeading(number)));
         stringToSend.append(",");
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getOtherShipSpeed(number)*MPS_TO_KTS));
+        stringToSend.append(netText(model->getOtherShipSpeed(number)*MPS_TO_KTS));
         stringToSend.append(",");
         stringToSend.append("0"); // Rate of turn: This is not currently used in normal mode
         stringToSend.append(",");
-        stringToSend.append("0"); //Fixme: Sart enabled
+        //Field 5: "A" for a multiplayer ship no student has taken (the secondary hides it), else 0 (SART, unused)
+        stringToSend.append(model->isOtherShipAbsent(number) ? "A" : "0");
         stringToSend.append(",");
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getOtherShipMMSI(number)));
+        stringToSend.append(netText(model->getOtherShipMMSI(number)));
         stringToSend.append(",");
 
         //std::cout << "MMSI for other ship " << number << ":" << model->getOtherShipMMSI(number) << std::endl;
 
         //Send leg information
         std::vector<Leg> legs = model->getOtherShipLegs(number);
-        stringToSend.append(Utilities::lexical_cast<std::string>(legs.size())); //Number of legs
+        stringToSend.append(netText(legs.size())); //Number of legs
         stringToSend.append(",");
         //Build leg information, each leg separated by a '/', each value by ':'
         for(std::vector<Leg>::iterator it = legs.begin(); it != legs.end(); ++it) {
-            stringToSend.append(Utilities::lexical_cast<std::string>(it->bearing));
+            stringToSend.append(netText(it->bearing));
             stringToSend.append(":");
-            stringToSend.append(Utilities::lexical_cast<std::string>(it->speed));
+            stringToSend.append(netText(it->speed));
             stringToSend.append(":");
-            stringToSend.append(Utilities::lexical_cast<std::string>(it->startTime));
+            stringToSend.append(netText(it->startTime));
             if (it!= (legs.end()-1)) {stringToSend.append("/");}
         }
 
@@ -585,37 +629,37 @@ std::string NetworkPrimary::generateSendString()
 
     //4 Each Buoy
     for(int number = 0; number < (int)model->getNumberOfBuoys(); number++ ) {
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getBuoyPosX(number)));
+        stringToSend.append(netText(model->getBuoyPosX(number)));
         stringToSend.append(",");
-        stringToSend.append(Utilities::lexical_cast<std::string>(model->getBuoyPosZ(number)));
+        stringToSend.append(netText(model->getBuoyPosZ(number)));
         if (number < (int)model->getNumberOfBuoys()-1) {stringToSend.append("|");}
     }
     stringToSend.append("#");
 
     //5 MOB
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getManOverboardPosX()));
+    stringToSend.append(netText(model->getManOverboardPosX()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getManOverboardPosZ()));
+    stringToSend.append(netText(model->getManOverboardPosZ()));
     stringToSend.append("#");
 
     //6 Loop
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getLoopNumber()));
+    stringToSend.append(netText(model->getLoopNumber()));
     stringToSend.append("#");
 
     //7 Weather: Weather, Fog range, wind dirn, rain, wind speed, stream direction, stream speed, stream override #
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getWeather()));
+    stringToSend.append(netText(model->getWeather()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getVisibility()));
+    stringToSend.append(netText(model->getVisibility()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getWindDirection()));
+    stringToSend.append(netText(model->getWindDirection()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRain()));
+    stringToSend.append(netText(model->getRain()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getWindSpeed()));
+    stringToSend.append(netText(model->getWindSpeed()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStreamOverrideDirection()));
+    stringToSend.append(netText(model->getStreamOverrideDirection()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStreamOverrideSpeed()));
+    stringToSend.append(netText(model->getStreamOverrideSpeed()));
     stringToSend.append(",");
     if (model->getStreamOverride()) {
         stringToSend.append("1");
@@ -625,30 +669,50 @@ std::string NetworkPrimary::generateSendString()
     stringToSend.append(","); //KYARA: separator. Without it the flag and the hour fuse into one field.
 
     //KYARA: lighting hour of day (0-24) ...
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getLightingTimeOfDay()));
+    stringToSend.append(netText(model->getLightingTimeOfDay()));
     stringToSend.append(",");
     //KYARA: field 9 - lightning flash level 0..1, so the secondary's screen flash matches the clap.
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getLightningFlash()));
+    stringToSend.append(netText(model->getLightningFlash()));
     //KYARA HOULE: field 10 = motion scale, fields 11..19 = swell state (Hs, Tp, dir, spread, 5 phases).
     //The secondary runs the same swell locally and is nudged onto these values, so the sea (and
     //hence every hull's motion) matches across stations.
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getMotionScale()));
+    stringToSend.append(netText(model->getMotionScale()));
     {
         irr::f32 swellState[Swell::NET_FIELDS];
         model->getSwellNetworkState(swellState);
         for (int i = 0; i < Swell::NET_FIELDS; i++) {
             stringToSend.append(",");
-            stringToSend.append(Utilities::lexical_cast<std::string>(swellState[i]));
+            stringToSend.append(netText(swellState[i]));
         }
     }
+    //After the swell: the colours the primary shows and the glow, then the weather window's values
+    //(cloud, snow, sand, significant weather, thunder, lightning, squall), so secondaries look the same.
+    stringToSend.append(",");
+    stringToSend.append(netText(bridge::currentMode()));
+    stringToSend.append(",");
+    stringToSend.append(netText(bridge::glowLevel()));
+    stringToSend.append(",");
+    stringToSend.append(netText(model->getCloudCover()));
+    stringToSend.append(",");
+    stringToSend.append(netText(model->getSnow()));
+    stringToSend.append(",");
+    stringToSend.append(netText(model->getDust()));
+    stringToSend.append(",");
+    stringToSend.append(netText(model->getSignificantWeather()));
+    stringToSend.append(",");
+    stringToSend.append(model->getThunderEnabled() ? "1" : "0");
+    stringToSend.append(",");
+    stringToSend.append(model->getLightningEnabled() ? "1" : "0");
+    stringToSend.append(",");
+    stringToSend.append(netText(model->getSquallLevel()));
     stringToSend.append("#");
 
     //8 EBL Brg, height, show (or 0,0,0) #
     stringToSend.append("0,0,0#"); //Fixme: Mob details
 
     //9 View number
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getCameraView()));
+    stringToSend.append(netText(model->getCameraView()));
     stringToSend.append("#");
 
     //10 Multiplayer request here (Not used)
@@ -660,25 +724,25 @@ std::string NetworkPrimary::generateSendString()
     stringToSend.append("#");
     
     //12 Controls state (wheel, rudder, port/stbd engine, port/stbd schottel, port/stbd thrust lever, bow/stern thruster)
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getWheel()));
+    stringToSend.append(netText(model->getWheel()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getRudder()));
+    stringToSend.append(netText(model->getRudder()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPortEngine()));
+    stringToSend.append(netText(model->getPortEngine()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStbdEngine()));
+    stringToSend.append(netText(model->getStbdEngine()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPortSchottel()));
+    stringToSend.append(netText(model->getPortSchottel()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStbdSchottel()));
+    stringToSend.append(netText(model->getStbdSchottel()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getPortAzimuthThrustLever()));
+    stringToSend.append(netText(model->getPortAzimuthThrustLever()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getStbdAzimuthThrustLever()));
+    stringToSend.append(netText(model->getStbdAzimuthThrustLever()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getBowThruster()));
+    stringToSend.append(netText(model->getBowThruster()));
     stringToSend.append(",");
-    stringToSend.append(Utilities::lexical_cast<std::string>(model->getSternThruster()));
+    stringToSend.append(netText(model->getSternThruster()));
 
     return stringToSend;
 }

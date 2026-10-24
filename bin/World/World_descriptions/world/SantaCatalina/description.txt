@@ -1,0 +1,4 @@
+Santa Catalina : île fictive, carte de démonstration fournie avec Bridge Command.
+Tirant d'eau max: sans objet (carte d'entraînement).
+Activité: Prise en main du simulateur, manoeuvre et navigation.
+Attention: Carte d'exercice, ne correspond à aucun port réel.

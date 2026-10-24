@@ -42,6 +42,7 @@
     varying vec3  Normal;
     varying vec3  ViewDirection;
     varying vec2  vWorldXZ;     // world-space horizontal position, drives the ripples
+    varying float vWorldY;      // world-space height of the surface (hull mask)
     varying float vWaveHeight;  // vertical displacement of the wave
 
 
@@ -110,6 +111,7 @@
        // World-space position, for the procedural ripple field.
        vec4 worldPos = matViewInverse * vec4(viewPos, 1.0);
        vWorldXZ      = worldPos.xz;
+       vWorldY       = worldPos.y;
 
        vWaveHeight = gl_Vertex.y + 0.35 * sw.x; // KYARA HOULE
 

@@ -1,6 +1,7 @@
 
 add_executable(bridgecommand-ini
     main.cpp
+    ../AdminLock.cpp
     ../IniFile.cpp
     ../Lang.cpp
     ../Utilities.cpp

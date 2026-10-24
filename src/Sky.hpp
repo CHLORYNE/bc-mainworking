@@ -27,7 +27,8 @@ public:
     void load(irr::scene::ISceneManager* smgr);
     void update(irr::u32 lightLevel, irr::f32 warmth, bool isDawn,
         irr::f32 visibilityRangeNm, irr::video::SColor fogColour,
-        bool stormMode = false);   // KYARA: swap to the overcast dome
+        bool stormMode = false,    // KYARA: swap to the overcast dome
+        irr::f32 cloudCover = -1); // 0..1: the overcast layer fades in over the fair sky (-1: stormMode decides)
 
     // NAUTITECH HERO BOLT: one big descending bolt in the 3D sky (occluded by terrain,
     // never over the radar or inside the wheelhouse). triggerHeroBolt sets where/how big;
@@ -45,6 +46,7 @@ public:
 
 private:
     irr::scene::ISceneNode* dayDome;   // Solid, lit - the base sky (as stock Bridge Command)
+    irr::scene::ISceneNode* cloudDome; // The overcast sky over the fair one, faded in with the cloud cover
     irr::scene::ISceneNode* glowDome;  // Additive horizon glow for sunrise/sunset
     irr::scene::ISceneNode* hazeDome;  // Additive haze, driven by the visibility range
     irr::video::ITexture* skyTexFair;    // partly-cloudy

@@ -14,6 +14,7 @@
      with this program; if not, write to the Free Software Foundation, Inc.,
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
+#include <limits>
 #include "OtherShips.hpp"
 
 #include "Constants.hpp"
@@ -86,11 +87,16 @@ void OtherShips::load(std::vector<OtherShipData> otherShipsData, irr::f32 scenar
                 legs.push_back(currentLeg);
 
                 //find the start time for the next leg
-                legStartTime = legStartTime + SECONDS_IN_HOUR * (distance / fabs(currentLeg.speed)); // nm/kts -> hours, so convert to seconds
+                if (fabs(currentLeg.speed) > 1e-6f) {
+                    legStartTime = legStartTime + SECONDS_IN_HOUR * (distance / fabs(currentLeg.speed)); // nm/kts -> hours, so convert to seconds
+                } else if (distance > 0) {
+                    legStartTime = std::numeric_limits<irr::f32>::max(); //stopped with distance still to go: stays on this leg
+                } //stopped and no distance (a ship set to lie at a heading): no time, its bearing is kept by the stop leg
             }
-            //add a final 'stop' leg, which the ship will remain on after it has passed the other legs.
+            //add a final 'stop' leg, which the ship will remain on after it has passed the other legs,
+            //keeping the heading of its last leg.
             Leg stopLeg;
-            stopLeg.bearing = 0;
+            stopLeg.bearing = legs.empty() ? 0 : legs.back().bearing;
             stopLeg.speed = 0;
             stopLeg.distance = 0;
             stopLeg.startTime = legStartTime;
@@ -133,6 +139,14 @@ void OtherShips::enableAllTriangleSelectors()
     }
 }
 
+OtherShip* OtherShips::getShip(int number)
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        return otherShips.at(number);
+    }
+    return 0;
+}
+
 irr::scene::ISceneNode* OtherShips::getSceneNode(int number)
 {
     if (number < (int)otherShips.size() && number >= 0) {
@@ -148,7 +162,7 @@ RadarData OtherShips::getRadarData(irr::u32 number, irr::core::vector3df scanner
 {
     RadarData radarData;
 
-    if (number <= otherShips.size()) {
+    if (number >= 1 && number <= otherShips.size()) { //1-based: 0 would read [-1]
         radarData = otherShips[number - 1]->getRadarData(scannerPosition);
     }
     return radarData;
@@ -264,6 +278,21 @@ void OtherShips::setRateOfTurn(int number, irr::f32 rateOfTurn)
     }
 }
 
+void OtherShips::setAbsent(int number, bool absent)
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        otherShips.at(number)->setAbsent(absent);
+    }
+}
+
+bool OtherShips::isAbsent(int number) const
+{
+    if (number < (int)otherShips.size() && number >= 0) {
+        return otherShips.at(number)->isAbsent();
+    }
+    return false;
+}
+
 std::vector<Leg> OtherShips::getLegs(int number) const
 {
     if (number < (int)otherShips.size() && number >= 0) {
@@ -308,10 +337,15 @@ void OtherShips::resetLegs(int shipNumber, irr::f32 course, irr::f32 speedKts, i
     }
 }
 
+void OtherShips::setDisplayName(int number, const std::string& name)
+{
+    if (number < (int)otherShips.size() && number >= 0) { otherShips.at(number)->setDisplayName(name); }
+}
+
 std::string OtherShips::getName(int number) const
 {
     if (number < (int)otherShips.size() && number >= 0) {
-        return otherShips.at(number)->getName();
+        return otherShips.at(number)->getDisplayName();
     }
     else {
         return "";
@@ -371,8 +405,8 @@ bool OtherShips::isFireFightingVessel(int number) const {
     if (number < (int)otherShips.size() && number >= 0) return otherShips.at(number)->isFireFightingVessel();
     return false;
 }
-void OtherShips::startSinking(int number) {
-    if (number < (int)otherShips.size() && number >= 0) otherShips.at(number)->startSinking();
+void OtherShips::startSinking(int number, irr::f32 secondsToGoUnder) {
+    if (number < (int)otherShips.size() && number >= 0) otherShips.at(number)->startSinking(secondsToGoUnder);
 }
 bool OtherShips::isSunk(int number) const {
     if (number < (int)otherShips.size() && number >= 0) return otherShips.at(number)->isSunk();

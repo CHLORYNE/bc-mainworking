@@ -28,7 +28,9 @@ const irr::f32 RHO_FW = 1000; // density of freshwater kg / m^3
 const irr::f32 RHO_AIR = 1.225; // density of air at sea level kg / m^3 approximately
 				// treated as a non compressible fluid, which it isnt but
 				// good enough to use for simulation purposes
-const irr::f32 VIEW_PROPORTION_3D = 0.6;
+//Share of the screen height the 3D view gets while the 2D interface is shown: 0.6 in the classic
+//layout. The instrument console layout gives the view everything the dials do not need (GUIMain).
+inline irr::f32& viewProportion3D() { static irr::f32 proportion = 0.6f; return proportion; }
 
 //units conversions
 const irr::f32 SECONDS_IN_HOUR = 3600.0;

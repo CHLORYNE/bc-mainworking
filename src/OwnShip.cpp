@@ -21,6 +21,7 @@
 #include "SimulationModel.hpp"
 #include "Swell.hpp" // KYARA HOULE
 #include <string>
+#include <cmath>
 #include "ScenarioDataStructure.hpp"
 #include "Terrain.hpp"
 #include "IniFile.hpp"
@@ -200,6 +201,8 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     // Scale
     scaleFactor = IniFile::iniFileTof32(shipIniFilename, "ScaleFactor");
     irr::f32 yCorrection = IniFile::iniFileTof32(shipIniFilename, "YCorrection");
+    modelYCorrection = yCorrection;
+    loadScaleFactor = scaleFactor;
     angleCorrection = IniFile::iniFileTof32(shipIniFilename, "AngleCorrection");
     // DEE_DEC22 vvvv
     angleCorrectionRoll = 0;  // default value
@@ -283,6 +286,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     wheelControlPosition.Y = IniFile::iniFileTof32(shipIniFilename, "WheelY", -999);
     wheelControlPosition.Z = IniFile::iniFileTof32(shipIniFilename, "WheelZ", -999);
     wheelControlScale = IniFile::iniFileTof32(shipIniFilename, "WheelScale", 1);
+    throttleScale = IniFile::iniFileTof32(shipIniFilename, "ThrottleScale", 1);
 
     // Kyara FIRE: optional fire-monitor mount point (raw model units, same space as WheelX/Y/Z).
     // If absent, SimulationModel falls back to a bounding-box estimate. Not scaled here - it's used
@@ -431,6 +435,7 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
 
     length = ship->getTransformedBoundingBox().getExtent().Z; // Store length for basic collision calculation
     breadth = ship->getTransformedBoundingBox().getExtent().X;  // Store length for basic collision calculation
+    measureHullWaterline(); //for the hull mask on the water (no sea drawn inside the hull)
 
     // DEE_DEC22 ---------- End of reading in information from .ini files and ownShipData
 
@@ -663,8 +668,17 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
 
     // calculate max speed from dynamics parameters
     //  DEE this looks like it is in knots and not metres per second
-    maxSpeedAhead = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce)) / (2 * dynamicsSpeedA);
-    maxSpeedAstern = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce * asternEfficiency)) / (2 * dynamicsSpeedA);
+    if (dynamicsSpeedA > 0) {
+        maxSpeedAhead = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce)) / (2 * dynamicsSpeedA);
+        maxSpeedAstern = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce * asternEfficiency)) / (2 * dynamicsSpeedA);
+    }
+    else {
+        //No square drag in boat.ini (and no maxSpeed to work it out from): the formula above divides
+        //by zero. Linear drag only, or nothing to go on.
+        device->getLogger()->log("boat.ini: DynamicsSpeedA missing or zero, set MaxSpeedAhead or DynamicsSpeedA");
+        maxSpeedAhead = dynamicsSpeedB > 0 ? 2 * maxForce / dynamicsSpeedB : 0;
+        maxSpeedAstern = dynamicsSpeedB > 0 ? 2 * maxForce * asternEfficiency / dynamicsSpeedB : 0;
+    }
 
     // Calculate engine speed required - the port and stbd engine speeds get send back to the GUI with updateGuiData.
 
@@ -1520,6 +1534,16 @@ irr::core::vector3df OwnShip::getWheelControlPosition() const
     return wheelControlPosition;
 }
 
+irr::f32 OwnShip::getThrottleScale() const
+{
+    return throttleScale;
+}
+
+irr::f32 OwnShip::getLoadScaleFactor() const
+{
+    return loadScaleFactor;
+}
+
 irr::f32 OwnShip::getWheelControlScale() const
 {
     return wheelControlScale;
@@ -1825,6 +1849,41 @@ irr::f32 OwnShip::getScaleFactor() const
     return scaleFactor;
 }
 
+//Size and waterline editor ----------------------------------------------------------------------
+irr::f32 OwnShip::getModelYCorrection() const
+{
+    return modelYCorrection;
+}
+
+void OwnShip::setModelSize(irr::f32 newScale, irr::f32 newYCorrection)
+{
+    if (!ship || newScale <= 0.000001f || scaleFactor <= 0.000001f) { return; }
+    const irr::f32 oldHeightCorrection = heightCorrection;
+    //Views and the radar screen are held in metres (ini value x ScaleFactor), so they move with her
+    const irr::f32 factor = newScale / scaleFactor;
+    for (size_t i = 0; i < views.size(); i++) { views[i] *= factor; }
+    screenDisplayPosition *= factor;
+    screenDisplaySize *= factor;
+    scaleFactor = newScale;
+    modelYCorrection = newYCorrection;
+    heightCorrection = newYCorrection * newScale; //update() places her with this every frame
+    ship->setScale(irr::core::vector3df(newScale, newScale, newScale));
+
+    //The hull mask is measured with the node where it was at load: at the origin, unturned
+    const irr::core::vector3df pos = ship->getPosition();
+    const irr::core::vector3df rot = ship->getRotation();
+    ship->setPosition(irr::core::vector3df(0, heightCorrection, 0));
+    ship->setRotation(irr::core::vector3df(0, 0, 0));
+    ship->updateAbsolutePosition();
+    measureHullWaterline();
+    const irr::f32 newLength = ship->getTransformedBoundingBox().getExtent().Z;
+    ship->setPosition(pos + irr::core::vector3df(0, heightCorrection - oldHeightCorrection, 0));
+    ship->setRotation(rot);
+    ship->updateAbsolutePosition();
+
+    shipLights.rescale(newLength, 1.0f / newScale, -newYCorrection);
+}
+
 irr::f32 OwnShip::requiredEngineProportion(irr::f32 speed)
 {
     irr::f32 proportion = 0;
@@ -1901,8 +1960,10 @@ void OwnShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHei
         irr::f32 axialWind = windSpeed * cos(relativeWindFlowDirection * irr::core::DEGTORAD);
         irr::f32 lateralWind = windSpeed * sin(relativeWindFlowDirection * irr::core::DEGTORAD);
 
-        irr::f32 relWindAxial_mps = (axialWind - axialSpd) * KTS_TO_MPS;
-        irr::f32 relWindLateral_mps = (lateralWind - lateralSpd) * KTS_TO_MPS;
+        //(windSpeed, axialSpd and lateralSpd are all in m/s already: the wind forces used to be
+        //converted twice, and came out at about a quarter of their value)
+        irr::f32 relWindAxial_mps = axialWind - axialSpd;
+        irr::f32 relWindLateral_mps = lateralWind - lateralSpd;
         irr::f32 frontalArea = breadth * airDraught;
         irr::f32 sideArea = length * airDraught;
 
@@ -2576,12 +2637,20 @@ void OwnShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHei
 
 irr::f32 OwnShip::getCOG() const
 {
-    return cog;
+    return cogSogFromNetwork ? networkCog : cog;
 }
 
 irr::f32 OwnShip::getSOG() const
 {
-    return sog; // m/s
+    return cogSogFromNetwork ? networkSog : sog; // m/s
+}
+
+void OwnShip::setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogMps)
+{
+    if (!std::isfinite(cogDeg) || !std::isfinite(sogMps)) { return; }
+    cogSogFromNetwork = true;
+    networkCog = fmodf(fmodf(cogDeg, 360.0f) + 360.0f, 360.0f);
+    networkSog = sogMps;
 }
 
 
@@ -2813,6 +2882,11 @@ void OwnShip::collisionDetectAndRespond(irr::f32& reaction, irr::f32& lateralRea
                         // TODO: Initially ignore rate of turn of other ship, but should be included
                         remotePointAxialSpeed = otherShipSpeed * cos(irr::core::DEGTORAD * otherShipRelativeHeading);
                         remotePointLateralSpeed = otherShipSpeed * sin(irr::core::DEGTORAD * otherShipRelativeHeading);
+                        //A speed that is not a number, or not a ship's, would wreck the own ship's motion
+                        if (!(fabs(remotePointAxialSpeed) < 1000.0f) || !(fabs(remotePointLateralSpeed) < 1000.0f)) {
+                            remotePointAxialSpeed = 0;
+                            remotePointLateralSpeed = 0;
+                        }
                     }
                 }
             }
@@ -2972,7 +3046,7 @@ void OwnShip::findInstrumentMaterials(const std::string& shipIniFilename)
     //Words that turn up on the faces of bridge equipment. Matched case-insensitively.
     const char* keywords[] = { "radar", "furuno", "gps", "plotter", "ecdis", "screen", "display",
                                "gauge", "instrument", "panel", "sounder", "sondeur", "ais",
-                               "console", "monitor", "vhf", "ecran", 0 };
+                               "console", "monitor", "vhf", "ecran", "sonar", "radio", "opencpn", 0 };
 
     std::string materialLog = "Own ship materials:";
     for (irr::u32 i = 0; i < ship->getMaterialCount(); i++) {
@@ -3029,6 +3103,111 @@ int OwnShip::getInstrumentMaterialCount() const //KYARA FEUX TAB
     return (int)instrumentMaterials.size();
 }
 
+//Instrument lighting editor ----------------------------------------------------------------------
+irr::u32 OwnShip::getModelMaterialCount() const
+{
+    return ship ? ship->getMaterialCount() : 0;
+}
+
+std::string OwnShip::getModelMaterialTexture(irr::u32 material) const
+{
+    if (!ship || material >= ship->getMaterialCount()) { return ""; }
+    irr::video::ITexture* tex = ship->getMaterial(material).getTexture(0);
+    if (!tex) { return ""; }
+    const std::string path = tex->getName().getPath().c_str();
+    const size_t slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+bool OwnShip::isInstrumentMaterial(irr::u32 material) const
+{
+    for (size_t i = 0; i < instrumentMaterials.size(); i++) {
+        if (instrumentMaterials[i] == material) { return true; }
+    }
+    return false;
+}
+
+void OwnShip::setInstrumentMaterial(irr::u32 material, bool lit)
+{
+    if (!ship || material >= ship->getMaterialCount() || lit == isInstrumentMaterial(material)) { return; }
+    if (lit) { instrumentMaterials.push_back(material); }
+    else {
+        for (size_t i = 0; i < instrumentMaterials.size(); i++) {
+            if (instrumentMaterials[i] == material) { instrumentMaterials.erase(instrumentMaterials.begin() + i); break; }
+        }
+    }
+    ship->getMaterial(material).EmissiveColor = instrumentGlow(material);
+}
+
+std::vector<irr::u32> OwnShip::getInstrumentMaterialList() const
+{
+    return instrumentMaterials;
+}
+
+void OwnShip::setInstrumentMaterialList(const std::vector<irr::u32>& materials)
+{
+    if (!ship) { return; }
+    std::vector<irr::u32> previous = instrumentMaterials;
+    instrumentMaterials = materials;
+    for (size_t i = 0; i < previous.size(); i++) {
+        if (previous[i] < ship->getMaterialCount()) { ship->getMaterial(previous[i]).EmissiveColor = instrumentGlow(previous[i]); }
+    }
+    setInstrumentLights(instrumentLightLevel);
+}
+
+irr::video::SColor OwnShip::instrumentGlow(irr::u32 material) const
+{
+    if (instrumentLightLevel == 0 || !isInstrumentMaterial(material)) { return irr::video::SColor(255, 0, 0, 0); }
+    const irr::f32 strength = (instrumentLightLevel == 1) ? 0.45f : 0.95f;
+    return irr::video::SColor(255,
+        (irr::u32)(strength * 255.0f), (irr::u32)(strength * 245.0f), (irr::u32)(strength * 225.0f));
+}
+
+//The ray is taken into the model's own frame, then every triangle of every mesh buffer is tried;
+//buffer n is drawn with material n.
+int OwnShip::pickModelMaterial(const irr::core::line3df& worldRay) const
+{
+    irr::scene::IAnimatedMeshSceneNode* node = (irr::scene::IAnimatedMeshSceneNode*)ship;
+    if (!node || !node->getMesh()) { return -1; }
+    irr::scene::IMesh* mesh = node->getMesh()->getMesh(0);
+    if (!mesh) { return -1; }
+    irr::core::matrix4 toModel;
+    if (!ship->getAbsoluteTransformation().getInverse(toModel)) { return -1; }
+    irr::core::line3df ray;
+    toModel.transformVect(ray.start, worldRay.start);
+    toModel.transformVect(ray.end, worldRay.end);
+
+    int best = -1;
+    irr::f32 bestDistSq = 0.0f;
+    for (irr::u32 b = 0; b < mesh->getMeshBufferCount(); b++) {
+        const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+        if (!mb || mb->getIndexCount() < 3 || !mb->getBoundingBox().intersectsWithLine(ray)) { continue; }
+        const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+        const irr::u16* i16 = mb->getIndices();
+        const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+        const irr::u32 vertexCount = mb->getVertexCount();
+        for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+            const irr::u32 a = idx32 ? i32[t] : i16[t];
+            const irr::u32 c = idx32 ? i32[t + 1] : i16[t + 1];
+            const irr::u32 d = idx32 ? i32[t + 2] : i16[t + 2];
+            if (a >= vertexCount || c >= vertexCount || d >= vertexCount) { continue; }
+            const irr::core::triangle3df tri(mb->getPosition(a), mb->getPosition(c), mb->getPosition(d));
+            irr::core::vector3df hit;
+            if (!tri.getIntersectionWithLimitedLine(ray, hit)) { continue; }
+            const irr::f32 distSq = hit.getDistanceFromSQ(ray.start);
+            if (best < 0 || distSq < bestDistSq) { best = (int)b; bestDistSq = distSq; }
+        }
+    }
+    return best;
+}
+
+void OwnShip::flashInstrumentMaterial(int material, bool on)
+{
+    if (!ship || material < 0 || (irr::u32)material >= ship->getMaterialCount()) { return; }
+    ship->getMaterial((irr::u32)material).EmissiveColor = on ? irr::video::SColor(255, 0, 210, 255)
+                                                            : instrumentGlow((irr::u32)material);
+}
+
 ShipLights& OwnShip::getLights()
 {
     return shipLights;
@@ -3039,6 +3218,97 @@ irr::core::vector3df OwnShip::getWindscreenPosition() const { return windscreenP
 irr::f32 OwnShip::getWindscreenWidth() const { return windscreenWidth; }
 irr::f32 OwnShip::getWindscreenHeight() const { return windscreenHeight; }
 irr::f32 OwnShip::getWindscreenTilt() const { return windscreenTilt; }
+
+//Cuts the model at the waterline (y = 0 once scaled and placed at heightCorrection) and keeps,
+//at each station along the length, how far the hull reaches either side. Conservative: each
+//station keeps the narrowest of itself and its neighbours, minus 8 %, so the outline stays inside
+//the plating and no water goes missing beside the hull.
+void OwnShip::measureHullWaterline()
+{
+    hullWlValid = false;
+    for (int i = 0; i < HULL_STATIONS; i++) { hullWlHalf[i] = 0.0f; hullWlKeel[i] = 0.0f; }
+    irr::scene::IAnimatedMeshSceneNode* node = (irr::scene::IAnimatedMeshSceneNode*)ship;
+    if (!node || !node->getMesh()) { return; }
+    const irr::core::aabbox3df box = ship->getTransformedBoundingBox();
+    hullWlZMin = box.MinEdge.Z;
+    hullWlZMax = box.MaxEdge.Z;
+    hullWlCentreX = box.getCenter().X;
+    if (hullWlZMax - hullWlZMin < 0.5f || box.MinEdge.Y >= 0.0f || box.MaxEdge.Y <= 0.0f) {
+        device->getLogger()->log("Hull waterline outline: none (the model does not cross the waterline)");
+        return;
+    }
+    const irr::core::matrix4 m = ship->getAbsoluteTransformation();
+    const irr::f32 stationLength = (hullWlZMax - hullWlZMin) / (irr::f32)(HULL_STATIONS - 1);
+    irr::f32 maxHalf[HULL_STATIONS];
+    for (int i = 0; i < HULL_STATIONS; i++) { maxHalf[i] = 0.0f; }
+
+    irr::scene::IMesh* mesh = node->getMesh()->getMesh(0);
+    for (irr::u32 b = 0; mesh && b < mesh->getMeshBufferCount(); b++) {
+        const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+        if (!mb || mb->getIndexCount() < 3) { continue; }
+        const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+        const irr::u16* i16 = mb->getIndices();
+        const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+        for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+            irr::core::vector3df v[3];
+            for (int k = 0; k < 3; k++) {
+                const irr::u32 index = idx32 ? i32[t + k] : i16[t + k];
+                if (index >= mb->getVertexCount()) { v[k] = irr::core::vector3df(0, 0, 0); continue; }
+                v[k] = mb->getPosition(index);
+                m.transformVect(v[k]);
+            }
+            //A triangle cutting the waterline gives a segment of the waterline outline: sample it at
+            //every station it spans (a coarse hull has few vertices, so its crossing points alone
+            //would leave most stations empty).
+            irr::core::vector2df cut[2];
+            int cuts = 0;
+            for (int e = 0; e < 3 && cuts < 2; e++) {
+                const irr::core::vector3df& a = v[e];
+                const irr::core::vector3df& c = v[(e + 1) % 3];
+                if ((a.Y > 0.0f) == (c.Y > 0.0f)) { continue; }
+                const irr::f32 f = a.Y / (a.Y - c.Y);
+                cut[cuts++] = irr::core::vector2df(a.X + f * (c.X - a.X), a.Z + f * (c.Z - a.Z)); //(x, z)
+            }
+            if (cuts < 2) { continue; }
+            const irr::f32 z0 = (cut[0].Y < cut[1].Y) ? cut[0].Y : cut[1].Y;
+            const irr::f32 z1 = (cut[0].Y < cut[1].Y) ? cut[1].Y : cut[0].Y;
+            const int s0 = (int)ceilf((z0 - hullWlZMin) / stationLength - 0.001f);
+            const int s1 = (int)floorf((z1 - hullWlZMin) / stationLength + 0.001f);
+            for (int st = (s0 < 0 ? 0 : s0); st <= s1 && st < HULL_STATIONS; st++) {
+                const irr::f32 zs = hullWlZMin + st * stationLength;
+                const irr::f32 dz = cut[1].Y - cut[0].Y;
+                const irr::f32 f = (fabsf(dz) > 1e-6f) ? (zs - cut[0].Y) / dz : 0.5f;
+                const irr::f32 x = cut[0].X + f * (cut[1].X - cut[0].X);
+                const irr::f32 half = fabsf(x - hullWlCentreX);
+                if (half > maxHalf[st]) { maxHalf[st] = half; }
+            }
+        }
+    }
+    int found = 0;
+    for (int i = 0; i < HULL_STATIONS; i++) {
+        irr::f32 w = maxHalf[i];
+        if (i > 0 && maxHalf[i - 1] < w) { w = maxHalf[i - 1]; }
+        if (i + 1 < HULL_STATIONS && maxHalf[i + 1] < w) { w = maxHalf[i + 1]; }
+        hullWlHalf[i] = 0.92f * w;
+        //Her waterline, in the node's own frame (it was measured with the node at heightCorrection).
+        //Only sea rising ABOVE it is hidden: using her keel instead hid the sea beside a V-hull
+        //heeled or lifted clear, where her bottom rises above the keel, and the seabed showed.
+        hullWlKeel[i] = -heightCorrection;
+        if (w > 0.0f) { found++; }
+    }
+    hullWlValid = (found >= 3);
+    std::string log = "Hull waterline outline: ";
+    log.append(hullWlValid ? "measured (" + std::to_string(found) + " stations)" : "none (no hull at the waterline)");
+    device->getLogger()->log(log.c_str());
+}
+
+bool OwnShip::getHullWaterline(irr::f32& zMin, irr::f32& zMax, irr::f32& centreX, irr::f32* halfWidths, irr::f32* keels) const
+{
+    if (!hullWlValid) { return false; }
+    zMin = hullWlZMin; zMax = hullWlZMax; centreX = hullWlCentreX;
+    for (int i = 0; i < HULL_STATIONS; i++) { halfWidths[i] = hullWlHalf[i]; keels[i] = hullWlKeel[i]; }
+    return true;
+}
 
 bool OwnShip::consumeSlam(irr::f32& ratio, irr::f32& impactSpeed)
 {

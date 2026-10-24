@@ -27,7 +27,7 @@
 
 RadarScreen::RadarScreen()
 {
-
+    radarScreen = 0;
 }
 
 RadarScreen::~RadarScreen()
@@ -55,6 +55,13 @@ void RadarScreen::setRadarDisplayRadius(irr::u32 radiusPx)
     radarRadiusPx = radiusPx;
 }
 void RadarScreen::setDisplayOffset(irr::f32 x, irr::f32 y) { displayOffsetX = x; displayOffsetY = y; }
+
+void RadarScreen::rescale(irr::f32 factor)
+{
+    if (factor <= 0.0f) { return; }
+    offset *= factor;
+    if (radarScreen) { radarScreen->setScale(radarScreen->getScale() * factor); }
+}
 void RadarScreen::update(irr::video::IImage* radarImage)
 {
 #ifdef WITH_PROFILING
@@ -129,6 +136,16 @@ void RadarScreen::update(irr::video::IImage* radarImage)
         }
     }
 
+}
+
+irr::video::ITexture* RadarScreen::getTexture(irr::f32& scale, irr::f32& offset) const
+{
+    if (!radarScreen || radarScreen->getMaterialCount() == 0) { return 0; }
+    const irr::video::SMaterial& m = radarScreen->getMaterial(0);
+    const irr::core::matrix4& t = m.getTextureMatrix(0);
+    scale = t[0];
+    offset = t[8];
+    return m.getTexture(0);
 }
 
 irr::scene::ISceneNode* RadarScreen::getSceneNode() const

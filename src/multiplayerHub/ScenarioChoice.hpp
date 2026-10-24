@@ -25,19 +25,24 @@
 class ScenarioChoice
 {
 public:
-    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language);
-    void chooseScenario(std::string& scenarioName, std::string& hostname, std::string scenarioPath);
+    ScenarioChoice(irr::IrrlichtDevice* device, Lang* language, bool french);
+    void setFonts(irr::gui::IGUIFont* title, irr::gui::IGUIFont* text, irr::gui::IGUIFont* small);
+    //camera: open the instructor's 3D camera on this PC (shown and changed on this screen)
+    void chooseScenario(std::string& scenarioName, std::string& hostname, std::string scenarioPath, bool& camera);
 
 private:
     void getScenarioList(std::vector<std::string>&scenarioList, std::string scenarioPath);
     irr::IrrlichtDevice* device;
     irr::gui::IGUIEnvironment* gui;
     Lang* language;
+    bool french;
+    std::vector<irr::gui::IGUIFont*> fontSizes; //title, text, small
 
     enum GUI_ELEMENTS// Define some values that we'll use to identify individual GUI controls.
     {
         GUI_ID_SCENARIO_LISTBOX = 101,
-        GUI_ID_OK_BUTTON
+        GUI_ID_OK_BUTTON,
+        GUI_ID_CAMERA_BUTTON
     };
 
 };

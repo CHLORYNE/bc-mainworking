@@ -82,7 +82,7 @@ void OtherShipData::deserialise(std::string data)
     std::vector<std::string> splitData = Utilities::split(data,'|');
     if (splitData.size() >= 5) {
         shipName = splitData.at(0);
-        mmsi = Utilities::lexical_cast<irr::f32>(splitData.at(1));
+        mmsi = Utilities::lexical_cast<irr::u32>(splitData.at(1));
         initialLong = Utilities::lexical_cast<irr::f32>(splitData.at(2));
         initialLat = Utilities::lexical_cast<irr::f32>(splitData.at(3));
         //clear any existing legs data

@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include "NetworkSecondary.hpp"
@@ -91,9 +92,8 @@ void NetworkSecondary::getScenarioFromNetwork(std::string& dataString) //Not use
         if (event.type ==ENET_EVENT_TYPE_RECEIVE) {
 
             //receive it
-            char tempString[8192]; //Fixme: Think if this is long enough
-            snprintf(tempString,8192,"%s",event.packet -> data);
-            std::string receivedString(tempString);
+            //The whole packet (no length limit), and never past its end even without a final 0
+            std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
             //Basic checks
             if (receivedString.length() > 4) { //Check if more than 4 chars long, ie we have at least some data
@@ -153,7 +153,7 @@ void NetworkSecondary::update()
 
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
-                printf ("%s disconected.\n", (char*)event.peer -> data);
+                printf ("Peer disconnected.\n"); //peer->data is never set: printing it was undefined
                 /* Reset the peer's client information. */
                 event.peer -> data = NULL;
                 break;
@@ -166,9 +166,8 @@ void NetworkSecondary::update()
 void NetworkSecondary::receiveMessage()
 {
     //receive it
-    char tempString[8192]; //Fixme: Think if this is long enough
-    snprintf(tempString,8192,"%s",event.packet -> data);
-    std::string receivedString(tempString);
+    //The whole packet (no length limit), and never past its end even without a final 0
+    std::string receivedString((const char*)event.packet->data, strnlen((const char*)event.packet->data, event.packet->dataLength));
 
     //std::cout << "Received data:" << receivedStrings << std::endl;
 
@@ -189,7 +188,7 @@ void NetworkSecondary::receiveMessage()
                 //Get time info from record 0
                 std::vector<std::string> timeData = Utilities::split(receivedData.at(0),',');
                 //Time since start of scenario day 1 is record 2
-                if (timeData.size() > 2) {
+                if (timeData.size() > 3) { //fields 2 and 3 are read
                     timeError = Utilities::lexical_cast<irr::f32>(timeData.at(2)) - model->getTimeDelta(); //How far we are behind the master
                     irr::f32 baseAccelerator = Utilities::lexical_cast<irr::f32>(timeData.at(3)); //The master accelerator setting
                     if (fabs(timeError) > 1) {
@@ -218,6 +217,10 @@ void NetworkSecondary::receiveMessage()
                         model->setHeading(Utilities::lexical_cast<irr::f32>(positionData.at(2)));
                         model->setRateOfTurn(Utilities::lexical_cast<irr::f32>(positionData.at(3)));
                         model->setSpeed(Utilities::lexical_cast<irr::f32>(positionData.at(6))/MPS_TO_KTS);
+                        //The primary's SOG (knots) and COG: worked out here they would be zero, since
+                        //the ship is put at the primary's position each time
+                        model->setCogSogFromNetwork(Utilities::lexical_cast<irr::f32>(positionData.at(7)),
+                            Utilities::lexical_cast<irr::f32>(positionData.at(6)));
                     }
                 }
 
@@ -244,15 +247,20 @@ void NetworkSecondary::receiveMessage()
                                 irr::f32 receivedPosX = Utilities::lexical_cast<irr::f32>(thisShipData.at(0));
                                 irr::f32 receivedPosZ = Utilities::lexical_cast<irr::f32>(thisShipData.at(1));
                                 model->setOtherShipPos(i,receivedPosX,receivedPosZ);
+                                //Field 5 "A": a multiplayer ship no student has taken - not shown anywhere
+                                model->setOtherShipAbsent(i, thisShipData.at(5) == "A");
                                 //Todo: Think about using timeError to extrapolate position to get more accurately.
                                 //Todo: use SART etc
                             }
                         }
                     }
 
-                    //Update MOB data
+                    //Update MOB data. Not in multiplayer: there each student's man overboard is his own
+                    //(thrown by him or by the instructor) and the hub always sends none
                     irr::u32 numberMOB = Utilities::lexical_cast<irr::u32>(numberData.at(2));
-                    if (numberMOB==1) {
+                    if (mode == OperatingMode::Multiplayer) {
+                        //(the student's own)
+                    } else if (numberMOB==1) {
                         //MOB should be visible, find if we have an MOB position record with two items (record 5)
                         //TODO: TEST!
                         std::vector<std::string> mobData = Utilities::split(receivedData.at(5),',');
@@ -475,13 +483,32 @@ void NetworkSecondary::receiveMessage()
                         }
                         model->applySwellNetworkState(swellState);
                     }
+                    //After the swell (optional): colours, glow, cloud, snow, sand, significant weather,
+                    //thunder, lightning, squall
+                    const size_t extra = 11 + (size_t)Swell::NET_FIELDS;
+                    if (weatherData.size() >= extra + 9) {
+                        model->setNetworkDisplay(Utilities::lexical_cast<int>(weatherData.at(extra)),
+                            Utilities::lexical_cast<int>(weatherData.at(extra + 1)));
+                        model->setCloudCover(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 2)));
+                        model->setSnow(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 3)));
+                        model->setDust(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 4)));
+                        model->setSignificantWeather(Utilities::lexical_cast<int>(weatherData.at(extra + 5)));
+                        model->setThunderEnabled(weatherData.at(extra + 6) == "1");
+                        model->setLightningEnabled(weatherData.at(extra + 7) == "1");
+                        model->setNetworkSquall(Utilities::lexical_cast<irr::f32>(weatherData.at(extra + 8)));
+                    }
                 }
 
                 //Get view information from record 9
                 std::vector<std::string> viewData = Utilities::split(receivedData.at(9),',');
-                if (viewData.size() == 1) {
+                //Not in multiplayer, where the hub sends a placeholder; and only on a change, since setView
+                //also leaves the free view (it was cancelled on every message)
+                if (viewData.size() == 1 && mode != OperatingMode::Multiplayer) {
                     if (model->getMoveViewWithPrimary()) {
-                        model->setView(Utilities::lexical_cast<irr::f32>(viewData.at(0)));
+                        const irr::s32 view = Utilities::lexical_cast<irr::s32>(viewData.at(0));
+                        if (view >= 0 && (irr::u32)view != model->getCameraView()) {
+                            model->setView((irr::u32)view);
+                        }
                     }
                 }
 
@@ -523,7 +550,8 @@ void NetworkSecondary::receiveMessage()
                 //Todo: Think about how to get best synchronisation (and movement between updates, speed etc)
 
                 //If in multiplayer mode, send back a message with our position and heading
-                if (mode==OperatingMode::Multiplayer) {
+                //(not from the instructor camera: it has no ship)
+                if (mode==OperatingMode::Multiplayer && !model->isSpectator()) {
 
                     std::string multiplayerFeedback = "MPF";
                     multiplayerFeedback.append(Utilities::lexical_cast<std::string>(model->getPosX()));
@@ -541,6 +569,9 @@ void NetworkSecondary::receiveMessage()
 
                     // Mooring/towing lines
                     multiplayerFeedback.append(makeNetworkLinesString(model));
+                    // The state the instructor station shows (failures, alerts, contacts, depth...)
+                    multiplayerFeedback.append("#");
+                    multiplayerFeedback.append(model->instructorStatus());
 
                     //Send back to event.peer
                     ENetPacket* packet = enet_packet_create (multiplayerFeedback.c_str(), strlen (multiplayerFeedback.c_str()) + 1,0/*reliable flag*/);
@@ -653,10 +684,118 @@ void NetworkSecondary::receiveMessage()
             }
 
         }
+        else if (receivedString.substr(0,2).compare("IC") == 0 ) { //From the multiplayer instructor station
+            instructorCommand(receivedString.substr(2));
+        }
 	else if(receivedString.substr(0,2).compare("SD") == 0 )
 	{
 	  device->closeDevice();
 	}
     }
 
+}
+
+//Commands from the multiplayer instructor station (the hub), sent reliably, once:
+// ICW,cloud,windKn,windDir,windVariation,gustKn,visibilityNm,rain,snow,dust,sea,significant,seconds,streamMode,streamDir,streamKn,hour,lock
+//     (streamMode -1: unchanged, 0: the area's tide, 1: imposed; hour < 0: unchanged; lock 1: the student's weather window is locked)
+// ICF,action,level,delaySeconds   a failure (see SimulationModel::instructorFailure)
+// ICR                              everything back in service
+// ICO                              man overboard
+// ICT,text                         a message, each character as 4 hex digits
+// ICL,0|1                          weather window unlocked / locked
+// ICP,weather,controls             what the student may change: 1 locked, 0 free, -1 unchanged
+//                                  (weather: the METEO window and the lighting hour; controls: the
+//                                  instructor's pages of CONTROLES)
+// ICN,index,hex|index,hex...       the names of the other ships (the students' stations), each character as 4 hex digits
+void NetworkSecondary::instructorCommand(const std::string& command)
+{
+    std::vector<std::string> parts = Utilities::split(command, ',');
+    if (parts.empty() || !model) { return; }
+    const std::string kind = parts.at(0);
+    try {
+        if (kind == "W" && parts.size() >= 18) {
+            SimulationModel::WeatherState w;
+            w.cloud = Utilities::lexical_cast<irr::f32>(parts.at(1));
+            w.windKn = Utilities::lexical_cast<irr::f32>(parts.at(2));
+            w.windDir = Utilities::lexical_cast<irr::f32>(parts.at(3));
+            w.windVariation = Utilities::lexical_cast<irr::f32>(parts.at(4));
+            w.gustKn = Utilities::lexical_cast<irr::f32>(parts.at(5));
+            w.visibilityNm = Utilities::lexical_cast<irr::f32>(parts.at(6));
+            w.rain = Utilities::lexical_cast<irr::f32>(parts.at(7));
+            w.snow = Utilities::lexical_cast<irr::f32>(parts.at(8));
+            w.dust = Utilities::lexical_cast<irr::f32>(parts.at(9));
+            w.sea = Utilities::lexical_cast<irr::f32>(parts.at(10));
+            const int significant = Utilities::lexical_cast<int>(parts.at(11));
+            const irr::f32 seconds = Utilities::lexical_cast<irr::f32>(parts.at(12));
+            const int streamMode = Utilities::lexical_cast<int>(parts.at(13));
+            const irr::f32 streamDir = Utilities::lexical_cast<irr::f32>(parts.at(14));
+            const irr::f32 streamKn = Utilities::lexical_cast<irr::f32>(parts.at(15));
+            const irr::f32 hour = Utilities::lexical_cast<irr::f32>(parts.at(16));
+            //Lock: 1 locked, 0 free, -1 as it is (the locks are set with ICP)
+            const int lockField = Utilities::lexical_cast<int>(parts.at(17));
+            const bool lock = lockField < 0 ? model->getWeatherByInstructor() : lockField == 1;
+            model->setWeatherByInstructor(false); //(so that the setters below are not refused)
+            model->setWeatherState(w, seconds);
+            model->setSignificantWeather(significant);
+            if (streamMode == 0) { model->setStreamOverride(false); }
+            if (streamMode == 1) {
+                model->setStreamOverrideDirection(streamDir);
+                model->setStreamOverrideSpeed(streamKn);
+                model->setStreamOverride(true);
+            }
+            if (hour >= 0) { model->setLightingTimeOfDay(hour); }
+            model->setWeatherByInstructor(lock);
+            wchar_t text[160];
+            swprintf(text, 160, L"M\u00E9t\u00E9o impos\u00E9e par l'instructeur : vent %.0f nd du %03.0f, mer %.1f, visibilit\u00E9 %.1f NM", w.windKn, w.windDir, w.sea, w.visibilityNm);
+            model->logEvent(ExerciseLog::EV_INSTRUCTOR, text);
+        }
+        else if (kind == "F" && parts.size() >= 4) {
+            model->instructorFailure(Utilities::lexical_cast<int>(parts.at(1)), Utilities::lexical_cast<int>(parts.at(2)),
+                Utilities::lexical_cast<irr::f32>(parts.at(3)));
+        }
+        else if (kind == "R") {
+            model->repairAll();
+        }
+        else if (kind == "O") {
+            model->releaseManOverboard();
+        }
+        else if (kind == "T" && parts.size() >= 2) {
+            const std::string hex = command.substr(2); //all after "T," (the text may hold commas)
+            std::wstring text;
+            for (size_t i = 0; i + 4 <= hex.size(); i += 4) {
+                text += (wchar_t)std::stoi(hex.substr(i, 4), 0, 16);
+            }
+            if (!text.empty()) { model->showInstructorMessage(text); }
+        }
+        else if (kind == "L" && parts.size() >= 2) {
+            model->setWeatherByInstructor(parts.at(1) == "1");
+        }
+        else if (kind == "P" && parts.size() >= 3) {
+            const int weather = Utilities::lexical_cast<int>(parts.at(1)), controls = Utilities::lexical_cast<int>(parts.at(2));
+            if (weather >= 0 && (weather == 1) != model->getWeatherByInstructor()) {
+                model->setWeatherByInstructor(weather == 1);
+                model->showInstructorMessage(weather == 1 ? L"La m\u00E9t\u00E9o est pilot\u00E9e par l'instructeur." : L"L'instructeur vous laisse r\u00E9gler la m\u00E9t\u00E9o.");
+            }
+            if (controls >= 0 && (controls == 1) != model->getControlsByInstructor()) {
+                model->setControlsByInstructor(controls == 1);
+                model->showInstructorMessage(controls == 1 ? L"Les contr\u00F4les sont r\u00E9serv\u00E9s \u00E0 l'instructeur." : L"L'instructeur vous laisse utiliser les contr\u00F4les.");
+            }
+        }
+        else if (kind == "N") {
+            std::vector<std::string> entries = Utilities::split(command.substr(2), '|');
+            for (size_t e = 0; e < entries.size(); e++) {
+                std::vector<std::string> f = Utilities::split(entries[e], ',');
+                if (f.size() != 2) { continue; }
+                std::string name;   //(ASCII on the way: the names of stations and ships)
+                for (size_t i = 0; i + 4 <= f[1].size(); i += 4) {
+                    const int ch = std::stoi(f[1].substr(i, 4), 0, 16);
+                    name += (ch > 0 && ch < 128) ? (char)ch : '?';
+                }
+                model->setOtherShipDisplayName(Utilities::lexical_cast<int>(f[0]), name);
+            }
+        }
+    }
+    catch (const std::exception&) {
+        //A malformed command is ignored
+    }
 }

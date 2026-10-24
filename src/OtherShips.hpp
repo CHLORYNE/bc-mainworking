@@ -56,6 +56,9 @@ public:
     void setPos(int number, irr::f32 positionX, irr::f32 positionZ);
     void setHeading(int number, irr::f32 hdg);
     void setRateOfTurn(int number, irr::f32 rateOfTurn);
+    void setAbsent(int number, bool absent);   //multiplayer: no student on this ship
+    void setDisplayName(int number, const std::string& name);   //multiplayer: the student's station
+    bool isAbsent(int number) const;
     std::vector<Leg> getLegs(int number) const;
     void changeLeg(int shipNumber, int legNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
     void addLeg(int shipNumber, int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
@@ -67,7 +70,7 @@ public:
     irr::scene::ISceneNode* getSceneNode(int number);
     //FIREFIGHTING
     bool isFireFightingVessel(int number) const;   // Kyara FIRE
-    void startSinking(int number);                 // Kyara FIRE (escalation)
+    void startSinking(int number, irr::f32 secondsToGoUnder = 18.0f); // Kyara FIRE (escalation)
     bool isSunk(int number) const;                 // Kyara FIRE (escalation)
     // AUTO RESCUE
     void setScriptedPose(int number, irr::f32 x, irr::f32 z, irr::f32 hdg, irr::f32 spd); // Kyara SAR
@@ -77,6 +80,7 @@ public:
     int getLightSituation(int number);
     void setDeckLights(int number, bool on);
     ShipLights* getLights(int number); //KYARA FEUX TAB: 0 if no such vessel
+    OtherShip* getShip(int number);    //0 if no such vessel
 
 private:
     std::vector<OtherShip*> otherShips;

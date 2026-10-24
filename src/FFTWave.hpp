@@ -129,6 +129,11 @@ class cOcean {
 	float length;				// length parameter
 	vertex_ocean *vertices;			// vertices for vertex buffer object
 	bool reInitialiseWaves; // If waves should be re-created (as new A or w?)
+	//The random part of each wave, drawn once. A new sea state (A, w) only rescales the waves with
+	//the spectrum. Drawing them again each time, from the program's shared rand(), gave a different
+	//sea on every change - every frame during a gradual weather change, so the water seemed to race.
+	complex *gauss, *gaussNeg;		// for (n, m) and (-n, -m)
+	unsigned int rngState;			// own generator: the shared rand() is left alone
 
 	complex *h_tilde,			// for fast fourier transform
 		*h_tilde_slopex, *h_tilde_slopez,
@@ -146,6 +151,7 @@ class cOcean {
 	float dispersion(int n_prime, int m_prime);		// deep water
 	float phillips(int n_prime, int m_prime);		// phillips spectrum
 	complex hTilde_0(int n_prime, int m_prime);
+	void setInitialAmplitudes(int index, int n_prime, int m_prime);
 	complex hTilde(float t, int n_prime, int m_prime);
 	//complex_vector_normal h_D_and_n(vector2 x, float t);
 	

@@ -5,6 +5,9 @@ add_executable(bridgecommand-ed
     ../Lang.cpp
     ../Utilities.cpp
     ../ScenarioDataStructure.cpp
+    ../IncidentConfig.cpp
+    ../chartView/ChartView.cpp
+    ../chartView/ChartDraw.cpp
     ControllerModel.cpp
     EventReceiver.cpp
     ImportExportGUI.cpp

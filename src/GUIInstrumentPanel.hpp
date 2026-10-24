@@ -56,6 +56,12 @@ namespace irr
             f32 pitchDeg = 0;     //KYARA HOULE: + bow up (tangage)
             f32 rollDeg = 0;      //KYARA HOULE: + heeled to starboard (gite / roulis)
             u32 timeMs = 0;       //KYARA HOULE: simulator clock, for the 2-minute peak markers
+            bool gyroLost = false;      //gyro failure: heading frozen, "GYRO HS" on the compass
+            bool gpsLost = false;       //GPS failure: last position, shown as lost
+            f32 depthAlarmLimit = 0;    //echo sounder alarm, m (0: off)
+            bool depthAlarm = false;    //depth under the limit now
+            bool mobOn = false;         //man overboard mark: bearing and distance in the GPS box
+            f32 mobBrg = 0, mobNm = 0;
         };
 
         class GUIInstrumentPanel : public IGUIElement
@@ -90,6 +96,19 @@ namespace irr
 
             //Where those buttons should go (absolute screen coordinates). Valid after setFit/setStatusColumnWidth.
             core::rect<s32> getStatusColumnRect() const;
+
+            //Up to maxRows rows of dials, whichever count gives the biggest dials (1 = the classic strip).
+            //Used when the console has a window of its own, which may be as tall as a whole screen.
+            void setMaxRows(int maxRows);
+            //How the dials are arranged: 0 rows (as many as make them biggest, up to setMaxRows), 1 a single
+            //row, 2 a column (two or three side by side if that makes them bigger) with the status keys in
+            //a strip under the dials instead of a column beside them.
+            void setOrientation(int orientation);
+            int getOrientation() const { return orientation; }
+            //Diameter of the dials in the current layout, pixels.
+            f32 getGaugeDiameter() const { return gaugeD; }
+            //Font for the dial lettering instead of the skin's (0 = skin font) - bigger dials, bigger text.
+            void setOverrideFont(IGUIFont* font);
 
             void setData(const InstrumentData& data);
 
@@ -172,6 +191,9 @@ namespace irr
             s32 statusWidth;
             core::rect<s32> statusRect; //absolute
             f32 gaugeD;                 //diameter used by the current layout
+            int maxRows = 1;
+            int orientation = 0;
+            IGUIFont* overrideFont = 0;
         };
 
     } // end namespace gui

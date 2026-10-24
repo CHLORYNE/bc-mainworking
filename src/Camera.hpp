@@ -34,7 +34,7 @@ class Camera
         irr::core::matrix4 getBaseRotation() const;
         void setHFOV(irr::f32 hFOV);
         void updateViewport(irr::f32 aspect);
-        void renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f32 yawOffsetDeg); //NAUTITECH triple-screen: render one angled column
+        void renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f32 yawOffsetDeg, irr::f32 shiftY = 0.0f); //NAUTITECH triple-screen: render one angled column (shiftY: horizon raised, in screen heights x2)
         irr::core::line3df getPickRay(irr::f32 ndcX, irr::f32 ndcY, irr::f32 columnHFOVrad, irr::f32 columnAspect, irr::f32 yawOffsetDeg); //NAUTITECH: pick ray without needing a render
         void setActive();
         void lookUp();
@@ -60,11 +60,26 @@ class Camera
         void changeView();
         void setView(irr::u32 view);
         irr::u32 getView() const;
+        irr::u32 getViewCount() const; //views from boat.ini
+        void scaleViews(irr::f32 factor); //the ship was resized live: every view moves with her
         void setNearValue(irr::f32 zn);
         void setFarValue(irr::f32 zf);
         void setFrozen(bool frozen);
         void toggleFrozen();
         void applyOffset(irr::f32 deltaX, irr::f32 deltaY, irr::f32 deltaZ);
+        //KYARA FEUX EDIT: orbit camera for placing lamps. Circles a point (the lamp being moved),
+        //its angle measured from the target vessel's bow so the view stays put as she turns.
+        void setOrbit(bool on, irr::f32 radiusMetres = 40.0f);
+        bool isOrbiting() const;
+        void setOrbitCentre(irr::core::vector3df centre, irr::f32 vesselHeadingDeg);
+        void orbitBy(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+        void setOrbitMinPitch(irr::f32 minPitchDeg); //lowest the orbit may go (reset by setOrbit)
+        void setOrbitMinHeight(irr::f32 minY);       //lowest world height of the orbiting camera (reset by setOrbit)
+        //Instructor camera: the orbit centre becomes the eye, looking out at yaw/pitch (a view from
+        //another ship's bridge); and set the orbit's angles (yaw from the vessel's bow) and distance.
+        void setOrbitInside(bool inside);
+        void setOrbitAngles(irr::f32 yawDeg, irr::f32 pitchDeg, irr::f32 radiusMetres);
+        irr::core::vector3df getOrbitPosition() const;
         void update(irr::f32 deltaTime=0, irr::core::quaternion quat=irr::core::quaternion(0,0,0,1), irr::core::vector3df pos=irr::core::vector3df(0,0,0), irr::core::vector2df lensShift=irr::core::vector2df(0,0), bool vrMode = false);
 
     private:
@@ -91,6 +106,13 @@ class Camera
         bool isHighViewActive;
         irr::f32 previousLookAngle;
         irr::f32 previousLookUpAngle;
+
+        //KYARA FEUX EDIT
+        bool orbiting;
+        irr::core::vector3df orbitCentre;
+        irr::f32 orbitHeading, orbitYaw, orbitPitch, orbitRadius, orbitMinPitch, orbitMinHeight;
+        bool orbitInside;                //instructor camera: the eye at the centre
+        void orbitPose(irr::core::vector3df& pos, irr::core::vector3df& fwd) const;
 };
 
 #endif

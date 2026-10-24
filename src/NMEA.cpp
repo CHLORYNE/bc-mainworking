@@ -51,7 +51,6 @@ NMEA::NMEA(SimulationModel* model, std::string serialPortName, irr::u32 serialBa
     // set up listening thread
     terminateNmeaReceive = 0;
     receivedNmeaMessages = std::vector<std::string>();
-    std::thread* receiveThreadObject = 0;
     receiveThreadObject = new std::thread(&NMEA::ReceiveThread, this, udpListenPortName);
     
     // create send socket
@@ -99,6 +98,12 @@ NMEA::~NMEA()
     terminateNmeaReceiveMutex.lock();
     terminateNmeaReceive = 1;
     terminateNmeaReceiveMutex.unlock();
+    //Wait for it (at most the 1 s receive timeout): it must not outlive the mutexes it locks
+    if (receiveThreadObject) {
+        if (receiveThreadObject->joinable()) { receiveThreadObject->join(); }
+        delete receiveThreadObject;
+        receiveThreadObject = 0;
+    }
 
 }
 
@@ -136,8 +141,9 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
             }
             terminateNmeaReceiveMutex.unlock();
 
-            int bufferSize = 128;
-            char * buf = new char[bufferSize]();
+            //On the stack (a new[] here was never freed), and one byte short so it can always be ended
+            const int bufferSize = 2048;
+            char buf[bufferSize];
             
             // set socket timeout as in AISOverUDP
             #ifdef WIN32
@@ -150,9 +156,9 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
             
             // read from socket
             #ifdef WIN32
-            int nread = ::recv(rcvSocket.native_handle(), buf, bufferSize,0);
+            int nread = ::recv(rcvSocket.native_handle(), buf, bufferSize - 1, 0);
             #else
-            ssize_t nread = ::read(rcvSocket.native_handle(), buf, bufferSize);
+            ssize_t nread = ::read(rcvSocket.native_handle(), buf, bufferSize - 1);
             #endif
 
             if (nread > 0) 
@@ -162,7 +168,7 @@ void NMEA::ReceiveThread(std::string udpListenPortName)
 
                 // convert char buffer to string and add it to shared vector
                 // subsequent processing is handled by NMEA::receive
-                std::string message(buf);
+                std::string message(buf, (size_t)nread);
                 receivedNmeaMessagesMutex.lock();
                 receivedNmeaMessages.push_back(message);
                 receivedNmeaMessagesMutex.unlock();
@@ -188,15 +194,18 @@ void NMEA::receive()
 
             // get all sentences and strip \r\n
             std::vector<std::string> sentences;
-            int last_pos = 0; 
-            int pos = message.find("\r\n");
+            //Each sentence ends with \r\n; the next one starts after it (the \r\n used to be left at
+            //the front of every sentence but the first, which then failed its checksum). A last
+            //sentence without \r\n is kept too.
+            size_t last_pos = 0;
+            size_t pos = message.find("\r\n");
             while (pos != std::string::npos)
             {
-                int sentence_len = pos - last_pos;
-                sentences.push_back(message.substr(last_pos, sentence_len));
-                last_pos = pos;
-                pos = message.find("\r\n", pos+3);
+                if (pos > last_pos) { sentences.push_back(message.substr(last_pos, pos - last_pos)); }
+                last_pos = pos + 2;
+                pos = message.find("\r\n", last_pos);
             }
+            if (last_pos < message.size()) { sentences.push_back(message.substr(last_pos)); }
             
             // iterate over sentences and handle them one by one
             for (int i=0; i < sentences.size(); i++)
@@ -277,7 +286,7 @@ void NMEA::receive()
                                 apb.bearing_orig_to_dest_type = fields[11][0];
                                 apb.heading_to_dest = std::stof(fields[12]);
                                 apb.heading_to_dest_type = fields[13][0];
-                            } catch (const std::invalid_argument& e)
+                            } catch (const std::exception& e) //invalid_argument, or out_of_range for a value like 1e99
                             {
                                 std::cerr << "error while parsing a float value for APB" << std::endl;
                                 continue;
@@ -307,7 +316,7 @@ void NMEA::receive()
                                 rmb.arrival_status = fields[12][0];
                                 rmb.faa_mode = '\0';
                                 if (fields.size() == 14) rmb.faa_mode = fields[13][0];
-                            } catch (const std::invalid_argument& e)
+                            } catch (const std::exception& e) //invalid_argument, or out_of_range for a value like 1e99
                             {
                                 std::cerr << "error while parsing a float value for RMB" << std::endl;
                                 continue;
@@ -426,13 +435,14 @@ void NMEA::updateNMEA()
         Utilities::round(model->getPortEngineRPM())  // idx=2, even (port)
     };
 
-    irr::f32 lat = model->getLat();
-    irr::f32 lon = model->getLong();
+    //What the GPS and the gyro give, with the instructor's failures (drift, loss)
+    irr::f32 lat, lon, cog, sog;
+    model->getGpsFix(lat, lon, cog, sog);
+    sog *= MPS_TO_KTS;
+    const bool gpsValid = model->isGpsValid();
+    const bool gyroValid = model->isGyroValid();
 
-    irr::f32 cog = model->getCOG();
-    irr::f32 sog = model->getSOG()*MPS_TO_KTS;
-
-    irr::f32 hdg = model->getHeading();
+    irr::f32 hdg = model->getGyroHeading();
     irr::f32 rot = model->getRateOfTurn()*RAD_PER_S_IN_DEG_PER_MINUTE;
     irr::f32 pitch = model->getPitch(); // tangage, degrees
     irr::f32 roll = model->getRoll();  // roulis, degrees
@@ -453,18 +463,33 @@ void NMEA::updateNMEA()
     switch (currentMessageType) { // EN 61162-1:2011
         case RMC: // 8.3.69 Recommended minimum navigation information
         {
+            if (!gpsValid) { //no fix: the receiver says so (status V, no data)
+                snprintf(messageBuffer,maxSentenceChars,"$GPRMC,%s%s%s.00,V,,,,,,,%s%s%s,,,N,V",hour,min,sec,year,mon,mday);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPRMC,%s%s%s.00,A,%02u%06.3f,%c,%03u%06.3f,%c,%.1f,%.1f,%s%s%s,,,A,S",hour,min,sec,latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest,sog,cog,year,mon,mday); //FIXME: SOG -> knots, COG->degrees
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GLL: // 8.3.36 Geographic position – Latitude/longitude
         {
+            if (!gpsValid) {
+                snprintf(messageBuffer,maxSentenceChars,"$GPGLL,,,,,%s%s%s.00,V,N",hour,min,sec);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPGLL,%02u%06.3f,%c,%03u%06.3f,%c,%s%s%s.00,A,A",latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest,hour,min,sec);
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GGA: // 8.3.35 Global positioning system (GPS) fix data
         {
+            if (!gpsValid) { //fix quality 0: invalid
+                snprintf(messageBuffer,maxSentenceChars,"$GPGGA,%s%s%s.00,,,,,0,00,,,M,,M,,",hour,min,sec);
+                messageQueue.push_back(addChecksum(std::string(messageBuffer)));
+                break;
+            }
             snprintf(messageBuffer,maxSentenceChars,"$GPGGA,%s%s%s.00,%02u%06.3f,%c,%03u%06.3f,%c,1,12,0.0,0.0,M,0.0,M,,",hour,min,sec,latDegrees,latMinutes,northSouth,lonDegrees,lonMinutes,eastWest); //Hardcoded NMEA Quality 8, Satellites 8, HDOP 0.9
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
@@ -542,12 +567,14 @@ void NMEA::updateNMEA()
         }
         case HEHDT: // 8.3.44 Heading true
         {
+            if (!gyroValid) { break; } //a failed gyro sends nothing
             snprintf(messageBuffer,maxSentenceChars,"$HEHDT,%.1f,T",hdg); // T = true north
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
         }
         case GPHDT: // 8.3.44 Heading true
         {
+            if (!gyroValid) { break; }
             snprintf(messageBuffer,maxSentenceChars,"$GPHDT,%.1f,T",hdg); // T = true north
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;
@@ -560,6 +587,7 @@ void NMEA::updateNMEA()
         }
         case VTG: // Course over ground and ground speed
         {
+            if (!gpsValid) { break; }
             snprintf(messageBuffer, maxSentenceChars, "$GPVTG,%.1f,T,,M,%.1f,N,%.1f,K,A", cog, sog, sog * 1.852f);
             messageQueue.push_back(addChecksum(std::string(messageBuffer)));
             break;

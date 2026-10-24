@@ -47,6 +47,7 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "ScreenSpray.hpp"    // KYARA SLAM
 #include "ShipLights.hpp"     // KYARA FEUX
 #include "Rain.hpp"
+#include "Snow.hpp"
 #include "Tide.hpp"
 #include "Buoys.hpp"
 #include "OtherShips.hpp"
@@ -56,12 +57,14 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "ManOverboard.hpp"
 #include "Fire.hpp"          // FIRE FEATURE
 #include "FireMonitor.hpp"   // FIRE FEATURE
+#include "IncidentConfig.hpp" // SCENARIO INCENDIE: per-scenario fire / SAR settings (incident.ini)
 #include "Camera.hpp"
 #include "RadarCalculation.hpp"
 #include "RadarScreen.hpp"
 #include "ControlVisualiser.hpp"
 #include "Lines.hpp"
 #include "OperatingModeEnum.hpp"
+#include "ExerciseLog.hpp"
 
 class SimulationModel //Start of the 'Model' part of MVC
 {
@@ -97,6 +100,7 @@ public:
         bool secondaryControlBowThruster;
         bool secondaryControlSternThruster;
         bool debugMode;
+        bool spectator = false;   //multiplayer instructor camera: no own ship, follows the students' ships
 
     };
 
@@ -186,6 +190,7 @@ public:
     void setRudderPumpState(int whichPump, bool rudderPumpState); //Sets how the rudder is responding. Assumed that whichPump can be 1 or 2
     bool getRudderPumpState(int whichPump) const;
     void setFollowUpRudderWorking(bool followUpRudderWorking); //Sets if the normal (follow up) rudder is working
+    bool getFollowUpRudderWorking();
     void setAccelerator(irr::f32 accelerator); //Set simulation time compression
     irr::f32 getAccelerator() const;
     irr::f32 getHeading() const; //Gets the own ship's heading
@@ -235,6 +240,9 @@ public:
     void setOtherShipHeading(int number, irr::f32 hdg);
     void setOtherShipPos(int number, irr::f32 positionX, irr::f32 positionZ);
     void setOtherShipRateOfTurn(int number, irr::f32 rateOfTurn);
+    void setOtherShipAbsent(int number, bool absent);   //multiplayer: no student on this ship
+    void setOtherShipDisplayName(int number, const std::string& name);   //multiplayer: the student's station
+    bool isOtherShipAbsent(int number) const;
     void setOtherShipSpeed(int number, irr::f32 speed); //Speed in m/s
     void setOtherShipMMSI(int number, irr::u32 mmsi);
     std::vector<Leg> getOtherShipLegs(int number) const;
@@ -255,6 +263,11 @@ public:
     void setBadWeatherPreset();                 // KYARA "mauvais temps"
     irr::f32 getLightningFlash() const;         // 0..1, synced to the secondary
     void setLightningFlash(irr::f32 v);         // used by the secondary from the network
+    void setCogSogFromNetwork(irr::f32 cogDeg, irr::f32 sogKts);      // secondary: the primary's COG / SOG
+    //Secondary: what the primary shows, so its screens look the same (palette -1 / glow -1: not received)
+    void setNetworkDisplay(int paletteMode, int glowLevel) { networkPalette = paletteMode; networkGlow = glowLevel; }
+    void setNetworkSquall(irr::f32 level) { networkSquall = level; }
+    irr::f32 getSquallLevel() const { return squallLevel; }
     void setThunderEnabled(bool e);             // KYARA: enable/disable thunder
     bool getThunderEnabled() const;
     void setLightningEnabled(bool e);
@@ -280,7 +293,6 @@ public:
     std::string getOwnShipGroanSound() const;
     std::string getOwnShipSteamSound() const;
     std::string getOwnShipVhfSound() const;
-    std::vector<irr::scene::ISceneNode*> rescueCarried;   // rafts riding on the aft deck
     void toggleMonitorFiring();   // FIRE FEATURE: Ctrl+E on/off, auto-aims at the blaze
     bool isMonitorFiring() const;
     //KYARA CONTACT SOUND
@@ -294,6 +306,59 @@ public:
     int getOwnShipInstrumentMaterialCount() const; //KYARA FEUX TAB
     //KYARA FEUX TAB: the lights of one vessel. -1 = own ship, 0.. = other ship. 0 if none.
     ShipLights* getShipLights(int vessel);
+    //KYARA FEUX EDIT: in-simulator placement of a vessel's lamps (-1 = own ship)
+    bool beginLightEdit(int vessel);
+    void endLightEdit();
+    bool isLightEditing() const;
+    int getLightEditVessel() const;
+    void lightEditOrbit(irr::f32 dYawDeg, irr::f32 dPitchDeg, irr::f32 zoomFactor);
+    //The point of the edited vessel's model under a ray from the view, in the coordinates of her
+    //node (where her lamps are), a little off the surface towards the viewer. false: missed her.
+    bool lightEditPick(const irr::core::line3df& worldRay, irr::core::vector3df& modelPos);
+    //Size (ScaleFactor) and waterline (YCorrection) of a vessel, changed live and
+    //written back to her boat.ini. -1 = own ship. Other ships using the same boat.ini are the
+    //same model, so they all change together.
+    struct VesselSize {
+        std::string iniFile;
+        irr::f32 scale = 1.0f;
+        irr::f32 yCorrection = 0.0f;
+        irr::f32 length = 0.0f;     //overall, metres
+        irr::f32 breadth = 0.0f;
+        irr::f32 draught = 0.0f;    //waterline down to the lowest point of the model
+        irr::f32 airDraught = 0.0f; //waterline up to the highest point
+        int sharing = 1;            //vessels in this scenario drawn from that boat.ini
+    };
+    bool beginSizeEdit(int vessel);
+    void endSizeEdit();
+    bool isSizeEditing() const;
+    int getSizeEditVessel() const;
+    bool getVesselSize(int vessel, VesselSize& out);
+    void sizeEditSetLength(irr::f32 metres);
+    void sizeEditStepLength(irr::f32 deltaMetres);
+    void sizeEditSetDraught(irr::f32 metres);
+    void sizeEditStepDraught(irr::f32 deltaMetres); //positive = deeper in the water
+    void sizeEditRevert();                          //back to the values at opening
+    bool sizeEditSave(std::wstring& message);
+    int getSizeEditRevision() const;                //changes whenever the size does
+    //Instrument lighting editor (own ship): click a screen or gauge in the view to light it at
+    //night; saved as InstrumentMaterials= in her boat.ini.
+    bool beginInstrumentEdit();
+    void endInstrumentEdit();
+    bool isInstrumentEditing() const;
+    int instrumentEditPick(const irr::core::line3df& ray); //lights or darkens what was clicked; its material, or -1
+    void instrumentEditToggle(int material);
+    void instrumentEditSelect(int material);              //flashes it for a moment
+    int getInstrumentEditSelected() const;
+    void instrumentEditRevert();                          //back to the list at opening
+    bool instrumentEditSave(std::wstring& message);
+    int getInstrumentEditRevision() const;
+    irr::u32 getOwnShipMaterialCount() const;
+    std::string getOwnShipMaterialTexture(irr::u32 material) const;
+    bool isOwnShipInstrumentMaterial(irr::u32 material) const;
+    //Free view: a camera circling the own ship (mouse drag turns, wheel zooms), for any ship
+    //without views in boat.ini. It comes after the last boat.ini view in the "change view" cycle.
+    bool isFreeView() const;
+    void setFreeView(bool on);
     bool getOwnShipDeckLights() const;
     void setOtherShipLightSituation(int shipNumber, int situation);
     int getOtherShipLightSituation(int shipNumber) const;
@@ -303,6 +368,9 @@ public:
     //bc5.ini screen_spray: 0 = off, 1 = normal, 2 = test (fires on every landing)
     void setScreenSprayMode(int mode);
     std::string getOwnShipRadarAlarmSound() const;
+    std::string getOwnShipCpaAlarmSound() const;   //radar CPA/TCPA alarm
+    std::string getOwnShipDepthAlarmSound() const; //echo sounder shallow-water alarm
+    std::string getOwnShipFailureAlarmSound() const; //equipment failure alarm (bridge alerts)
     void triggerSeagull(); //Plays the seagull one-shot sound (bound to the 'G' key)
     //MUTE ALARM 
     void toggleProxyAlarmMute();
@@ -318,7 +386,41 @@ public:
     void setWindDirection(irr::f32 windDirection); //Range 0-360.
     irr::f32 getWindDirection() const;
     void setWindSpeed(irr::f32 windSpeed); //Nm/h
-    irr::f32 getWindSpeed() const;
+    irr::f32 getWindSpeed() const;              //with the gusts, as the ship feels it
+    irr::f32 getWindSpeedBase() const;          //the mean wind set in the weather (no gusts)
+    irr::f32 getWindDirectionBase() const;      //the mean direction (no variation)
+
+    //WEATHER WINDOW (METEO). Everything the weather is made of, in one block: a preset or the
+    //sliders set it, at once or over a while (setWeatherState with seconds > 0). Setting any
+    //single value by hand stops a change or a front that is under way.
+    struct WeatherState
+    {
+        irr::f32 cloud = 0.0f;          //cloud cover 0..1 (over the fair-weather sky)
+        irr::f32 windKn = 0.0f;         //mean wind, knots
+        irr::f32 windDir = 0.0f;        //direction it blows FROM, degrees
+        irr::f32 windVariation = 0.0f;  //how far its direction swings either side, degrees
+        irr::f32 gustKn = 0.0f;         //gusts, knots above the mean
+        irr::f32 visibilityNm = 10.0f;
+        irr::f32 rain = 0.0f;           //0..10
+        irr::f32 snow = 0.0f;           //0..1
+        irr::f32 dust = 0.0f;           //sand / dust in the air 0..1
+        irr::f32 sea = 0.0f;            //sea state (weather) 0..12
+    };
+    WeatherState getWeatherState() const;
+    void setWeatherState(const WeatherState& state, irr::f32 seconds);
+    bool isWeatherChanging() const;             //a gradual change (or a front) is under way
+    irr::f32 getWeatherChangeProgress() const;  //0..1
+    void setCloudCover(irr::f32 cover);   irr::f32 getCloudCover() const;
+    void setSnow(irr::f32 snow);          irr::f32 getSnow() const;
+    void setDust(irr::f32 dust);          irr::f32 getDust() const;
+    void setWindGust(irr::f32 knots);     irr::f32 getWindGust() const;
+    void setWindVariation(irr::f32 deg);  irr::f32 getWindVariation() const;
+    //Significant weather: 0 auto (a storm comes with a heavy sea, as before), 1 none, 2 thunderstorm, 3 squalls
+    void setSignificantWeather(int mode); int getSignificantWeather() const;
+    //Approaching weather front: 0 none, 1 slow (about an hour), 2 fast (about 20 minutes). The weather
+    //worsens to the front, holds, then clears back to what it was.
+    void setWeatherFront(int mode);       int getWeatherFront() const;
+    irr::f32 getWeatherFrontProgress() const; //0..1 over the whole front
     void setStreamOverrideDirection(irr::f32 streamDirection); //Range 0-360.
     irr::f32 getStreamOverrideDirection() const;
     void setStreamOverrideSpeed(irr::f32 streamSpeed); //Nm/h
@@ -349,8 +451,100 @@ public:
     void setFrozenCamera(bool frozen);
     void toggleFrozenCamera();
     void setAlarm(bool alarmState);
+    //The radar's settings and targets (clicks on the scope, CPA alarm, trial manoeuvre, lines...)
+    RadarCalculation& getRadar() { return radarCalculation; }
+    //Longitude / latitude of a point in scene coordinates (the scene is re-centred on own ship, so
+    //the offset has to be added before terrain.xToLong / zToLat)
+    irr::f32 sceneXToLong(irr::f32 x) const;
+    irr::f32 sceneZToLat(irr::f32 z) const;
+
+    //Exercise record for the debrief (track, closest approaches, events). The report is written in
+    //the user folder, Bilans/, at the end of the exercise or when the instructor asks for it.
+    ExerciseLog& getExerciseLog() { return exerciseLog; }
+
+    //Failures the instructor can give, in two grades:
+    // - degraded (FAILURE_DEGRADED): an engine gives half power; the gyro drifts slowly and the GPS
+    //   position wanders off, both without any alarm (the student has to find it by cross-checking);
+    // - failed (FAILURE_FAILED): an engine stops; the gyro and GPS displays freeze ("lost" shown);
+    //   the radar goes off and cannot be switched on.
+    //What the sensors give (displays, NMEA) comes from getGyroHeading() and getGpsFix().
+    enum Failure { FAIL_PORT_ENGINE, FAIL_STBD_ENGINE, FAIL_GYRO, FAIL_GPS, FAIL_RADAR, FAIL_COUNT };
+    enum FailureLevel { FAILURE_NONE = 0, FAILURE_DEGRADED = 1, FAILURE_FAILED = 2 };
+    void setFailure(Failure which, bool failed) { setFailureLevel(which, failed ? FAILURE_FAILED : FAILURE_NONE); }
+    bool getFailure(Failure which) const { return getFailureLevel(which) == FAILURE_FAILED; }
+    void setFailureLevel(Failure which, int level);
+    int getFailureLevel(Failure which) const;
+    irr::f32 getGyroError() const { return gyroError; }          //degrees, + = reads high
+    irr::f32 getGpsErrorMetres() const;                           //distance of the GPS position from the true one
+    //Sensor readings, failures included
+    irr::f32 getGyroHeading() const;
+    bool isGyroValid() const { return failureLevel[FAIL_GYRO] < FAILURE_FAILED; }
+    void getGpsFix(irr::f32& lat, irr::f32& lon, irr::f32& cogDeg, irr::f32& sogMps) const;
+    bool isGpsValid() const { return failureLevel[FAIL_GPS] < FAILURE_FAILED; }
+
+    //Failures given later (the student must not see it coming): an action (a Failure, or one of the
+    //steering ones below) to a level, after delaySeconds of exercise time.
+    enum { ACTION_PUMP_1 = 100, ACTION_PUMP_2 = 101, ACTION_FOLLOW_UP = 102 };
+    struct ScheduledFailure { int action; int level; irr::f32 at; };
+    void scheduleFailure(int action, int level, irr::f32 delaySeconds);
+    void cancelScheduledFailure(int action);
+    const std::vector<ScheduledFailure>& getScheduledFailures() const { return scheduledFailures; }
+    irr::f32 getFailureClock() const { return failureClock; }
+    static std::wstring failureActionName(int action, int level);
+    //Everything back in service (failures, steering, what was scheduled)
+    void repairAll();
+    //The instructor notes that the student has reported the last failure: its detection time goes in the debrief
+    void markFailureReported();
+
+    //Multiplayer instructor camera (spectator): the own ship is hidden and goes along with the
+    //student's ship being watched; the camera looks from her bridge, from outside, or from above.
+    enum SpectatorView { SPECTATOR_BRIDGE = 0, SPECTATOR_OUTSIDE = 1, SPECTATOR_ABOVE = 2, SPECTATOR_VIEWS = 3 };
+    bool isSpectator() const { return modelParameters.spectator; }
+    void setSpectatorTarget(int ship);           //other ship number (0 = first student)
+    void nextSpectatorTarget(int direction);     //+1 / -1, skipping ships not in the exercise
+    int getSpectatorTarget() const { return spectatorTarget; }
+    void setSpectatorView(int view);
+    int getSpectatorView() const { return spectatorView; }
+
+    //Multiplayer instructor station (the hub): failures it gives (now, later, or back in service),
+    //the weather it imposes (the student's weather window is then locked), messages it sends,
+    //and the state reported back to it.
+    void instructorFailure(int action, int level, irr::f32 delaySeconds);
+    void setWeatherByInstructor(bool on) { weatherByInstructor = on; }
+    bool getWeatherByInstructor() const { return weatherByInstructor; }
+    //Multiplayer: the instructor's pages of CONTROLES (failures, other ships' lights, sizes) locked
+    void setControlsByInstructor(bool on) { controlsByInstructor = on; }
+    bool getControlsByInstructor() const { return controlsByInstructor; }
+    void showInstructorMessage(const std::wstring& text);
+    std::string instructorStatus();
+
+    //Bridge alert list (like a central alert panel): one line per active alarm condition, red until
+    //acknowledged. Acknowledge (the console's button) acknowledges them all and silences the alarms.
+    struct BridgeAlert { int id; std::wstring text; irr::f32 since; bool acked; };
+    const std::vector<BridgeAlert>& getBridgeAlerts() const { return bridgeAlerts; }
+    void acknowledgeAlerts();
+
+    //Sound signals on the whistle (COLREG rules 34 and 35): count short blasts (1, 2, 3, 5), or
+    //count < 0 for prolonged blasts. Fog signals: automatic, every 2 minutes, one prolonged blast
+    //making way, two when stopped.
+    void soundSignal(int count);
+    void setFogSignals(bool on);
+    bool getFogSignals() const { return fogSignalsOn; }
+
+    //Echo sounder alarm (metres under the keel, 0 = off)
+    void setDepthAlarm(irr::f32 limitMetres);
+    irr::f32 getDepthAlarm() const { return depthAlarmLimit; }
+
+    //Man overboard mark: the position, kept with its bearing and distance shown on the GPS and radar
+    void markManOverboard();
+    void clearManOverboardMark();
+    bool hasManOverboardMark() const { return mobMarked; }
+    void logEvent(ExerciseLog::Category category, const std::wstring& text);
+    bool writeExerciseReport(std::string& path);
     void toggleRadarOn();
     bool isRadarOn() const;
+    //The radar picture's texture and the part of it shown (see RadarScreen::getTexture)
+    irr::video::ITexture* getRadarTexture(irr::f32& scale, irr::f32& offset) const;
     irr::video::SColor getRadarSurroundColour() const;
     void increaseRadarRange();
     void decreaseRadarRange();
@@ -432,7 +626,7 @@ public:
     irr::core::line3df getMooringRay(irr::s32 mouseX, irr::s32 mouseY, bool showInterface); //NAUTITECH: column-aware pick ray
     void setRadarCameraActive();
     void updateViewport(irr::f32 aspect);
-    void renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg); //NAUTITECH triple-screen
+    void renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY = 0.0f); //NAUTITECH triple-screen
     void setMouseDown(bool isMouseDown);
     void setZoom(bool zoomOn);
     void setZoom(bool zoomOn, irr::f32 zoomLevel);
@@ -494,13 +688,11 @@ public:
     void setMonitorAimFromRay(irr::core::line3d<irr::f32> ray);
     bool hasFireBoat() const;
     bool anyFireActive() const;
-    // SAR RESCUE RUN (Kyara): a named rescue craft recovers the abandon-ship group once the
-// fire is out or the casualty has foundered, then returns to her berth.
+    // SAR RESCUE RUN (Kyara): the rescue craft recover the abandon-ship rafts once everyone is
+// in the water, then return to their berths.
     void beginRescueRun();
     void beginRescueDeparture();
     void abortRescueRun();
-    void buildReturnRoute();                                     // fixed homeward route, clear of the quay
-    int  nearestRemainingRaft(irr::f32 fromX, irr::f32 fromZ);   // rescan for rafts still afloat
     bool isRescueRunActive() const;
     int  getRescuedCount() const;
     irr::scene::ISceneNode* getContactFromRay(irr::core::line3d<irr::f32> ray, irr::s32 linesMode);
@@ -514,6 +706,13 @@ public:
     Terrain* getTerrain();
 
     irr::f32 getTerrainHeight(irr::f32 posX, irr::f32 posZ) const;
+    //Sonar: own ship and other ships in scene coordinates (those of the terrain), sea level, folder
+    irr::core::vector3df getOwnShipScenePosition() const;
+    irr::core::vector3df getOtherShipScenePosition(int number) const;
+    irr::f32 getOwnShipLengthM() const;
+    irr::f32 getOwnShipHeave() const; //metres, + up
+    irr::f32 getTideHeight() const { return tideHeight; }
+    std::string getScenarioFolder() const; //with the final '/'
 
     void addLine(); // Add a line, which will be undefined
 
@@ -555,6 +754,23 @@ private:
     irr::f32 visibilityRange; //Nm
     irr::f32 windDirection; //0-360
     irr::f32 windSpeed; //Nm
+    //Weather window (see WeatherState)
+    irr::f32 cloudCover = 0.0f, snowIntensity = 0.0f, dustLevel = 0.0f, windGust = 0.0f, windVariation = 0.0f;
+    irr::f32 windSpeedNow = 0.0f, windDirectionNow = 0.0f;  //with gusts and swings, worked out each frame
+    irr::f32 squallLevel = 0.0f;                            //0..1 while a squall passes
+    irr::f32 networkSquall = -1.0f;                         //secondary: the primary's squall (-1: not received)
+    int networkPalette = -1, networkGlow = -1;              //secondary: the primary's colours and glow
+    irr::f32 weatherClock = 0.0f;                           //seconds, drives gusts and squalls
+    int significantWeather = 0;
+    struct WeatherChange { bool active = false; WeatherState from, to; irr::f32 time = 0, duration = 0; } weatherChange;
+    int weatherFront = 0;              //0 none, 1 slow, 2 fast
+    int weatherFrontPhase = 0;         //1 coming, 2 overhead, 3 clearing
+    irr::f32 weatherFrontTime = 0.0f;  //seconds into the current phase
+    WeatherState weatherFrontBase;     //the weather before the front, to come back to
+    void applyWeatherState(const WeatherState& state);
+    void stopWeatherChanges();
+    void updateWeatherDynamics(irr::f32 deltaTime);
+    Snow snow;
     irr::f32 streamOverrideDirection; //0-360
     irr::f32 streamOverrideSpeed; //Nm
     bool streamOverride;
@@ -570,6 +786,19 @@ private:
     LandObjects landObjects;
     LandLights landLights;
     Camera camera;
+    int lightEditVessel = -2; //KYARA FEUX EDIT: -2 = not editing
+    int sizeEditVessel = -2;  //size and waterline editor: -2 = not editing
+    irr::f32 sizeEditOrigScale = 1.0f;
+    irr::f32 sizeEditOrigYCorrection = 0.0f;
+    int sizeEditRevision = 0;
+    void applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorrection);
+    bool instrumentEditOpen = false;
+    std::vector<irr::u32> instrumentEditSnapshot;
+    int instrumentEditSavedLevel = 0;
+    int instrumentEditSelected = -1;
+    irr::u32 instrumentFlashEnd = 0;  //real time (ms) the flash of the selected material stops
+    int instrumentEditRevision = 0;
+    bool freeView = false;
     Camera radarCamera;
     Water water;
     Swell swell;           // KYARA HOULE
@@ -603,31 +832,57 @@ private:
     bool     casualtySinking;
     bool     mobDropped;
     std::wstring distressTimer;   // shown atop the comms overlay
+    // SCENARIO INCENDIE -------------------------------------------------------
+    // Timings, survivor positions, SAR boats and helicopters for this scenario. Read from the
+    // scenario's incident.ini (fire scenario editor); without one, the built-in DAKHLA preset.
+    IncidentConfig incident;
+    bool incidentFromFile;
+    bool casualtyStartKnown;        // the configured casualty's scenario start position, to measure her drift
+    IncidentPoint casualtyStart;
+    irr::f32 abandonDriftX, abandonDriftZ;   // how far she has drifted when abandon ship starts (m)
+    void loadIncident(const std::vector<OtherShipData>& shipsData);
     // SAR RESCUE RUN ---------------------------------------------------------
-// Name of the rescue craft as it appears in the scenario (OtherShip name / model folder).
-// The instructor is free to berth her anywhere; the route is solved from the terrain.
-    enum RescueState { RescueOff, RescueRunning, RescueHolding, RescueDeparting, RescueMoored };
+    // One entry per rescue craft. Each walks her outbound route, recovers her rafts (or the
+    // nearest free ones), then follows her homeward route and moors.
+    enum RescueState { RescueOff, RescueWaiting, RescueRunning, RescueHolding, RescueDeparting, RescueMoored };
     struct RescueWaypoint {
         irr::f32 x, z;      // local metres
         int nodeIndex;      // >=0 -> pick up abandonNodes[nodeIndex]; -1 -> transit; -2 -> berth
     };
-    RescueState rescueState;
-    int rescueIndex;                          // OtherShip index of the rescue craft, -1 = absent
-    irr::f32 homeX, homeZ, homeHdg;           // berth, local metres
-    irr::f32 rescueX, rescueZ, rescueHdg;     // live scripted pose
-    irr::f32 rescueSpd;                       // m/s
-    irr::f32 pickupHold;
-    int rescuedCount;
-    bool rescuePending;      // SAR RESCUE RUN: counting down to slipping the berth
-    irr::f32 rescueDelay;    // seconds remaining
-    std::vector<RescueWaypoint> rescueRoute;
-    size_t rescueWp;
-    irr::f32 rescuePrevDist;   // last frame's range to the active waypoint (capture test)
-    irr::f32 rescueDepartRun;   // metres run since departure began
-    bool rescueReturnStarted;   // committed to the homeward route
-    int  rescueTarget;          // abandonNodes index of the raft being worked, -1 = none
+    struct RescueBoat {
+        int shipIndex;                         // OtherShip index of the rescue craft
+        int number;                            // 1-based boat number, as in incident.ini (raft assignment)
+        RescueState state;
+        irr::f32 homeX, homeZ, homeHdg;        // where she started, local metres
+        irr::f32 x, z, hdg, spd;               // live scripted pose (m/s)
+        irr::f32 speedMps;                     // transit speed
+        irr::f32 moorHdg;                      // heading once alongside, < 0 = homeHdg
+        irr::f32 launchDelay;                  // s after the run is ordered before she slips
+        irr::f32 launchTimer;                  // s remaining before she slips
+        irr::f32 pickupHold;
+        int rescued;
+        std::vector<IncidentPoint> outLatLong; // configured routes, lat/long
+        std::vector<IncidentPoint> homeLatLong;
+        std::vector<RescueWaypoint> outRoute;  // outbound, local metres
+        size_t outWp;
+        std::vector<RescueWaypoint> route;     // homeward, local metres
+        size_t wp;
+        irr::f32 prevDist;                     // last frame's range to the active waypoint
+        irr::f32 departRun;                    // metres run since departure began
+        bool returnStarted;                    // committed to the homeward route
+        int target;                            // abandonNodes index of the raft being worked, -1 = none
+        std::vector<irr::scene::ISceneNode*> carried;   // rafts riding on the aft deck
+    };
+    std::vector<RescueBoat> rescueBoats;
     int rescueCasualtyIndex;   // the wreck the survivors cluster around, -1 if none
+    void addRescueBoat(int shipIndex, int number, irr::f32 speedKts, irr::f32 launchDelay, irr::f32 moorHeading,
+        const std::vector<IncidentPoint>& outbound, const std::vector<IncidentPoint>& homeward);
+    bool isRescueBoat(int shipIndex) const;
+    std::wstring rescueLabel(const RescueBoat& b) const;
     void updateRescueRun(irr::f32 deltaTime);
+    void updateRescueBoat(RescueBoat& b, irr::f32 deltaTime);
+    void buildReturnRoute(RescueBoat& b);
+    int  nearestRemainingRaft(const RescueBoat& b, irr::f32 fromX, irr::f32 fromZ);   // rafts still afloat for this boat
     void rescueMoveNode(irr::f32 deltaX, irr::f32 deltaZ);   // world re-centring
     irr::f32 sarSweepPhase;   // SAR helo searchlight sweep
 
@@ -645,14 +900,27 @@ private:
     std::vector<irr::scene::ISceneNode*> sarBeams;
     std::vector<irr::scene::ILightSceneNode*> sarLights;
 
-    void activateSarHelicopters();
+    // Called by the trainee (3rd Ctrl+A): on scene incident.heloDelay later, flying in from their base.
+    bool heloCalled;            // call made, helos pending or inbound
+    irr::f32 heloCallElapsed;   // s since the call
+    bool sarOnScene;            // every helo has reached the scene
+    std::vector<bool> heloInbound;   // per helo: still flying in (or not yet in sight)
+    void callSarHelicopters();
+    void updateHeloCall(irr::f32 deltaTime);
+    irr::core::vector3df heloStation(size_t k) const;   // search station over the datum
+    irr::f32 heloInboundFlightSecs() const;            // longest base -> station leg
+    bool heloPadPosition(size_t k, irr::core::vector3df& pad) const;   // false = no pad, fly off scene
+
+    void activateSarHelicopters(bool inbound);
     void updateSarHelicopters();
     void deactivateSarHelicopters();
     void departSarHelicopters();
-    void placeCarriedRafts();   // header
+    void placeCarriedRafts(RescueBoat& b);
     std::vector<irr::scene::ISceneNode*> abandonNodes;
     enum AbandonKind { Ab_MOB = 0, Ab_Raft = 1 };
     std::vector<int> abandonKind;         // parallel to abandonNodes
+    std::vector<int> abandonBoat;         // parallel to abandonNodes: rafts' assigned boat number, 0 = any
+    int abandonMobTotal;                  // MOB put in the water this run
     // Staggered spawn sequencer.
     bool abandonSpawning;                 // mid-sequence
     int  abandonSpawnStep;                // how many nodes dropped so far
@@ -727,6 +995,47 @@ private:
 
     irr::f32 filteredRelBearing;   // low-pass filtered version of nearestRelBearing
     bool aimedAtOtherLatched;      // hysteresis state for the bow-aim cone
+    ExerciseLog exerciseLog;
+    int failureLevel[FAIL_COUNT] = { 0, 0, 0, 0, 0 };
+    irr::f32 requestedPortEngine = 0, requestedStbdEngine = 0;   //lever positions, kept through an engine failure
+    irr::f32 frozenHeading = 0, frozenLat = 0, frozenLong = 0, frozenCog = 0, frozenSog = 0;
+    irr::f32 gyroError = 0, gyroDriftRate = 0;                   //degrees, degrees per second
+    irr::f32 gpsErrorX = 0, gpsErrorZ = 0, gpsDriftX = 0, gpsDriftZ = 0; //metres, metres per second
+    std::vector<ScheduledFailure> scheduledFailures;
+    irr::f32 failureClock = 0;                                    //exercise seconds (stops when paused)
+    irr::f32 lastFailureTime = -1;
+    std::wstring lastFailureName;
+    bool lastFailureReported = true;
+    std::vector<BridgeAlert> bridgeAlerts;
+    bool weatherByInstructor = false;
+    bool controlsByInstructor = false;
+    int spectatorTarget = 0;
+    int spectatorView = SPECTATOR_OUTSIDE;
+    bool spectatorViewApplied = false;
+    void updateSpectator();         //the hidden own ship goes along with the ship watched
+    void updateSpectatorCamera();
+    std::wstring instructorMessage;
+    irr::f32 instructorMessageAt = -1000;
+    void applyFailureAction(int action, int level);
+    void updateFailures(irr::f32 deltaTime);
+    void updateBridgeAlerts();
+    std::vector<irr::f32> hornSchedule;     //seconds on, off, on, off...
+    size_t hornStep = 0;
+    irr::f32 hornStepLeft = 0;
+    bool fogSignalsOn = false;
+    irr::f32 fogSignalTimer = 0;
+    irr::f32 depthAlarmLimit = 0;
+    bool depthAlarmActive = false;
+    bool depthAlarmAcked = false;
+    bool mobMarked = false;
+    irr::f32 mobAbsX = 0, mobAbsZ = 0;      //world metres (scene + offset)
+    void updateSoundSignals(irr::f32 deltaTime);
+    irr::f32 exerciseStartScenarioTime = 0;
+    bool logWasShipContact = false, logWasBuoyContact = false, logWasQuayContact = false, logWasGrounded = false;
+    bool logWasCpaSounding = false, logWasGuardSounding = false;
+    irr::f32 logCpaSoundingSince = 0;
+    bool logReducedVisibility = false;
+    void updateExerciseLog();
     irr::f32 collisionStartupGrace;     // Seconds of simulation after load during which proxy/collision are
     // suppressed, so the hull settling on spawn can't fire a false alarm
     irr::f32 collisionReleaseHold;

@@ -30,12 +30,18 @@ public:
     bool OnEvent(const irr::SEvent& event);
 
     irr::f32 getAccelerator() const;
+    //The exercise's speed when running (x1, x2...): set from the instructor station
+    void setSpeed(irr::f32 s) { speed = s; if (accelerator > 0) { accelerator = s; } }
+    irr::f32 getSpeed() const { return speed; }
+    void setGuiEnvironment(irr::gui::IGUIEnvironment* env) { guienv = env; }
 
 private:
 
     irr::f32 accelerator;
+    irr::f32 speed = 1.0f;
     irr::s32 pauseButtonID;
     irr::s32 runButtonID;
+    irr::gui::IGUIEnvironment* guienv = 0;
 
 };
 

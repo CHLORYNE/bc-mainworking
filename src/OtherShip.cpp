@@ -15,6 +15,7 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
      //Extends from the general 'Ship' class
+#include <limits>
 #include "IniFile.hpp"
 #include "Angles.hpp"
 #include "RadarData.hpp"
@@ -30,6 +31,18 @@
 
 //using namespace irr;
 
+namespace
+{
+    //Seconds a leg lasts, as the scenario loader counts it: a stopped leg with distance to go lasts
+    //for ever, a stopped leg without (a ship lying at a heading) takes no time. Dividing by the speed
+    //as it was gave NaN or inf start times for a stopped leg, and negative ones going astern.
+    irr::f32 legSeconds(irr::f32 distanceNm, irr::f32 speedKts)
+    {
+        if (fabs(speedKts) > 1e-6f) { return SECONDS_IN_HOUR * distanceNm / fabs(speedKts); }
+        return distanceNm > 0 ? std::numeric_limits<irr::f32>::max() : 0.0f;
+    }
+}
+
 OtherShip::OtherShip(const std::string& name, const std::string& internalName, const irr::u32& mmsi, const irr::core::vector3df& location, std::vector<Leg> legsLoaded, bool drifting, SimulationModel* model, irr::scene::ISceneManager* smgr, irr::IrrlichtDevice* dev)
 {
 
@@ -39,6 +52,8 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     rateOfTurn = 0; // Not normally used, but used to smooth behaviour in multiplayer
     underTow = false; towX = 0; towZ = 0; towHdg = 0;
     onFire = false; fireListDeg = 0.0f; fireListTarget = 12.0f; // Kyara FIRE
+    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
+    scriptedPose = false; scrX = 0; scrZ = 0; scrHdg = 0; scrSpd = 0; //read by update() before any rescue sets it
 
     this->model = model;
 
@@ -72,6 +87,9 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
     irr::f32 scaleFactor = IniFile::iniFileTof32(iniFilename, "Scalefactor", 1.f);
 
     irr::f32 yCorrection = IniFile::iniFileTof32(iniFilename, "YCorrection");
+    boatIniFile = iniFilename;
+    modelScale = scaleFactor;
+    modelYCorrection = yCorrection;
     angleCorrection = IniFile::iniFileTof32(iniFilename, "AngleCorrection");
     // Kyara FIRE: certified rescue/fire-fighting vessel (SAR craft, fire-tug). FireFighting=1 in
 // boat.ini. Such vessels are never set alight as the casualty and may carry a monitor.
@@ -117,19 +135,7 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
 
     // KYARA HOULE: seakeeping for this vessel (periods estimated from its size; RollPeriod /
     // PitchPeriod / HeavePeriod / Freeboard in its boat.ini are used if present)
-    {
-        HullMotion::Params hp;
-        hp.length = length;
-        hp.breadth = breadth;
-        hp.draught = draught;
-        hp.rollPeriod = IniFile::iniFileTof32(iniFilename, "RollPeriod");
-        hp.pitchPeriod = IniFile::iniFileTof32(iniFilename, "PitchPeriod");
-        hp.heavePeriod = IniFile::iniFileTof32(iniFilename, "HeavePeriod");
-        hp.freeboard = IniFile::iniFileTof32(iniFilename, "Freeboard");
-        hp.nLong = 3;
-        hp.nTrans = 3;
-        hullMotion.init(hp);
-    }
+    initHullMotion();
 
     rcs = 0.005 * std::pow(length, 3); //Default RCS, base radar cross section on length^3 (following RCS table Ship_RCS_table.pdf)
     std::string logMessage = "Loading '";
@@ -180,14 +186,8 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
         }
     }
 
-    //get light locations:
-    //KYARA FEUX: the lamps and the COLREG rules that decide which of them are lit now live in
-    //ShipLights, so the instructor can set this vessel's situation (under way, at anchor, NUC,
-    //RAM, fishing, aground) and the correct lights follow. The lamp list still comes from this
-    //ship's own NumberOfLights block, so existing ini files are unchanged.
-    //KYARA FEUX FIX: the waterline in MODEL units is -YCorrection (the node is dropped by
-    //YCorrection*scale to sit the mesh on the sea), so lights measured up from it never land in
-    //the water. Other ships still get the generated set - almost none declare lamps in boat.ini.
+    //KYARA FEUX: other ships show only the lamps their boat.ini declares - nothing is guessed.
+  //Place them with "Placer les feux" in the Feux tab (GenerateLights=1 in a boat.ini opts back in).
     shipLights.load(smgr, ship, iniFilename, length,
         (scaleFactor > 0.0001f) ? (1.0f / scaleFactor) : 1.0f,
         ship->getBoundingBox(), false, //lamps only: the driver has few lights to give
@@ -195,6 +195,48 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
 
     //store leg information
     legs = legsLoaded;
+}
+
+void OtherShip::initHullMotion()
+{
+    HullMotion::Params hp;
+    hp.length = length;
+    hp.breadth = breadth;
+    hp.draught = draught;
+    hp.rollPeriod = IniFile::iniFileTof32(boatIniFile, "RollPeriod");
+    hp.pitchPeriod = IniFile::iniFileTof32(boatIniFile, "PitchPeriod");
+    hp.heavePeriod = IniFile::iniFileTof32(boatIniFile, "HeavePeriod");
+    hp.freeboard = IniFile::iniFileTof32(boatIniFile, "Freeboard");
+    hp.nLong = 3;
+    hp.nTrans = 3;
+    hullMotion.init(hp);
+}
+
+//Size and waterline editor ----------------------------------------------------------------------
+const std::string& OtherShip::getBoatIniFile() const { return boatIniFile; }
+irr::f32 OtherShip::getModelScale() const { return modelScale; }
+irr::f32 OtherShip::getModelYCorrection() const { return modelYCorrection; }
+
+//Same sums as loading: the box of the unrotated model, scaled and lifted by YCorrection.
+void OtherShip::setModelSize(irr::f32 newScale, irr::f32 newYCorrection)
+{
+    if (!ship || newScale <= 0.000001f || modelScale <= 0.000001f) { return; }
+    const irr::f32 factor = newScale / modelScale;
+    modelScale = newScale;
+    modelYCorrection = newYCorrection;
+    heightCorrection = newYCorrection * newScale; //update() places her with this every frame
+    ship->setScale(irr::core::vector3df(newScale, newScale, newScale));
+
+    const irr::core::aabbox3df box = ship->getBoundingBox(); //model units
+    length = box.getExtent().Z * newScale;
+    breadth = box.getExtent().X * newScale;
+    height = box.getExtent().Y * newScale * 0.75f;
+    draught = -(box.MinEdge.Y * newScale + heightCorrection);
+    airDraught = box.MaxEdge.Y * newScale + heightCorrection;
+    solidHeight *= factor;
+    rcs = 0.005 * std::pow(length, 3);
+    initHullMotion();
+    shipLights.rescale(length, 1.0f / newScale, -newYCorrection);
 }
 
 OtherShip::~OtherShip()
@@ -275,7 +317,7 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
         // Kyara FIRE: founder - settle the hull under and stop all way.
     if (sinking) {
         axialSpd = 0.0f;
-        sinkDepth += (sinkTargetDepth / 18.0f) * deltaTime;   // ~18 s to go fully under
+        sinkDepth += (sinkTargetDepth / sinkSeconds) * deltaTime;   // fully under after sinkSeconds
         if (sinkDepth > sinkTargetDepth) { sinkDepth = sinkTargetDepth; }
         yPos -= sinkDepth;
     }
@@ -284,7 +326,7 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
     if (drifting || onFire) {   // Kyara FIRE: casualties always drift {
         //Move with tidal stream (if not aground)
         irr::f32 depth = -1 * model->getTerrain()->getHeight(xPos, zPos) + yPos;
-        irr::core::vector2df streamVector = model->getTidalStream(model->getTerrain()->xToLong(xPos), model->getTerrain()->zToLat(zPos), model->getTimestamp());
+        irr::core::vector2df streamVector = model->getTidalStream(model->sceneXToLong(xPos), model->sceneZToLat(zPos), model->getTimestamp());
 
         // Add component from wind
         irr::f32 windSpeed = model->getWindSpeed() * KTS_TO_MPS;
@@ -314,10 +356,11 @@ void OtherShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideH
     shipLights.update(scenarioTime, lightLevel, fabs(axialSpd) > 0.2f); // KYARA FEUX
 
 }
-void OtherShip::startSinking()
+void OtherShip::startSinking(irr::f32 secondsToGoUnder)
 {
     if (sinking) { return; }
     sinking = true;
+    sinkSeconds = (secondsToGoUnder > 1.0f) ? secondsToGoUnder : 1.0f;
     onFire = true;               // stays a casualty
     fireListTarget = 35.0f;      // heel hard over as she founders
     sinkTargetDepth = airDraught + 4.0f;   // bury the whole hull, with margin
@@ -362,14 +405,14 @@ void OtherShip::changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::
             //On current leg - calculate from current point only
             irr::f32 oldTimeRemaining = legs.at(legNumber + 1).startTime - scenarioTime;
             if (distance < 0) { distance = fabs(oldSpeed) * oldTimeRemaining / SECONDS_IN_HOUR; } //If leg length is negative, ensure overall leg length doesn't change
-            newTimeRemaining = SECONDS_IN_HOUR * distance / fabs(speed); //The adjusted leg distance starts from now
+            newTimeRemaining = legSeconds(distance, speed); //The adjusted leg distance starts from now
             legs.at(legNumber).startTime = scenarioTime; // New leg effectively starts now
         }
         else {
             //On subsequent leg - calculate for whole leg
             irr::f32 oldTimeRemaining = legs.at(legNumber + 1).startTime - legs.at(legNumber).startTime;
             if (distance < 0) { distance = fabs(oldSpeed) * oldTimeRemaining / SECONDS_IN_HOUR; } //If leg length is negative, ensure overall leg length doesn't change
-            newTimeRemaining = SECONDS_IN_HOUR * distance / fabs(speed);
+            newTimeRemaining = legSeconds(distance, speed);
             //No need to change start time.
         }
 
@@ -382,7 +425,7 @@ void OtherShip::changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::
         legs.at(legNumber + 1).startTime = legs.at(legNumber).startTime + newTimeRemaining;
         //For the remaining legs (which may not exist)
         for (int i = legNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
     } //Check leg exists & can be changed
@@ -425,7 +468,7 @@ void OtherShip::addLeg(int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr
         //set start time of subsequent legs
         //For the remaining legs (which may not exist)
         for (int i = afterLegNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
 
@@ -457,7 +500,7 @@ void OtherShip::deleteLeg(int legNumber, irr::f32 scenarioTime)
         //adjust start time of subsequent legs
         //For the remaining legs (which may not exist)
         for (int i = legNumber + 2; i < (int)legs.size(); i++) {
-            legs.at(i).startTime = legs.at(i - 1).startTime + SECONDS_IN_HOUR * legs.at(i - 1).distance / legs.at(i - 1).speed;
+            legs.at(i).startTime = legs.at(i - 1).startTime + legSeconds(legs.at(i - 1).distance, legs.at(i - 1).speed);
         }
 
         //Remove this leg
@@ -479,7 +522,7 @@ void OtherShip::resetLegs(irr::f32 course, irr::f32 speedKts, irr::f32 distanceN
 
     //Use distance to calculate startTime of next leg, and stored for later reference.
     currentLeg.distance = distanceNm;
-    irr::f32 mainLegEndTime = scenarioTime + SECONDS_IN_HOUR * (distanceNm / fabs(speedKts)); // nm/kts -> hours, so convert to seconds
+    irr::f32 mainLegEndTime = scenarioTime + legSeconds(distanceNm, speedKts); // nm/kts -> hours, so convert to seconds
 
     legs.push_back(currentLeg);
 
@@ -537,8 +580,22 @@ RadarData OtherShip::getRadarData(irr::core::vector3df scannerPosition) const
 
     radarData.contact = (void*)this;
     radarData.mmsi = this->getMMSI(); // NEW: Pass the real MMSI to the radar array
+    radarData.name = getDisplayName();
+
+    if (isAbsent()) { //no echo at all
+        radarData.hidden = true;
+        radarData.rcs = 0;
+        radarData.range = radarData.minRange = radarData.maxRange = 1.0e9f;
+    }
 
     return radarData;
+}
+
+void OtherShip::setAbsent(bool isAbsent)
+{
+    if (isAbsent == absent) { return; }
+    absent = isAbsent;
+    if (ship) { ship->setVisible(!absent); }
 }
 
 std::vector<Leg>::size_type OtherShip::findCurrentLeg(irr::f32 scenarioTime)
@@ -584,7 +641,8 @@ bool OtherShip::getUnderTow() const
 void OtherShip::setCasualty(bool active)
 {
     onFire = active;
-    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; // Kyara FIRE
+    sinking = false; sinkDepth = 0.0f; sinkTargetDepth = 0.0f; sinkSeconds = 18.0f; // Kyara FIRE
+    scriptedPose = false; scrX = 0; scrZ = 0; scrHdg = 0; scrSpd = 0; //read by update() before any rescue sets it
     if (!active) { fireListDeg = 0.0f; } // upright on extinguish/reset (persistent-list is a later option)
 }
 

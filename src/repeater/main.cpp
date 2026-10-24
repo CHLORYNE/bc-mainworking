@@ -13,6 +13,7 @@
 #include "../IniFile.hpp"
 #include "../Lang.hpp"
 #include "../Utilities.hpp"
+#include "../ScreenChooser.hpp"
 
 //Mac OS:
 #ifdef __APPLE__
@@ -205,13 +206,19 @@ int main(int argc, char** argv)
     HWND hWnd;
     HINSTANCE hInstance = 0;
     // create dialog
-    const char* Win32ClassName = "CIrrlichtWindowsTestDialog";
+    const char* Win32ClassName = ScreenChooser::RepeaterWindowClass; //lets the screen choosers see which screens are taken
 
     WNDCLASSEX wcex;
 
     if (fakeFullScreen) {
 
         int requestedMonitor = IniFile::iniFileTou32(iniFilename, "monitor") - 1; //0 indexed, -1 will indicate default
+        //-monitor N (1 indexed) overrides the ini.
+        for (int arg = 1; arg + 1 < argc; arg++) {
+            if (strcmp(argv[arg], "-monitor") == 0) {
+                requestedMonitor = atoi(argv[arg + 1]) - 1;
+            }
+        }
 
         DWORD style = WS_VISIBLE | WS_POPUP;
         wcex.cbSize = sizeof(WNDCLASSEX);
@@ -230,7 +237,21 @@ int main(int argc, char** argv)
 
         cMonitorsVec Monitors; //The constructor for this initialises it with a list of the monitors
 
-        if (requestedMonitor > -1 && Monitors.iMonitors.size() > requestedMonitor) {
+        //Several screens and none set: ask which one.
+        if (requestedMonitor < 0 && Monitors.iMonitors.size() > 1) {
+            const bool french = (modifier == "fr");
+            const int chosen = ScreenChooser::ask(
+                french ? L"Sur quel \u00E9cran ouvrir le r\u00E9p\u00E9titeur gyro ?" : L"Which screen should the gyro repeater open on?",
+                french ? L"Cliquez sur un \u00E9cran puis sur Ouvrir. Les fen\u00EAtres d\u00E9j\u00E0 ouvertes sont indiqu\u00E9es."
+                    : L"Click a screen, then Open. Windows already open are shown.",
+                french);
+            if (chosen == ScreenChooser::Cancelled) {
+                return EXIT_SUCCESS;
+            }
+            requestedMonitor = chosen;
+        }
+
+        if (requestedMonitor > -1 && (int)Monitors.iMonitors.size() > requestedMonitor) {
             //The user has requested a specific monitor
 
             //Set to fill requested monitor
@@ -248,15 +269,7 @@ int main(int argc, char** argv)
 
         }
         else {
-            //Get user to move a dialog, so their mouse is positioned on the monitor they want
-            if (GetSystemMetrics(SM_CMONITORS) > 1) {
-                irr::core::stringw locationMessageW = language.translate("moveMessage");
-
-                std::wstring wlocationMessage = std::wstring(locationMessageW.c_str());
-                std::string slocationMessage(wlocationMessage.begin(), wlocationMessage.end());
-
-                MessageBoxA(nullptr, slocationMessage.c_str(), "Multi monitor", MB_OK);
-            }
+            //One screen only, or a screen asked for that is not connected: the one under the mouse pointer.
 
             //Find location of mouse cursor
             POINT p;
@@ -302,6 +315,7 @@ int main(int argc, char** argv)
         std::cerr << "Could not start - please check your graphics options." << std::endl;
         exit(EXIT_FAILURE); //Could not get file system
     }
+    device->setWindowCaption(L"NAUTITECH - R\u00E9p\u00E9titeur gyro"); //also how the screen choosers recognise it
 
     irr::video::IVideoDriver* driver = device->getVideoDriver();
     //scene::ISceneManager* smgr = device->getSceneManager();

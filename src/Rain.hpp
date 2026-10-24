@@ -55,6 +55,13 @@ private:
     void applyTextures();
     void setupNode(irr::scene::ISceneNode* node);
 
+    //Texture offsets, moved on by speed x time step each frame. Working them out as speed x the
+    //whole scenario time made the streaks race whenever the rain or the wind changed (a preset
+    //coming in, a squall, gusts), since the change was multiplied by every second gone by.
+    irr::f32 lastScenarioTime;
+    bool timeKnown;
+    irr::f32 scrollY1, scrollY2, scrollY3, scrollDrift;
+
 };
 
 #endif

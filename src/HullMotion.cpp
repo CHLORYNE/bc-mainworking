@@ -33,6 +33,8 @@ namespace
     const irr::f32 SLAM_EVENT_GAP = 0.45f;        // s, so one wave gives one impact
     const irr::f32 SLAM_WHIP = 0.012f;            // rad/s of bow-up kick per unit of severity
     const irr::f32 FOREFOOT_STATION = 0.45f;      // fraction of the length forward where the bow lands
+    const irr::f32 FOREFOOT_DRAUGHT = 0.55f;      // the forefoot sits shallower than midship draught
+    const irr::f32 SLAM_ARM_TIME = 2.0f;          // s to wait for the bow to reach the water
 
     inline irr::f32 clampf(irr::f32 v, irr::f32 lo, irr::f32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }
@@ -42,7 +44,8 @@ HullMotion::HullMotion()
       pitchShown(0), rollShown(0), lift(0),
       slopeLong(0), slopeTrans(0), slopeTransFore(0), slopeTransAft(0),
       slamPitchRad(0.05f), slamRefRate(0.05f), prevPitch(0), prevPitchValid(false),
-      slamPending(false), slamSeverity(0), slamBowSpeed(0), slamHoldoff(0)
+      slamPending(false), slamSeverity(0), slamBowSpeed(0), slamHoldoff(0),
+      slamArmed(false), slamArmTimer(0), slamPeakRate(0)
 {
 }
 
@@ -91,6 +94,7 @@ void HullMotion::reset()
     first = true;
     prevPitchValid = false;
     slamPending = false;
+    slamArmed = false;
 }
 
 bool HullMotion::consumeSlam(irr::f32& severity, irr::f32& bowSpeed)
@@ -215,30 +219,68 @@ void HullMotion::update(const SimulationModel* model, irr::f32 dt, irr::f32 x, i
     }
 
     //KYARA SLAM ------------------------------------------------------------------------------
-    //One trigger, one sound: the moment the tangage passes below normal trim (bow down past
-    //slamPitchDeg) while it is still falling, she has just come down on the water. How hard is
-    //read from the pitch RATE at that instant, which is also what sizes the splash.
+    //Two separate moments, and the difference matters: the tangage drops below normal trim while
+    //the bow is still IN THE AIR, and the bow reaches the water a moment later. Firing on the
+    //first one put the splash in the water ahead of a bow that had not landed yet.
+    //
+    //  1. the tangage crossing ARMS the landing and starts watching how fast she is falling;
+    //  2. the splash and the sound fire when the forefoot actually reaches the surface.
+    //
+    //If the bow is already in the water when the tangage crosses - she is driving her head into a
+    //sea rather than falling off one - it fires in the same frame, as it should.
     if (slamHoldoff > 0.0f) { slamHoldoff -= dt; }
 
-    if (prevPitchValid && dt > 0.0f) {
-        if (prevPitch > -slamPitchRad && p <= -slamPitchRad && pDot < 0.0f && slamHoldoff <= 0.0f) {
-            const irr::f32 severity = (-pDot) / slamRefRate;
-            if (severity > SLAM_MIN_SEVERITY) {
-                slamSeverity = severity;
-                //Downward speed of the bow itself: the pitch rate about midships, plus whatever
-                //the whole hull is doing in heave.
-                slamBowSpeed = (-pDot) * FOREFOOT_STATION * prm.length - zDot;
-                if (slamBowSpeed < 0.0f) { slamBowSpeed = 0.0f; }
-                slamPending = true;
-                slamHoldoff = SLAM_EVENT_GAP;
-                //Whipping: a hard landing kicks the bow back up and the hull rings with it.
-                if (severity > 1.0f) {
-                    const irr::f32 r = (severity > 3.0f) ? 3.0f : severity;
-                    pDot += SLAM_WHIP * r;
+    if (dt > 0.0f) {
+        //Where the forefoot is, against the water right under it
+        const irr::f32 xlBow = FOREFOOT_STATION * prm.length;
+        const irr::f32 wxB = x + xlBow * sh;
+        const irr::f32 wzB = zPos + xlBow * ch;
+        const irr::f32 hBow = model->getWaveHeight(wxB, wzB);
+        //The bow as it is DRAWN (heave + anti-clip lift, displayed pitch), since the splash has to
+        //meet the hull you see: in a head sea the anti-clip lift raises the drawn hull above the
+        //physical one, and the bow would otherwise "land" while it is still visibly in the air.
+        const irr::f32 bowKeel = z + lift + xlBow * sinf(pitchShown) - FOREFOOT_DRAUGHT * prm.draught;
+        const irr::f32 clearance = bowKeel - hBow;   // > 0 means the bow is clear of the water
+
+        if (prevPitchValid) {
+            if (prevPitch > -slamPitchRad && p <= -slamPitchRad && pDot < 0.0f && slamHoldoff <= 0.0f) {
+                slamArmed = true;
+                slamArmTimer = SLAM_ARM_TIME;
+                slamPeakRate = -pDot;
+            }
+        }
+
+        if (slamArmed) {
+            //Keep the hardest rate of fall seen on the way down: that is the landing, not the
+            //gentler rate at the instant the angle happened to cross.
+            if (-pDot > slamPeakRate) { slamPeakRate = -pDot; }
+            slamArmTimer -= dt;
+
+            const bool bowInWater = (clearance <= 0.0f);
+            if (bowInWater && slamHoldoff <= 0.0f) {
+                const irr::f32 severity = slamPeakRate / slamRefRate;
+                if (severity > SLAM_MIN_SEVERITY) {
+                    slamSeverity = severity;
+                    //Downward speed of the bow itself: the pitch rate about midships, plus
+                    //whatever the whole hull is doing in heave.
+                    slamBowSpeed = slamPeakRate * FOREFOOT_STATION * prm.length - zDot;
+                    if (slamBowSpeed < 0.0f) { slamBowSpeed = 0.0f; }
+                    slamPending = true;
+                    slamHoldoff = SLAM_EVENT_GAP;
+                    //Whipping: a hard landing kicks the bow back up and the hull rings with it.
+                    if (severity > 1.0f) {
+                        const irr::f32 r = (severity > 3.0f) ? 3.0f : severity;
+                        pDot += SLAM_WHIP * r;
+                    }
                 }
+                slamArmed = false;
+            }
+            else if (slamArmTimer <= 0.0f) {
+                slamArmed = false;   // she came back up without ever landing
             }
         }
     }
+
     prevPitch = p;
     prevPitchValid = true;
 }

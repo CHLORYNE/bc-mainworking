@@ -1,0 +1,667 @@
+/*   NAUTITECH - Simulateur de Navigation
+     Second window for the instrument console. See ConsoleWindow.hpp.
+
+     This program is free software; you can redistribute it and/or modify
+     it under the terms of the GNU General Public License version 2 as
+     published by the Free Software Foundation. */
+
+#include "ConsoleWindow.hpp"
+
+#include <string>
+#include <cstring>
+
+namespace {
+
+irr::SEvent makeMouseEvent(irr::EMOUSE_INPUT_EVENT type, int x, int y, float wheel, irr::u32 buttons)
+{
+    irr::SEvent e;
+    e.EventType = irr::EET_MOUSE_INPUT_EVENT;
+    e.MouseInput.Event = type;
+    e.MouseInput.X = x;
+    e.MouseInput.Y = y;
+    e.MouseInput.Wheel = wheel;
+    e.MouseInput.Shift = false;
+    e.MouseInput.Control = false;
+    e.MouseInput.ButtonStates = buttons;
+    return e;
+}
+
+} // namespace
+
+void ConsoleWindow::queueEvent(const irr::SEvent& event)
+{
+    pending.push_back(event);
+}
+
+void ConsoleWindow::setClientSize(irr::u32 w, irr::u32 h)
+{
+    clientSize = irr::core::dimension2du(w, h);
+}
+
+bool ConsoleWindow::isOpen() const
+{
+    return opened;
+}
+
+irr::core::dimension2du ConsoleWindow::getClientSize() const
+{
+    return clientSize;
+}
+
+//=================================================================================================
+#ifdef _WIN32
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <windowsx.h>
+#include <shellapi.h>
+
+namespace {
+
+const wchar_t* kClassName = L"NautitechConsoleWindow";
+
+irr::u32 buttonStates(WPARAM wParam)
+{
+    irr::u32 s = 0;
+    if (wParam & MK_LBUTTON) { s |= irr::EMBSM_LEFT; }
+    if (wParam & MK_RBUTTON) { s |= irr::EMBSM_RIGHT; }
+    if (wParam & MK_MBUTTON) { s |= irr::EMBSM_MIDDLE; }
+    return s;
+}
+
+LRESULT CALLBACK consoleWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_NCCREATE) {
+        CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+    ConsoleWindow* self = reinterpret_cast<ConsoleWindow*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+    if (!self) { return DefWindowProcW(hWnd, msg, wParam, lParam); }
+
+    const int x = GET_X_LPARAM(lParam);
+    const int y = GET_Y_LPARAM(lParam);
+    switch (msg) {
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;   //clicks never take the keyboard away from the simulator
+    case WM_ERASEBKGND:
+        return 1;               //everything is drawn by OpenGL
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(hWnd, &ps);
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    case WM_SIZE:
+        self->setClientSize(LOWORD(lParam), HIWORD(lParam));
+        return 0;
+    case WM_CLOSE:
+        self->requestClose();   //the simulator re-attaches the console, then closes the window
+        return 0;
+    case WM_LBUTTONDOWN:
+        SetCapture(hWnd);
+        self->queueEvent(makeMouseEvent(irr::EMIE_LMOUSE_PRESSED_DOWN, x, y, 0, buttonStates(wParam)));
+        return 0;
+    case WM_LBUTTONUP:
+        ReleaseCapture();
+        self->queueEvent(makeMouseEvent(irr::EMIE_LMOUSE_LEFT_UP, x, y, 0, buttonStates(wParam)));
+        return 0;
+    case WM_RBUTTONDOWN:
+        SetCapture(hWnd);   //(its release comes here even outside the window, as for the left button)
+        self->queueEvent(makeMouseEvent(irr::EMIE_RMOUSE_PRESSED_DOWN, x, y, 0, buttonStates(wParam)));
+        return 0;
+    case WM_RBUTTONUP:
+        if (!(wParam & MK_LBUTTON)) { ReleaseCapture(); }
+        self->queueEvent(makeMouseEvent(irr::EMIE_RMOUSE_LEFT_UP, x, y, 0, buttonStates(wParam)));
+        return 0;
+    case WM_MOUSEMOVE:
+        self->queueEvent(makeMouseEvent(irr::EMIE_MOUSE_MOVED, x, y, 0, buttonStates(wParam)));
+        return 0;
+    case WM_MOUSEWHEEL: {
+        POINT p = { x, y };   //screen coordinates for this message
+        ScreenToClient(hWnd, &p);
+        const float wheel = (float)GET_WHEEL_DELTA_WPARAM(wParam) / (float)WHEEL_DELTA;
+        self->queueEvent(makeMouseEvent(irr::EMIE_MOUSE_WHEEL, p.x, p.y, wheel, buttonStates(GET_KEYSTATE_WPARAM(wParam))));
+        return 0;
+    }
+    default:
+        break;
+    }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+} // namespace
+
+ConsoleWindow::ConsoleWindow()
+    : closePending(false), opened(false), borderless(false), hwnd(0), hdc(0)
+{
+}
+
+ConsoleWindow::~ConsoleWindow()
+{
+    close();
+}
+
+bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool noFrame)
+{
+    if (opened) { return true; }
+    if (!device || device->getVideoDriver()->getDriverType() != irr::video::EDT_OPENGL) { return false; }
+
+    mainData = device->getVideoDriver()->getExposedVideoData();
+    HWND mainHwnd = (HWND)mainData.OpenGLWin32.HWnd;
+    HDC mainDc = (HDC)mainData.OpenGLWin32.HDc;
+    if (!mainHwnd || !mainDc || !mainData.OpenGLWin32.HRc) { return false; }
+
+    HINSTANCE instance = GetModuleHandleW(0);
+    WNDCLASSEXW wc;
+    ZeroMemory(&wc, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    if (!GetClassInfoExW(instance, kClassName, &wc)) {
+        ZeroMemory(&wc, sizeof(wc));
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_OWNDC;                 //one DC for the window's lifetime, holding the pixel format
+        wc.lpfnWndProc = consoleWndProc;
+        wc.hInstance = instance;
+        wc.hCursor = LoadCursor(0, IDC_ARROW);
+        wc.hIcon = (HICON)GetClassLongPtrW(mainHwnd, GCLP_HICON);
+        wc.hIconSm = (HICON)GetClassLongPtrW(mainHwnd, GCLP_HICONSM);
+        wc.hbrBackground = 0;
+        wc.lpszClassName = kClassName;
+        if (!RegisterClassExW(&wc)) { return false; }
+    }
+
+    const DWORD style = noFrame ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+    const DWORD exStyle = WS_EX_NOACTIVATE;
+    RECT frame = { 0, 0, (LONG)w, (LONG)h };
+    if (!noFrame) { AdjustWindowRectEx(&frame, style, FALSE, exStyle); }
+    const int frameW = frame.right - frame.left;
+    const int frameH = frame.bottom - frame.top;
+
+    //A saved position on a screen that is no longer connected: start on the simulator's screen.
+    RECT wanted = { x, y, x + frameW, y + frameH };
+    if (!MonitorFromRect(&wanted, MONITOR_DEFAULTTONULL)) {
+        MONITORINFO mi;
+        mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(MonitorFromWindow(mainHwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
+        x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - frameW) / 2;
+        y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - frameH) / 2;
+    }
+
+    //Owned by the simulator window: stays above it, closes with it, no extra taskbar entry.
+    HWND window = CreateWindowExW(exStyle, kClassName, title, style, x, y, frameW, frameH, mainHwnd, 0, instance, this);
+    if (!window) { return false; }
+
+    //Same pixel format as the simulator window, so its OpenGL context can draw here too.
+    HDC dc = GetDC(window);
+    const int format = GetPixelFormat(mainDc);
+    PIXELFORMATDESCRIPTOR pfd;
+    ZeroMemory(&pfd, sizeof(pfd));
+    if (format == 0 || !DescribePixelFormat(mainDc, format, sizeof(pfd), &pfd) || !SetPixelFormat(dc, format, &pfd)) {
+        ReleaseDC(window, dc);
+        DestroyWindow(window);
+        return false;
+    }
+
+    hwnd = window;
+    hdc = dc;
+    borderless = noFrame;
+    windowData = irr::video::SExposedVideoData();
+    windowData.OpenGLWin32.HWnd = window;
+    windowData.OpenGLWin32.HDc = dc;
+    windowData.OpenGLWin32.HRc = mainData.OpenGLWin32.HRc;
+    clientSize = irr::core::dimension2du(w, h);
+    pending.clear();
+    closePending = false;
+    opened = true;
+    ShowWindow(window, SW_SHOWNOACTIVATE);
+    keepOnScreen();
+    return true;
+}
+
+void ConsoleWindow::keepAboveSimulator()
+{
+    if (!opened) { return; }
+    HWND window = (HWND)hwnd;
+    HWND mainWindow = (HWND)mainData.OpenGLWin32.HWnd;
+    HWND front = GetForegroundWindow();
+    const bool simulatorInFront = (front == mainWindow || front == window) && !IsIconic(mainWindow);
+    const bool onTop = (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    if (simulatorInFront != onTop) {
+        SetWindowPos(window, simulatorInFront ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        lastZCheck = GetTickCount();
+        return;
+    }
+    //Already topmost, but a click on the simulator can still bring it over this window (a full
+    //screen or topmost simulator window): a few times a second, look whether it is above, and if
+    //so put this window back in front of it.
+    if (!simulatorInFront) { return; }
+    const DWORD now = GetTickCount();
+    if (now - lastZCheck < 250) { return; }
+    lastZCheck = now;
+    bool mainAbove = false;
+    for (HWND w = GetWindow(window, GW_HWNDPREV); w; w = GetWindow(w, GW_HWNDPREV)) {
+        if (w == mainWindow) { mainAbove = true; break; }
+    }
+    if (mainAbove) {
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+}
+
+void ConsoleWindow::close()
+{
+    if (!opened) { return; }
+    HWND window = (HWND)hwnd;
+    SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+    ReleaseDC(window, (HDC)hdc);
+    DestroyWindow(window);
+    hwnd = 0;
+    hdc = 0;
+    opened = false;
+    fullScreen = false;
+    pending.clear();
+    closePending = false;
+}
+
+void ConsoleWindow::poll(std::vector<irr::SEvent>& events, bool& closeRequested)
+{
+    //Messages were already dispatched to the window procedure by device->run().
+    events.swap(pending);
+    pending.clear();
+    closeRequested = closePending;
+    closePending = false;
+}
+
+bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const
+{
+    if (!opened) { return false; }
+    if (fullScreen) {
+        x = windowedX; y = windowedY; w = windowedW; h = windowedH;
+        return true;
+    }
+    WINDOWPLACEMENT wp;
+    wp.length = sizeof(wp);
+    if (!GetWindowPlacement((HWND)hwnd, &wp)) { return false; }
+    x = wp.rcNormalPosition.left;   //restored (not minimised / maximised) frame position
+    y = wp.rcNormalPosition.top;
+    RECT frame = { 0, 0, 0, 0 };
+    if (!borderless) { AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE); }
+    const int fw = (wp.rcNormalPosition.right - wp.rcNormalPosition.left) - (frame.right - frame.left);
+    const int fh = (wp.rcNormalPosition.bottom - wp.rcNormalPosition.top) - (frame.bottom - frame.top);
+    w = fw > 0 ? (irr::u32)fw : clientSize.Width;
+    h = fh > 0 ? (irr::u32)fh : clientSize.Height;
+    return true;
+}
+
+void ConsoleWindow::openWithSystem(const std::string& path)
+{
+    ShellExecuteA(0, "open", path.c_str(), 0, 0, SW_SHOWNORMAL);
+}
+
+void ConsoleWindow::setFullScreen(bool on)
+{
+    if (!opened || on == fullScreen) { return; }
+    HWND window = (HWND)hwnd;
+    if (on) {
+        if (!getPlacement(windowedX, windowedY, windowedW, windowedH)) { return; }
+        MONITORINFO mi;
+        mi.cbSize = sizeof(mi);
+        GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &mi);
+        if (IsZoomed(window)) { ShowWindow(window, SW_SHOWNOACTIVATE); } //not maximised underneath
+        SetWindowLongPtrW(window, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(window, 0, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+            mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        fullScreen = true;
+    }
+    else {
+        fullScreen = false;
+        const DWORD style = borderless ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+        RECT frame = { 0, 0, (LONG)windowedW, (LONG)windowedH };
+        if (!borderless) { AdjustWindowRectEx(&frame, style, FALSE, WS_EX_NOACTIVATE); }
+        SetWindowLongPtrW(window, GWL_STYLE, style | WS_VISIBLE);
+        SetWindowPos(window, 0, windowedX, windowedY, frame.right - frame.left, frame.bottom - frame.top,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+}
+
+void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
+{
+    if (!opened || fullScreen || w == 0 || h == 0) { return; }
+    RECT frame = { 0, 0, (LONG)w, (LONG)h };
+    if (!borderless) { AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOACTIVATE); }
+    SetWindowPos((HWND)hwnd, 0, 0, 0, frame.right - frame.left, frame.bottom - frame.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    keepOnScreen();
+}
+
+irr::core::dimension2du ConsoleWindow::workArea() const
+{
+    if (!opened) { return irr::core::dimension2du(0, 0); }
+    MONITORINFO mi;
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow((HWND)hwnd, MONITOR_DEFAULTTONEAREST), &mi)) { return irr::core::dimension2du(0, 0); }
+    return irr::core::dimension2du((irr::u32)(mi.rcWork.right - mi.rcWork.left), (irr::u32)(mi.rcWork.bottom - mi.rcWork.top));
+}
+
+void ConsoleWindow::keepOnScreen()
+{
+    if (!opened || fullScreen || borderless) { return; }
+    HWND window = (HWND)hwnd;
+    RECT r;
+    if (!GetWindowRect(window, &r)) { return; }
+    MONITORINFO mi;
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &mi)) { return; }
+    const RECT& wa = mi.rcWork;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w > wa.right - wa.left) { w = wa.right - wa.left; }
+    if (h > wa.bottom - wa.top) { h = wa.bottom - wa.top; }
+    int x = r.left, y = r.top;
+    if (x + w > wa.right) { x = wa.right - w; }
+    if (y + h > wa.bottom) { y = wa.bottom - h; }
+    if (x < wa.left) { x = wa.left; }
+    if (y < wa.top) { y = wa.top; }
+    if (x != r.left || y != r.top || w != r.right - r.left || h != r.bottom - r.top) {
+        SetWindowPos(window, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
+{
+    if (!opened || fullScreen) { return; }
+    if (!(GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON) & 0x8000)) { return; } //already let go
+    POINT p = { clientX, clientY };
+    ClientToScreen((HWND)hwnd, &p);
+    //The system's own move, as from the title bar; it returns when the button is let go
+    ReleaseCapture();
+    SendMessageW((HWND)hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(p.x, p.y));
+    keepOnScreen();
+}
+
+//=================================================================================================
+#else // X11
+
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+
+ConsoleWindow::ConsoleWindow()
+    : closePending(false), opened(false), borderless(false), display(0), window(0), deleteAtom(0)
+{
+}
+
+ConsoleWindow::~ConsoleWindow()
+{
+    close();
+}
+
+bool ConsoleWindow::open(irr::IrrlichtDevice* device, const wchar_t* title, irr::s32 x, irr::s32 y, irr::u32 w, irr::u32 h, bool noFrame)
+{
+    if (opened) { return true; }
+    if (!device || device->getVideoDriver()->getDriverType() != irr::video::EDT_OPENGL) { return false; }
+
+    mainData = device->getVideoDriver()->getExposedVideoData();
+    Display* mainDisplay = (Display*)mainData.OpenGLLinux.X11Display;
+    Window mainWindow = (Window)mainData.OpenGLLinux.X11Window;
+    if (!mainDisplay || !mainWindow || !mainData.OpenGLLinux.X11Context) { return false; }
+
+    XWindowAttributes wa;
+    if (!XGetWindowAttributes(mainDisplay, mainWindow, &wa)) { return false; }
+
+    //Own connection: Irrlicht's event loop reads every event on its connection, whatever the window.
+    Display* dpy = XOpenDisplay(DisplayString(mainDisplay));
+    if (!dpy) { return false; }
+
+    XVisualInfo tmpl;
+    tmpl.visualid = XVisualIDFromVisual(wa.visual);
+    int count = 0;
+    XVisualInfo* vi = XGetVisualInfo(dpy, VisualIDMask, &tmpl, &count);
+    if (!vi || count < 1) {
+        if (vi) { XFree(vi); }
+        XCloseDisplay(dpy);
+        return false;
+    }
+    Window root = RootWindow(dpy, vi->screen);
+    XSetWindowAttributes swa;
+    swa.colormap = XCreateColormap(dpy, root, vi->visual, AllocNone);
+    swa.border_pixel = 0;
+    swa.background_pixmap = None;
+    swa.event_mask = ButtonPressMask | ButtonReleaseMask | PointerMotionMask | StructureNotifyMask | ExposureMask;
+    Window win = XCreateWindow(dpy, root, x, y, w, h, 0, vi->depth, InputOutput, vi->visual,
+        CWColormap | CWBorderPixel | CWEventMask | CWBackPixmap, &swa);
+    XFree(vi);
+    if (!win) {
+        XCloseDisplay(dpy);
+        return false;
+    }
+
+    std::string name;
+    for (const wchar_t* c = title; c && *c; ++c) { name += (*c < 128) ? (char)*c : '?'; }
+    XStoreName(dpy, win, name.c_str());
+
+    XWMHints hints;
+    hints.flags = InputHint;
+    hints.input = False;   //clicks never take the keyboard away from the simulator
+    XSetWMHints(dpy, win, &hints);
+
+    XSizeHints sizeHints;
+    sizeHints.flags = USPosition | USSize;
+    sizeHints.x = x;
+    sizeHints.y = y;
+    sizeHints.width = (int)w;
+    sizeHints.height = (int)h;
+    XSetWMNormalHints(dpy, win, &sizeHints);
+
+    Atom del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(dpy, win, &del, 1);
+
+    if (noFrame) {
+        //No decorations (Motif hints, honoured by the usual window managers).
+        struct { unsigned long flags, functions, decorations; long inputMode; unsigned long status; } motif = { 2, 0, 0, 0, 0 };
+        Atom motifAtom = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+        XChangeProperty(dpy, win, motifAtom, motifAtom, 32, PropModeReplace, (unsigned char*)&motif, 5);
+    }
+
+    XMapWindow(dpy, win);
+    XSync(dpy, False);   //the window must exist on the server before the main connection draws to it
+
+    display = dpy;
+    window = win;
+    deleteAtom = del;
+    borderless = noFrame;
+    windowData = mainData;
+    windowData.OpenGLLinux.X11Window = win;
+    windowData.OpenGLLinux.GLXWindow = win;
+    clientSize = irr::core::dimension2du(w, h);
+    pending.clear();
+    closePending = false;
+    opened = true;
+    keepOnScreen();
+    return true;
+}
+
+void ConsoleWindow::keepAboveSimulator()
+{
+    //X11: the window manager keeps the console's stacking (test builds only).
+}
+
+void ConsoleWindow::close()
+{
+    if (!opened) { return; }
+    Display* dpy = (Display*)display;
+    XDestroyWindow(dpy, (Window)window);
+    XSync(dpy, False);
+    XCloseDisplay(dpy);
+    display = 0;
+    window = 0;
+    opened = false;
+    fullScreen = false;
+    pending.clear();
+    closePending = false;
+}
+
+void ConsoleWindow::pumpX11()
+{
+    Display* dpy = (Display*)display;
+    while (XPending(dpy) > 0) {
+        XEvent e;
+        XNextEvent(dpy, &e);
+        switch (e.type) {
+        case ButtonPress:
+        case ButtonRelease: {
+            const bool down = (e.type == ButtonPress);
+            const int bx = e.xbutton.x, by = e.xbutton.y;
+            if (e.xbutton.button == Button1) {
+                queueEvent(makeMouseEvent(down ? irr::EMIE_LMOUSE_PRESSED_DOWN : irr::EMIE_LMOUSE_LEFT_UP, bx, by, 0, down ? irr::EMBSM_LEFT : 0));
+            }
+            else if (e.xbutton.button == Button3) {
+                queueEvent(makeMouseEvent(down ? irr::EMIE_RMOUSE_PRESSED_DOWN : irr::EMIE_RMOUSE_LEFT_UP, bx, by, 0, down ? irr::EMBSM_RIGHT : 0));
+            }
+            else if (down && (e.xbutton.button == Button4 || e.xbutton.button == Button5)) {
+                queueEvent(makeMouseEvent(irr::EMIE_MOUSE_WHEEL, bx, by, e.xbutton.button == Button4 ? 1.0f : -1.0f, 0));
+            }
+            break;
+        }
+        case MotionNotify: {
+            irr::u32 states = 0;
+            if (e.xmotion.state & Button1Mask) { states |= irr::EMBSM_LEFT; }
+            if (e.xmotion.state & Button3Mask) { states |= irr::EMBSM_RIGHT; }
+            queueEvent(makeMouseEvent(irr::EMIE_MOUSE_MOVED, e.xmotion.x, e.xmotion.y, 0, states));
+            break;
+        }
+        case ConfigureNotify:
+            setClientSize((irr::u32)e.xconfigure.width, (irr::u32)e.xconfigure.height);
+            break;
+        case ClientMessage:
+            if ((unsigned long)e.xclient.data.l[0] == deleteAtom) { requestClose(); }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void ConsoleWindow::poll(std::vector<irr::SEvent>& events, bool& closeRequested)
+{
+    if (opened) { pumpX11(); }
+    events.swap(pending);
+    pending.clear();
+    closeRequested = closePending;
+    closePending = false;
+}
+
+bool ConsoleWindow::getPlacement(irr::s32& x, irr::s32& y, irr::u32& w, irr::u32& h) const
+{
+    if (!opened) { return false; }
+    if (fullScreen) {
+        x = windowedX; y = windowedY; w = windowedW; h = windowedH;
+        return true;
+    }
+    Display* dpy = (Display*)display;
+    Window child;
+    int rx = 0, ry = 0;
+    XTranslateCoordinates(dpy, (Window)window, DefaultRootWindow(dpy), 0, 0, &rx, &ry, &child);
+    x = rx;
+    y = ry;
+    w = clientSize.Width;
+    h = clientSize.Height;
+    return true;
+}
+
+void ConsoleWindow::setFullScreen(bool on)
+{
+    if (!opened || on == fullScreen) { return; }
+    Display* dpy = (Display*)display;
+    Window win = (Window)window;
+    if (on && !getPlacement(windowedX, windowedY, windowedW, windowedH)) { return; }
+    //Asked of the window manager; and placed by hand as well, for a desk without one (test builds).
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = win;
+    ev.xclient.message_type = XInternAtom(dpy, "_NET_WM_STATE", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = on ? 1 : 0;
+    ev.xclient.data.l[1] = (long)XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+    ev.xclient.data.l[3] = 1;
+    XSendEvent(dpy, DefaultRootWindow(dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    if (on) {
+        XMoveResizeWindow(dpy, win, 0, 0, (unsigned)DisplayWidth(dpy, DefaultScreen(dpy)), (unsigned)DisplayHeight(dpy, DefaultScreen(dpy)));
+    }
+    else {
+        XMoveResizeWindow(dpy, win, windowedX, windowedY, windowedW, windowedH);
+    }
+    XFlush(dpy);
+    fullScreen = on;
+}
+
+void ConsoleWindow::resizeClient(irr::u32 w, irr::u32 h)
+{
+    if (!opened || fullScreen || w == 0 || h == 0) { return; }
+    //Moved and sized in one request: the server has not applied a resize yet when it is read back
+    Display* dpy = (Display*)display;
+    irr::s32 x = 0, y = 0;
+    irr::u32 ow, oh;
+    getPlacement(x, y, ow, oh);
+    const irr::s32 sw = DisplayWidth(dpy, DefaultScreen(dpy)), sh = DisplayHeight(dpy, DefaultScreen(dpy));
+    w = irr::core::min_(w, (irr::u32)sw);
+    h = irr::core::min_(h, (irr::u32)sh);
+    x = irr::core::clamp(x, 0, sw - (irr::s32)w);
+    y = irr::core::clamp(y, 0, sh - (irr::s32)h);
+    XMoveResizeWindow(dpy, (Window)window, x, y, w, h);
+    XFlush(dpy);
+}
+
+irr::core::dimension2du ConsoleWindow::workArea() const
+{
+    if (!opened) { return irr::core::dimension2du(0, 0); }
+    Display* dpy = (Display*)display;
+    return irr::core::dimension2du((irr::u32)DisplayWidth(dpy, DefaultScreen(dpy)), (irr::u32)DisplayHeight(dpy, DefaultScreen(dpy)));
+}
+
+void ConsoleWindow::keepOnScreen()
+{
+    if (!opened || fullScreen || borderless) { return; }
+    Display* dpy = (Display*)display;
+    irr::s32 x, y;
+    irr::u32 w, h;
+    if (!getPlacement(x, y, w, h)) { return; }
+    const irr::s32 sw = DisplayWidth(dpy, DefaultScreen(dpy)), sh = DisplayHeight(dpy, DefaultScreen(dpy));
+    const irr::u32 nw = irr::core::min_(w, (irr::u32)sw), nh = irr::core::min_(h, (irr::u32)sh);
+    const irr::s32 nx = irr::core::clamp(x, 0, sw - (irr::s32)nw), ny = irr::core::clamp(y, 0, sh - (irr::s32)nh);
+    if (nx != x || ny != y || nw != w || nh != h) {
+        XMoveResizeWindow(dpy, (Window)window, nx, ny, nw, nh);
+        XFlush(dpy);
+    }
+}
+
+void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
+{
+    if (!opened || fullScreen) { return; }
+    //Asked of the window manager (_NET_WM_MOVERESIZE, direction 8: move)
+    Display* dpy = (Display*)display;
+    Window child;
+    int rx = 0, ry = 0;
+    XTranslateCoordinates(dpy, (Window)window, DefaultRootWindow(dpy), clientX, clientY, &rx, &ry, &child);
+    XUngrabPointer(dpy, CurrentTime);
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = (Window)window;
+    ev.xclient.message_type = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = rx;
+    ev.xclient.data.l[1] = ry;
+    ev.xclient.data.l[2] = 8;
+    ev.xclient.data.l[3] = Button1;
+    ev.xclient.data.l[4] = 1;
+    XSendEvent(dpy, DefaultRootWindow(dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
+}
+
+void ConsoleWindow::openWithSystem(const std::string& path)
+{
+    (void)path; //(test builds)
+}
+
+#endif

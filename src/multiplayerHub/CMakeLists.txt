@@ -11,9 +11,17 @@ add_executable(bridgecommand-mh
     ShipPositions.cpp
     StartupEventReceiver.cpp
     EventReceiver.cpp
+    InstructorStation.cpp
+    ../chartView/ChartView.cpp
+    ../chartView/ChartDraw.cpp
+    ../IncidentConfig.cpp
 )
 
 target_link_libraries(bridgecommand-mh
     enet
     bc-irrlicht
 )
+
+if(WIN32)
+    target_link_libraries(bridgecommand-mh shell32) # ShellExecuteA: the instructor camera
+endif()

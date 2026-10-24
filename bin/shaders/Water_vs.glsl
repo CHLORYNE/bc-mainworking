@@ -40,6 +40,7 @@
     varying vec3  ViewDirection;
     varying vec2  bumpTexCoord;
     varying vec2  vWorldXZ;      // world-space horizontal position, for seam-free noise
+    varying float vWorldY;       // world-space height of the surface (hull mask)
     varying float foamAmount;    // per-vertex Jacobian foam (vertex colour alpha)
     varying float vWaveHeight;   // vertical displacement of the wave
 
@@ -113,6 +114,7 @@
        // World-space position, used only for the noise fields in the pixel shader.
        vec4 worldPos = matViewInverse * vec4(viewPos, 1.0);
        vWorldXZ = worldPos.xz;
+       vWorldY = worldPos.y;
 
        // Eye-space distance, so fixed-function fog distance is available to any pass
        // that wants it. Harmless if unused.

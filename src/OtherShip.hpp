@@ -42,6 +42,9 @@ public:
     irr::f32 getHeight() const;
     irr::f32 getRCS() const;
     std::string getName() const;
+    //The name shown on the radar, AIS and lists (multiplayer: the student's station), else the name
+    void setDisplayName(const std::string& n) { displayName = n; }
+    std::string getDisplayName() const { return displayName.empty() ? name : displayName; }
     std::vector<Leg> getLegs() const;
     void changeLeg(int legNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
     void addLeg(int afterLegNumber, irr::f32 bearing, irr::f32 speed, irr::f32 distance, irr::f32 scenarioTime);
@@ -51,6 +54,10 @@ public:
     void update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHeight, irr::u32 lightLevel);
     void enableTriangleSelector(bool selectorEnabled);
     void setRateOfTurn(irr::f32 rateOfTurn); // This could be moved to Ship.hpp
+    //Multiplayer: a ship of the scenario that no student has taken (yet). Not drawn, not on the
+    //radar, not in AIS.
+    void setAbsent(bool isAbsent);
+    bool isAbsent() const { return absent || isSunk(); } //(a sunk casualty: no echo, no AIS either)
     void setTowState(bool active, irr::f32 x, irr::f32 z, irr::f32 hdg); // Kyara: remorquage
     // AUTO RESCUE
             // Kyara SAR: externally driven pose for the scripted rescue run. Same kinematic
@@ -62,14 +69,20 @@ public:
     void setCasualty(bool active); // Kyara FIRE
     bool getCasualty() const;
     //FIREFIGHTING 
-    void startSinking();     // Kyara FIRE: begin foundering (after the 4-min deadline)
+    void startSinking(irr::f32 secondsToGoUnder = 18.0f); // Kyara FIRE: begin foundering; fully under after secondsToGoUnder
     bool isSunk() const;     // Kyara FIRE: fully under
+    //Size and waterline, changed live by the "Taille et flottaison" window
+    const std::string& getBoatIniFile() const;
+    irr::f32 getModelScale() const;
+    irr::f32 getModelYCorrection() const;
+    void setModelSize(irr::f32 newScale, irr::f32 newYCorrection);
 
 protected:
 private:
 
     SimulationModel* model;
     std::string name;
+    std::string displayName;
     std::vector<Leg> legs;
     std::vector<NavLight*> navLights;
     ShipLights shipLights; // KYARA FEUX
@@ -82,6 +95,10 @@ private:
 
     // KYARA HOULE: heave / pitch / roll on the sea, same model as the own ship (3 x 3 samples)
     HullMotion hullMotion;
+    void initHullMotion();     // from the current length, breadth and draught
+    std::string boatIniFile;   // The boat.ini she was loaded from
+    irr::f32 modelScale;       // ScaleFactor in use
+    irr::f32 modelYCorrection; // YCorrection in use
     // Apply heave + attitude and place the scene node. baseY = tide + heightCorrection (+sinking).
     // extraIrrRoll = extra roll in Irrlicht sign (the fire list), added on top.
     void placeOnSea(irr::f32 deltaTime, irr::f32 baseY, irr::f32 extraIrrRoll, bool withMotion);
@@ -90,6 +107,7 @@ private:
     bool drifting;
     // Kyara FIRE: burning casualty - loses way, drifts, and lists as it floods/burns.
     bool onFire;
+    bool absent = false;
     irr::f32 fireListDeg;      // current list (deg), ramps up while onFire
     bool fireFightingVessel;             // Kyara FIRE: certified for fire-fighting (from boat.ini)
     irr::f32 fireListTarget;   // final list angle (deg)
@@ -109,6 +127,7 @@ private:
     bool sinking;
     irr::f32 sinkDepth;        // metres settled below the floating waterline
     irr::f32 sinkTargetDepth;  // metres to fully submerge
+    irr::f32 sinkSeconds;      // SCENARIO INCENDIE: time taken to go fully under
 };
 
 #endif

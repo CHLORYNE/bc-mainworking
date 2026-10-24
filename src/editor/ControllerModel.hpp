@@ -27,6 +27,7 @@
 
 #include "GUI.hpp"
 #include "../Lang.hpp"
+#include "../chartView/ChartView.hpp"
 
 class ControllerModel //Start of the 'Model' part of MVC
 {
@@ -34,7 +35,7 @@ class ControllerModel //Start of the 'Model' part of MVC
 public:
 
     //ControllerModel(irr::IrrlichtDevice* dev, irr::scene::ISceneManager* scene, GUIMain* gui, std::string scenarioName);
-    ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMain* gui, std::string worldName, ScenarioData* scenarioData, std::vector<PositionData>* buoysData, irr::u32 _zoomLevels);
+    ControllerModel(irr::IrrlichtDevice* device, Lang* lang, GUIMain* gui, std::string worldName, ScenarioData* scenarioData, std::vector<PositionData>* buoysData);
     ~ControllerModel();
     irr::f32 longToX(irr::f32 longitude) const;
     irr::f32 latToZ(irr::f32 latitude) const;
@@ -64,9 +65,16 @@ public:
 
     void save();
 
-    void setMouseDown(bool isMouseDown); //To be called from event receiver, each time mouse left click state changes.
+    // Chart interaction, from the event receiver. overGui: the cursor is over a window or button.
+    // Left click on a ship selects it and dragging moves it; left drag elsewhere, or right drag, pans;
+    // the wheel zooms about the cursor. Returns true if the event was used.
+    bool onMouse(const irr::SEvent::SMouseInput& mouseInput, bool overGui);
+    bool onKey(const irr::SEvent::SKeyInput& keyInput); // Home: back to own ship, left/right: heading of the selected ship
     void increaseZoom();
     void decreaseZoom();
+    void nextChartStyle();
+    irr::f32 chartWidth() const;  // metres
+    irr::f32 chartHeight() const;
 
 private:
 
@@ -75,16 +83,13 @@ private:
     irr::IrrlichtDevice* device;
     irr::video::IVideoDriver* driver;
 
-	irr::u32 zoomLevels;
-
     //Data shared from main
     std::vector<PositionData>* buoysData;
     ScenarioData* scenarioData;
     std::string worldName;
 
-    irr::video::IImage* unscaledMap;
-    std::vector<irr::video::IImage*> scaledMap;
-    irr::u32 currentZoom;
+    ChartView chart;
+    bool viewInitialised;   // centred on the own ship at the first update
 
     irr::f32 terrainLong;
     irr::f32 terrainLat;
@@ -93,14 +98,12 @@ private:
     irr::f32 terrainXWidth;
     irr::f32 terrainZWidth;
 
-    std::vector<irr::f32> metresPerPx;
+    irr::s32 dragShip;   // ship being dragged: 0 own ship, 1.. other ships, -1 none
+    bool panning, rightDown;
+    irr::core::position2di mouse, lastMouse, dragOffset;
 
-    bool mouseDown; //This is controlled via setMouseDown(bool) from the event receiver
-    bool mouseClickedLastUpdate;
-    irr::core::position2d<irr::s32> mouseLastPosition;
-
-    irr::s32 mapOffsetX; //Pixel offset of maps, to allow click and drag.
-    irr::s32 mapOffsetZ;
+    irr::s32 shipAt(irr::core::position2di screen) const; // 0 own ship, 1.. other ships, -1 none
+    irr::core::position2di shipScreenPosition(irr::s32 ship) const;
 
     irr::s32 selectedShip; //Own ship as -1, other ships as 0 upwards
     irr::s32 selectedLeg; //No leg as -1, legs as 0 upwards
