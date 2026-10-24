@@ -840,10 +840,14 @@ def main(config_path, debug=False):
         wgt = np.clip((flat + blend - dq) / blend, 0, 1)
         target = lv["quay"] - 0.3
         win_h[sel] = win_h[sel] * (1 - wgt[sel]) + target * wgt[sel]
-        # Terrain must not show in front of the wall or through the deck: drop it to the seabed
-        # there. The slope back up to the platform then happens under the deck.
-        keepout = (under_deck | (dq < cfg["quay_keepout_m"])) & (win_h > lv["seabed"])
+        # Terrain must not show in front of the wall: drop it to the seabed close to the wall
+        # (seaward, or landward under the deck). The rest of the deck keeps platform level, so the
+        # terrain triangles climbing back up stay hidden under the deck instead of dipping below
+        # sea level behind its back edge.
+        keepout = (dq < cfg["quay_keepout_m"]) & (under_deck | ~land) & (win_h > lv["seabed"])
         win_h[keepout] = lv["seabed"]
+        rest = under_deck & ~keepout
+        win_h[rest] = np.minimum(win_h[rest], target)
         platform = mainland & (dq < flat)
         quay_line = dq < px * 0.75
     h[r0:r1, c0:c1] = win_h
