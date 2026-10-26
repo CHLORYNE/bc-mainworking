@@ -61,3 +61,6 @@ src/libs/Irrlicht/irrlicht-svn/source/Irrlicht/tmp/
 *.bak
 bin/Models/
 bin/Models.zip
+
+# Python
+__pycache__/

@@ -1,9 +1,13 @@
 {
   "prefix": "bouj",
   "source_heightmap": "height.f32",
-  "window": {"lat_min": 26.1110, "lat_max": 26.1190, "lon_min": -14.4995, "lon_max": -14.4909},
+  "window": {
+    "lat_min": 26.111,
+    "lat_max": 26.119,
+    "lon_min": -14.4995,
+    "lon_max": -14.4909
+  },
   "seed": 7,
-
   "levels": {
     "seabed": -10.0,
     "quay": 4.0,
@@ -14,9 +18,9 @@
     "lee_slope": 1.33,
     "rock_jitter": 0.9,
     "head_platform_radius": 7.0,
-    "wall_ramp_m": 18.0
+    "wall_ramp_m": 18.0,
+    "wet_band_top": 0.9
   },
-
   "structure_max_width_m": 27,
   "structure_min_area_m2": 2500,
   "basin_closing_m": 95,
@@ -24,25 +28,228 @@
   "sweep_step_m": 2.0,
   "root_extension_m": 20,
   "structure_terrain_level": -2.0,
-
   "quay_min_length_m": 25,
   "quay_simplify_px": 1.0,
   "quay_deck_width": 14,
   "quay_keepout_m": 5,
   "fender_spacing": 12,
   "bollard_spacing": 16,
-  "platform_flat_m": 45,
-  "platform_blend_m": 45,
-
+  "coast_setback_m": 10,
+  "platform_margin_m": 70,
+  "platform_simplify_m": 2.0,
+  "platform_blend_m": 40,
+  "platform_terrain_drop_m": 2.0,
+  "road_width_m": 8,
+  "access_road_length_m": 350,
+  "fence_height_m": 2.4,
+  "gate_width_m": 10,
+  "lamp_spacing_m": 40,
+  "lamp_offset_m": 11,
+  "building_setback_m": 26,
+  "building_gap_m": 8,
+  "building_edge_clearance_m": 4,
   "terrain_texture_size": 4096,
-
   "beacons": [
-    {"lat": 26.1129, "lon": -14.4962, "colour": "red"},
-    {"lat": 26.1147, "lon": -14.4945, "colour": "green"}
+    {
+      "lat": 26.1129,
+      "lon": -14.4962,
+      "colour": "red"
+    },
+    {
+      "lat": 26.1147,
+      "lon": -14.4945,
+      "colour": "green"
+    }
   ],
-
+  "buildings": [
+    {
+      "name": "fish_market",
+      "size": [
+        54,
+        22
+      ],
+      "wall_height": 7,
+      "roof": "gable",
+      "roof_rise": 3,
+      "roof_colour": "grey",
+      "facade": "hall",
+      "bay_m": 6,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        236,
+        234,
+        226
+      ],
+      "trim_colour": [
+        38,
+        92,
+        160
+      ]
+    },
+    {
+      "name": "cold_store",
+      "size": [
+        34,
+        20
+      ],
+      "wall_height": 9,
+      "roof": "flat",
+      "facade": "cold",
+      "bay_m": 8,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        238,
+        238,
+        234
+      ],
+      "trim_colour": [
+        38,
+        92,
+        160
+      ]
+    },
+    {
+      "name": "warehouse",
+      "size": [
+        40,
+        20
+      ],
+      "wall_height": 8,
+      "roof": "gable",
+      "roof_rise": 3.5,
+      "roof_colour": "grey",
+      "facade": "roller",
+      "bay_m": 8,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        222,
+        208,
+        178
+      ],
+      "trim_colour": [
+        150,
+        132,
+        104
+      ]
+    },
+    {
+      "name": "port_office",
+      "size": [
+        20,
+        12
+      ],
+      "wall_height": 10.5,
+      "roof": "flat",
+      "facade": "windows",
+      "bay_m": 4,
+      "windows_per_bay": 1,
+      "ends": "facade",
+      "wall_colour": [
+        240,
+        238,
+        232
+      ],
+      "trim_colour": [
+        38,
+        92,
+        160
+      ],
+      "tower": {
+        "size": 5,
+        "height": 6
+      }
+    },
+    {
+      "name": "workshop",
+      "size": [
+        26,
+        15
+      ],
+      "wall_height": 6,
+      "roof": "gable",
+      "roof_rise": 2.5,
+      "roof_colour": "green",
+      "facade": "roller",
+      "bay_m": 7,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        210,
+        214,
+        214
+      ],
+      "trim_colour": [
+        70,
+        96,
+        120
+      ]
+    },
+    {
+      "name": "ice_plant",
+      "size": [
+        18,
+        14
+      ],
+      "wall_height": 9,
+      "roof": "flat",
+      "facade": "cold",
+      "bay_m": 6,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        238,
+        238,
+        234
+      ],
+      "trim_colour": [
+        38,
+        92,
+        160
+      ]
+    },
+    {
+      "name": "net_store",
+      "size": [
+        30,
+        14
+      ],
+      "wall_height": 5.5,
+      "roof": "gable",
+      "roof_rise": 2.2,
+      "roof_colour": "blue",
+      "facade": "roller",
+      "bay_m": 6,
+      "windows_per_bay": 0,
+      "wall_colour": [
+        230,
+        224,
+        206
+      ],
+      "trim_colour": [
+        38,
+        92,
+        160
+      ]
+    },
+    {
+      "name": "fuel_tanks",
+      "type": "tanks",
+      "size": [
+        24,
+        14
+      ],
+      "radius": 4,
+      "wall_height": 7,
+      "count": 2
+    }
+  ],
   "extra_land_objects": [],
   "disabled_land_objects": [
-    {"Type": "bouj_port", "Lat": 26.1142, "Long": -14.497, "HeightCorrection": 1, "Rotation": 65, "Absolute": 0}
+    {
+      "Type": "bouj_port",
+      "Lat": 26.1142,
+      "Long": -14.497,
+      "HeightCorrection": 1,
+      "Rotation": 65,
+      "Absolute": 0
+    }
   ]
 }

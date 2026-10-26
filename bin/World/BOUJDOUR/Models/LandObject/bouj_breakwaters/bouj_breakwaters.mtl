@@ -30,6 +30,13 @@ Ks 0.000 0.000 0.000
 illum 1
 map_Kd rock.jpg
 
+newmtl rock_wet
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd rock_wet.jpg
+
 newmtl white
 Ka 0.920 0.920 0.900
 Kd 0.920 0.920 0.900

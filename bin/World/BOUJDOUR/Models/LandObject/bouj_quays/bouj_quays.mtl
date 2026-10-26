@@ -1,3 +1,10 @@
+newmtl asphalt
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd asphalt.jpg
+
 newmtl concrete
 Ka 1.000 1.000 1.000
 Kd 1.000 1.000 1.000
@@ -5,11 +12,30 @@ Ks 0.000 0.000 0.000
 illum 1
 map_Kd concrete.jpg
 
+newmtl galvanised
+Ka 0.550 0.570 0.580
+Kd 0.550 0.570 0.580
+Ks 0.000 0.000 0.000
+illum 1
+
 newmtl iron
 Ka 0.180 0.180 0.200
 Kd 0.180 0.180 0.200
 Ks 0.000 0.000 0.000
 illum 1
+
+newmtl lamp
+Ka 0.850 0.850 0.800
+Kd 0.850 0.850 0.800
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl plaster
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd plaster.jpg
 
 newmtl quaywall
 Ka 1.000 1.000 1.000

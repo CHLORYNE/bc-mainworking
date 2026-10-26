@@ -1,0 +1,195 @@
+newmtl cold_store_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd cold_store_plain.jpg
+
+newmtl cold_store_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd cold_store_facade.jpg
+
+newmtl cold_store_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd cold_store_plain.jpg
+
+newmtl fish_market_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd fish_market_plain.jpg
+
+newmtl fish_market_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd fish_market_facade.jpg
+
+newmtl fish_market_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd fish_market_plain.jpg
+
+newmtl glass
+Ka 0.220 0.320 0.420
+Kd 0.220 0.320 0.420
+Ks 0.000 0.000 0.000
+illum 1
+
+newmtl ice_plant_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd ice_plant_plain.jpg
+
+newmtl ice_plant_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd ice_plant_facade.jpg
+
+newmtl ice_plant_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd ice_plant_plain.jpg
+
+newmtl net_store_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd net_store_plain.jpg
+
+newmtl net_store_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd net_store_facade.jpg
+
+newmtl net_store_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd net_store_plain.jpg
+
+newmtl plaster
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd plaster.jpg
+
+newmtl port_office_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd port_office_facade.jpg
+
+newmtl port_office_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd port_office_facade.jpg
+
+newmtl port_office_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd port_office_plain.jpg
+
+newmtl roof_blue
+Ka 0.320 0.460 0.620
+Kd 0.320 0.460 0.620
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd corrugated.jpg
+
+newmtl roof_flat
+Ka 0.800 0.800 0.800
+Kd 0.800 0.800 0.800
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd concrete.jpg
+
+newmtl roof_green
+Ka 0.380 0.520 0.440
+Kd 0.380 0.520 0.440
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd corrugated.jpg
+
+newmtl roof_grey
+Ka 0.620 0.640 0.660
+Kd 0.620 0.640 0.660
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd corrugated.jpg
+
+newmtl tank
+Ka 0.930 0.930 0.920
+Kd 0.930 0.930 0.920
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd plaster.jpg
+
+newmtl warehouse_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd warehouse_plain.jpg
+
+newmtl warehouse_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd warehouse_facade.jpg
+
+newmtl warehouse_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd warehouse_plain.jpg
+
+newmtl workshop_end
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd workshop_plain.jpg
+
+newmtl workshop_facade
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd workshop_facade.jpg
+
+newmtl workshop_plain
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+illum 1
+map_Kd workshop_plain.jpg
+

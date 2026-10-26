@@ -38,11 +38,14 @@ import sys
 
 import numpy as np
 import shapely
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 from skimage.measure import approximate_polygon, find_contours
 from skimage.draw import line as draw_line
 from skimage.morphology import disk, skeletonize
+from shapely.geometry import LineString, MultiLineString
+
+import port_features as pf
 
 EARTH_RAD_M = 6.371e6  # Must match Constants.hpp
 
@@ -243,15 +246,28 @@ def save_rgb(path, rgb, quality=90):
     Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8)).save(path, quality=quality)
 
 
-def make_rock_texture(path, rng, size=512, stones=22):
-    """Armour stones: tileable Voronoi cells, each shaded as a lit boulder with dark gaps between."""
+def make_rock_texture(path, rng, size=512, stones=34, wet=False):
+    """Armour stones: tileable Voronoi cells shaded as rounded basalt boulders.
+
+    Palette taken from a photo of a Moroccan harbour revetment: cool dark grey with
+    brown-grey variation, shadowed (not outlined) gaps. wet=True gives the darker band
+    just above the waterline.
+    """
     from scipy.spatial import cKDTree
-    seeds = rng.random((stones, 2)) * size
+    # Stone centres spaced out (dart throwing on the torus) so no thin slivers appear
+    min_d = 0.75 * size / math.sqrt(stones)
+    seeds = []
+    while len(seeds) < stones:
+        p = rng.random(2) * size
+        if all(np.hypot(*((np.abs(p - q) + size / 2) % size - size / 2)) >= min_d for q in seeds):
+            seeds.append(p)
+        min_d *= 0.999  # relax slowly if the tile is getting full
+    seeds = np.array(seeds)
     tiled = np.vstack([seeds + [dy, dx] for dy in (-size, 0, size) for dx in (-size, 0, size)])
     tree = cKDTree(tiled)
     yy, xx = np.mgrid[0:size, 0:size]
     # Warp the lookup so the stone outlines are irregular rather than straight-edged
-    warp = 14.0
+    warp = 9.0
     wy = (periodic_noise(size, 10, rng) - 0.5) * 2 * warp
     wx = (periodic_noise(size, 10, rng) - 0.5) * 2 * warp
     pix = np.stack([(yy + wy).ravel(), (xx + wx).ravel()], axis=1)
@@ -261,15 +277,17 @@ def make_rock_texture(path, rng, size=512, stones=22):
     centre = tiled[idx[:, 0]]
     off = (pix - centre).reshape(size, size, 2)
     radius = np.sqrt(size * size / stones) / 2
-    # Rounded stones: brighter towards the centre and the lit (upper) side, darker into the gaps
-    rounded = np.clip(gap / (radius * 0.9), 0, 1) ** 0.5
-    light = 1.0 - 0.35 * np.clip(off[..., 0] / radius, -1, 1) - 0.1 * np.clip(off[..., 1] / radius, -1, 1)
-    tone = (0.7 + 0.45 * rng.random(stones))[cell]
+    # Rounded: a smooth fall-off into the gaps (ambient occlusion), lit from above
+    rounded = np.clip(gap / (radius * 1.1), 0, 1) ** 0.7
+    light = 1.0 - 0.4 * np.clip(off[..., 0] / radius, -1, 1)
     grain = 0.6 * periodic_noise(size, 24, rng, 80) + 0.4 * tileable(rng.random((size, size)))
-    shade = tone * (0.55 + 0.45 * rounded) * (0.8 + 0.2 * light) * (0.82 + 0.36 * grain)
-    void = np.clip((gap - 3.0) / 9.0, 0, 1)  # dark voids between stones
-    base = np.array([142, 134, 120.0])
-    rgb = base[None, None, :] * shade[..., None] * (0.12 + 0.88 * void[..., None])
+    # Per-stone colour: mostly cool grey, some brown-grey, a few darker
+    greys = np.array([[104, 104, 112], [112, 106, 102], [90, 90, 98], [122, 120, 124], [80, 78, 82.0]])
+    colour = greys[rng.integers(0, len(greys), stones)] * (0.85 + 0.3 * rng.random((stones, 1)))
+    rgb = colour[cell] * ((0.35 + 0.65 * rounded) * (0.78 + 0.32 * light) * (0.85 + 0.3 * grain))[..., None]
+    rgb = rgb * (0.6 + 0.4 * np.clip((gap - 1.0) / 7.0, 0, 1))[..., None]
+    if wet:
+        rgb = rgb * 0.62 + np.array([0, 4, 2.0])
     save_rgb(path, rgb)
 
 
@@ -456,7 +474,10 @@ def build_breakwater(mesh, line, seaward, lv, rnd, comp_id):
                 v0, v1 = y0 / tv, y1 / tv  # vertical face
             else:
                 v0, v1 = s0 / tv, s1 / tv
-            mesh.quad(mat, [a[j], b[j], b[j + 1], a[j + 1]], [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], out)
+            quad = [a[j], b[j], b[j + 1], a[j + 1]]
+            if mat == "rock" and max(q[1] for q in quad) < lv["wet_band_top"]:
+                mat = "rock_wet"
+            mesh.quad(mat, quad, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], out)
 
 
 def build_roundhead(mesh, centre, lv, rnd, comp_id):
@@ -488,7 +509,8 @@ def build_roundhead(mesh, centre, lv, rnd, comp_id):
             circ = 2 * math.pi * (plat_r + toe_r) / 2
             u0, u1 = a / seg * circ / 12.0, (a + 1) / seg * circ / 12.0
             v0, v1 = k / rows * (toe_r - plat_r) / 10.0, (k + 1) / rows * (toe_r - plat_r) / 10.0
-            mesh.quad("rock", p, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], out)
+            mat = "rock_wet" if max(q[1] for q in p) < lv["wet_band_top"] else "rock"
+            mesh.quad(mat, p, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], out)
     c = np.array([centre[0], plat_y, centre[1]])
     for a in range(seg):
         b = (a + 1) % seg
@@ -559,9 +581,8 @@ def miter_normals(pts, side_sign):
 
 
 def build_quay(mesh, pts, land_dir, lv, cfg):
-    """Vertical wall along pts (east/north), deck extending landward, fenders and bollards."""
+    """Vertical wall along pts (east/north) with fenders and bollards. The deck is part of the platform."""
     q, bed = lv["quay"], lv["seabed"]
-    deck_w = cfg["quay_deck_width"]
     seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
     arc = np.concatenate([[0], np.cumsum(seg)])
     for i in range(len(pts) - 1):
@@ -573,17 +594,6 @@ def build_quay(mesh, pts, land_dir, lv, cfg):
                   [np.array([a[0], bed, a[1]]), np.array([b[0], bed, b[1]]),
                    np.array([b[0], q, b[1]]), np.array([a[0], q, a[1]])],
                   [(u0, 0), (u1, 0), (u1, 1), (u0, 1)], out)
-        a2, b2 = a + land_dir[i] * deck_w, b + land_dir[i + 1] * deck_w
-        mesh.quad("concrete",
-                  [np.array([a[0], q, a[1]]), np.array([b[0], q, b[1]]),
-                   np.array([b2[0], q, b2[1]]), np.array([a2[0], q, a2[1]])],
-                  [(a[0] / 6, a[1] / 6), (b[0] / 6, b[1] / 6), (b2[0] / 6, b2[1] / 6), (a2[0] / 6, a2[1] / 6)],
-                  np.array([0, 1.0, 0]))
-        # Deck back edge, down into the levelled terrain
-        mesh.quad("concrete",
-                  [np.array([a2[0], q, a2[1]]), np.array([b2[0], q, b2[1]]),
-                   np.array([b2[0], q - 1.0, b2[1]]), np.array([a2[0], q - 1.0, a2[1]])],
-                  [(0, 0), (1, 0), (1, 0.2), (0, 0.2)], np.array([land_dir[i][0], 0, land_dir[i][1]]))
     # Fenders and bollards along the run, skipping the corners
     for spacing, kind in ((cfg["fender_spacing"], "fender"), (cfg["bollard_spacing"], "bollard")):
         s = spacing / 2
@@ -609,10 +619,9 @@ def build_quay(mesh, pts, land_dir, lv, cfg):
 # Terrain texture
 # ----------------------------------------------------------------------------
 
-def make_terrain_texture(path, h, platform, size, rng):
+def make_terrain_texture(path, h, size, rng, paint, frame, grid):
     zoom = size / h.shape[0]
     hz = ndi.zoom(h, zoom, order=1)[:size, :size]
-    pz = ndi.zoom(platform.astype(float), zoom, order=1)[:size, :size]
     gy, gx = np.gradient(ndi.gaussian_filter(hz, 6))
     slope = np.hypot(gx, gy) * (size / 3500.0) ** -1  # rough metres-per-pixel correction
     slope = np.clip(slope / 0.6, 0, 1)
@@ -625,7 +634,6 @@ def make_terrain_texture(path, h, platform, size, rng):
     wet = np.array([160, 140, 108.0])
     seabed = np.array([150, 140, 110.0])
     deep = np.array([70, 80, 78.0])
-    concrete = np.array([172, 170, 162.0])
 
     t = big[..., None]
     land = sand * (1 - t) + sand_dark * t
@@ -637,9 +645,13 @@ def make_terrain_texture(path, h, platform, size, rng):
     water = seabed * (1 - depth) + deep * depth
     water *= (0.9 + 0.2 * small[..., None])
     rgb = np.where((hz > 0)[..., None], land, water)
-    conc = concrete * (0.88 + 0.16 * small[..., None])
-    pz = np.clip(pz, 0, 1)[..., None]
-    rgb = rgb * (1 - pz) + conc * pz
+
+    def to_px(en):
+        r, c = frame.to_pixel(en[:, 0], en[:, 1])
+        return c * zoom, r * zoom  # texture x, y (row 0 = north edge)
+
+    for poly, colour in paint:
+        pf.paint_polygon(rgb, poly, to_px, colour, rng)
     save_rgb(path, rgb, quality=88)
 
 
@@ -762,7 +774,7 @@ def main(config_path, debug=False):
             ri, ci = int(round(r)), int(round(c))
             nb_land = mainland[max(ri - 1, 0):ri + 2, max(ci - 1, 0):ci + 2]
             nb_water = basin[max(ri - 1, 0):ri + 2, max(ci - 1, 0):ci + 2]
-            nb_struct = structure_mask[max(ri - 2, 0):ri + 3, max(ci - 2, 0):ci + 3]
+            nb_struct = structure_mask[max(ri - 1, 0):ri + 2, max(ci - 1, 0):ci + 2]
             flags.append(nb_land.any() and nb_water.any() and not nb_struct.any())
         flags = np.array(flags)
         start = None
@@ -788,76 +800,138 @@ def main(config_path, debug=False):
                 quay_runs.append((en, land_dir))
                 print("  quay run: %d corners, %.0f m" % (len(en), np.sum(np.linalg.norm(np.diff(en, axis=0), axis=1))))
 
+    # Port platform, roads, perimeter wall, lamps and buildings
+    buildings = Mesh()
+    platform_poly, road_poly, gate, placed = None, None, None, []
+    outer_road = None
+    if quay_runs:
+        quay_lines = MultiLineString([en for en, _ in quay_runs])
+        setback_px = max(1, int(round(cfg["coast_setback_m"] / px)))
+        land_core = pf.mask_to_polygon(ndi.binary_erosion(mainland, iterations=setback_px), frame, r0, c0)
+        platform_poly = pf.platform_polygon(quay_runs, land_core, cfg)
+        if "gate_towards" in cfg:
+            toward = frame.from_latlon(cfg["gate_towards"]["lat"], cfg["gate_towards"]["lon"])
+        else:
+            # Away from the basin, through the platform
+            bc = pf.mask_to_polygon(basin, frame, r0, c0).centroid
+            pc = platform_poly.centroid
+            toward = (pc.x + (pc.x - bc.x) * 10, pc.y + (pc.y - bc.y) * 10)
+        gate = pf.choose_gate(platform_poly, quay_lines, toward)
+        road_poly = pf.roads(platform_poly, quay_runs, gate, cfg)
+        pf.build_platform(quays, platform_poly, road_poly, quay_lines, lv, cfg)
+        pf.build_fence(quays, platform_poly, quay_lines, gate, cfg, lv)
+        pf.build_lamps(quays, quay_runs, lv, cfg)
+        if gate is not None:
+            g = np.array(gate)
+            d = np.array(toward) - g
+            d /= np.linalg.norm(d)
+            outer_road = LineString([g - d * 5, g + d * cfg["access_road_length_m"]]).buffer(
+                cfg["road_width_m"] / 2, cap_style="flat")
+        placed = pf.place_buildings(cfg.get("buildings", []), platform_poly, quay_runs, road_poly, cfg)
+        for b in placed:
+            if b["kind"].get("type") == "tanks":
+                pf.build_tanks(buildings, b, b["kind"], lv["quay"])
+            else:
+                pf.build_building(buildings, b, b["kind"], lv["quay"])
+            print("  building '%s' %.0f x %.0f m" % (b["kind"]["name"], b["L"], b["D"]))
+        print("  platform %.0f m2, gate at %.6f %.6f" % (
+            platform_poly.area, lat_a + gate[1] / grid.kz, lon_a + gate[0] / grid.kx) if gate else "")
+
     # Write models
     materials = {
         "rock": {"kd": (1, 1, 1), "texture": "rock.jpg"},
+        "rock_wet": {"kd": (1, 1, 1), "texture": "rock_wet.jpg"},
         "concrete": {"kd": (1, 1, 1), "texture": "concrete.jpg"},
         "quaywall": {"kd": (1, 1, 1), "texture": "quaywall.jpg"},
+        "asphalt": {"kd": (1, 1, 1), "texture": "asphalt.jpg"},
+        "plaster": {"kd": (1, 1, 1), "texture": "plaster.jpg"},
+        "roof_flat": {"kd": (0.8, 0.8, 0.8), "texture": "concrete.jpg"},
         "rubber": {"kd": (0.08, 0.08, 0.08)},
         "iron": {"kd": (0.18, 0.18, 0.2)},
+        "galvanised": {"kd": (0.55, 0.57, 0.58)},
+        "lamp": {"kd": (0.85, 0.85, 0.8)},
+        "glass": {"kd": (0.22, 0.32, 0.42)},
+        "tank": {"kd": (0.93, 0.93, 0.92), "texture": "plaster.jpg"},
         "white": {"kd": (0.92, 0.92, 0.9)},
         "beacon_red": {"kd": (0.78, 0.1, 0.08)},
         "beacon_green": {"kd": (0.05, 0.55, 0.2)},
     }
+    roof_colours = {"grey": (0.62, 0.64, 0.66), "blue": (0.32, 0.46, 0.62), "green": (0.38, 0.52, 0.44),
+                    "red": (0.62, 0.3, 0.24)}
+    for colour, kd in roof_colours.items():
+        materials["roof_" + colour] = {"kd": kd, "texture": "corrugated.jpg"}
+    texture_makers = {
+        "rock.jpg": lambda path, r: make_rock_texture(path, r),
+        "rock_wet.jpg": lambda path, r: make_rock_texture(path, r, wet=True),
+        "concrete.jpg": lambda path, r: make_concrete_texture(path, r),
+        "quaywall.jpg": lambda path, r: make_quaywall_texture(path, r, lv["seabed"], lv["quay"]),
+        "asphalt.jpg": lambda path, r: pf.make_asphalt_texture(path, r),
+        "plaster.jpg": lambda path, r: pf.make_plaster_texture(path, r),
+        "corrugated.jpg": lambda path, r: pf.make_corrugated_texture(path, r),
+    }
+    for kind in cfg.get("buildings", []):
+        n = kind["name"]
+        ends_plain = kind.get("ends", "plain") == "plain"
+        materials[n + "_facade"] = {"kd": (1, 1, 1), "texture": n + "_facade.jpg"}
+        materials[n + "_end"] = {"kd": (1, 1, 1), "texture": n + ("_plain.jpg" if ends_plain else "_facade.jpg")}
+        materials[n + "_plain"] = {"kd": (1, 1, 1), "texture": n + "_plain.jpg"}
+        texture_makers[n + "_facade.jpg"] = lambda path, r, k=kind: pf.make_facade_texture(path, k, r)
+        texture_makers[n + "_plain.jpg"] = lambda path, r, k=kind: pf.make_facade_texture(path, k, r, plain=True)
+
     models = os.path.join(world, "Models", "LandObject")
     objects = []
-    for name, mesh in (("%s_breakwaters" % prefix, breakwaters), ("%s_quays" % prefix, quays)):
+    for name, mesh in (("%s_breakwaters" % prefix, breakwaters), ("%s_quays" % prefix, quays),
+                       ("%s_buildings" % prefix, buildings)):
         if not mesh.groups:
             continue
         folder = os.path.join(models, name)
         mesh.write_obj(folder, name, materials)
-        for mat in mesh.groups:
-            if materials[mat].get("texture"):
-                p = os.path.join(folder, materials[mat]["texture"])
-                tex_rng = np.random.default_rng(cfg.get("seed", 1) + len(mat))
-                if mat == "rock":
-                    make_rock_texture(p, tex_rng)
-                elif mat == "concrete":
-                    make_concrete_texture(p, tex_rng)
-                else:
-                    make_quaywall_texture(p, tex_rng, lv["seabed"], lv["quay"])
+        for tex in sorted({materials[m]["texture"] for m in mesh.groups if materials[m].get("texture")}):
+            # Seed from the file name so every object gets identical copies of shared textures
+            texture_makers[tex](os.path.join(folder, tex), np.random.default_rng(cfg.get("seed", 1) + sum(map(ord, tex))))
         objects.append(name)
         print("Wrote %s: %d triangles" % (name, mesh.triangle_count()))
 
-    # Terrain: lower the baked-in breakwaters under the meshes, level the port platform
+    # Terrain: lower the baked-in breakwaters under the meshes, hide the terrain under the platform
     h = grid.h.copy()
     win_h = h[r0:r1, c0:c1]
     under = ndi.binary_dilation(structure_mask, iterations=1) & ~mainland
     win_h[under] = np.minimum(win_h[under], cfg["structure_terrain_level"])
-    platform = np.zeros_like(land)
     quay_line = np.zeros_like(land)
-    if quay_runs:
+    platform = np.zeros_like(land)
+    if platform_poly is not None:
         rr, cc = np.mgrid[r0:r1, c0:c1]
         pe, pn = frame.from_pixel(rr.ravel(), cc.ravel())
         points = shapely.points(pe, pn)
-        lines = shapely.MultiLineString([en for en, _ in quay_runs])
-        dq = shapely.distance(points, lines).reshape(land.shape)
-        decks = shapely.union_all([shapely.Polygon(np.vstack([en, (en + d * cfg["quay_deck_width"])[::-1]]))
-                                   for en, d in quay_runs]).buffer(0)
-        under_deck = shapely.contains(decks, points).reshape(land.shape)
-        flat, blend = cfg["platform_flat_m"], cfg["platform_blend_m"]
-        sel = mainland & (dq < flat + blend)
-        wgt = np.clip((flat + blend - dq) / blend, 0, 1)
-        target = lv["quay"] - 0.3
-        win_h[sel] = win_h[sel] * (1 - wgt[sel]) + target * wgt[sel]
-        # Terrain must not show in front of the wall: drop it to the seabed close to the wall
-        # (seaward, or landward under the deck). The rest of the deck keeps platform level, so the
-        # terrain triangles climbing back up stay hidden under the deck instead of dipping below
-        # sea level behind its back edge.
-        keepout = (dq < cfg["quay_keepout_m"]) & (under_deck | ~land) & (win_h > lv["seabed"])
-        win_h[keepout] = lv["seabed"]
-        rest = under_deck & ~keepout
-        win_h[rest] = np.minimum(win_h[rest], target)
-        platform = mainland & (dq < flat)
+        dq = shapely.distance(points, quay_lines).reshape(land.shape)
+        inside = shapely.contains(platform_poly, points).reshape(land.shape)
+        d_plat = shapely.distance(points, platform_poly).reshape(land.shape)
+        q = lv["quay"]
+        # Outside: blend the land down to just under platform level, so the platform edge sits flush
+        blend = cfg["platform_blend_m"]
+        sel = land & ~inside & (d_plat < blend)
+        wgt = np.clip(1 - d_plat / blend, 0, 1)
+        win_h[sel] = win_h[sel] * (1 - wgt[sel]) + (q - 0.15) * wgt[sel]
+        # Inside: well below the slab, so it can never show through or flicker against it
+        win_h[inside] = np.minimum(win_h[inside], q - cfg["platform_terrain_drop_m"])
+        # In front of the walls: down to the seabed, on the water side of every quay line
+        seaward = shapely.union_all([pf.quay_strip(en, d, -cfg["quay_keepout_m"], 0.0) for en, d in quay_runs])
+        front = shapely.contains(seaward, points).reshape(land.shape)
+        near_wall = (dq < cfg["quay_keepout_m"]) & (front | inside)
+        win_h[near_wall] = np.minimum(win_h[near_wall], lv["seabed"])
+        platform = inside
         quay_line = dq < px * 0.75
     h[r0:r1, c0:c1] = win_h
     hm_name = os.path.splitext(cfg["source_heightmap"])[0] + "_harbour.f32"
     grid.save(os.path.join(world, hm_name), h)
 
-    full_platform = np.zeros_like(h, dtype=bool)
-    full_platform[r0:r1, c0:c1] = platform
     tex_name = "terrain_harbour.jpg"
-    make_terrain_texture(os.path.join(world, tex_name), h, full_platform, cfg["terrain_texture_size"], rng)
+    paint = []
+    if platform_poly is not None:
+        paint.append((platform_poly, (172, 170, 162)))
+    if outer_road is not None:
+        paint.append((outer_road.difference(platform_poly), (78, 78, 80)))
+    make_terrain_texture(os.path.join(world, tex_name), h, cfg["terrain_texture_size"], rng, paint, frame, grid)
     terrain_ini = os.path.join(world, "terrain.ini")
     set_ini_value(terrain_ini, "HeightMap(1)", hm_name)
     set_ini_value(terrain_ini, "Texture(1)", tex_name)
@@ -893,8 +967,26 @@ def main(config_path, debug=False):
     dbg[basin] = (40, 110, 220)
     dbg[platform] = (200, 200, 200)
     dbg[quay_line] = (255, 40, 40)
-    Image.fromarray(dbg).resize((w.shape[1] * 3, w.shape[0] * 3), Image.NEAREST).save(
-        os.path.join(world, "harbour_detection.png"))
+    img = Image.fromarray(dbg).resize((w.shape[1] * 3, w.shape[0] * 3), Image.NEAREST)
+    draw = ImageDraw.Draw(img)
+
+    def outline(geom, colour, width=2):
+        for g in getattr(geom, "geoms", [geom]):
+            if g.is_empty or not hasattr(g, "exterior"):
+                continue
+            r, c = frame.to_pixel(*np.array(g.exterior.coords).T)
+            draw.line(list(zip((c - c0) * 3, (r - r0) * 3)), fill=colour, width=width)
+
+    if platform_poly is not None:
+        outline(platform_poly, (255, 255, 255))
+        outline(road_poly, (40, 40, 40))
+        outline(pf.building_zone(platform_poly, quay_runs, road_poly, cfg), (0, 200, 0))
+        for b in placed:
+            outline(pf.footprint(b["centre"], b["along"], b["L"], b["D"]), (200, 0, 200), 3)
+        if gate:
+            r, c = frame.to_pixel(*gate)
+            draw.ellipse([(c - c0) * 3 - 6, (r - r0) * 3 - 6, (c - c0) * 3 + 6, (r - r0) * 3 + 6], fill=(255, 0, 0))
+    img.save(os.path.join(world, "harbour_detection.png"))
 
 
 if __name__ == "__main__":
