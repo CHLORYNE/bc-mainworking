@@ -381,6 +381,30 @@ def smooth_resample(pts, step, smooth_passes=3):
     return out
 
 
+def join_polylines(lines, max_gap):
+    """Merge polylines whose ends are within max_gap of each other (reversing them as needed)."""
+    lines = [np.asarray(l, dtype=float) for l in lines]
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(lines)):
+            for j in range(len(lines)):
+                if i == j:
+                    continue
+                a, b = lines[i], lines[j]
+                for a2, b2 in ((a, b), (a, b[::-1]), (a[::-1], b), (a[::-1], b[::-1])):
+                    if np.linalg.norm(a2[-1] - b2[0]) <= max_gap:
+                        lines[i] = np.vstack([a2, b2])
+                        del lines[j]
+                        merged = True
+                        break
+                if merged:
+                    break
+            if merged:
+                break
+    return lines
+
+
 def tangents_normals(line):
     t = np.gradient(line, axis=0)
     t /= np.linalg.norm(t, axis=1, keepdims=True)
@@ -767,7 +791,7 @@ def main(config_path, debug=False):
 
     # Quay lines: the 0 m contour where basin meets mainland
     quays = Mesh()
-    quay_runs = []
+    quay_runs, raw_runs = [], []
     for contour in find_contours(w, 0.0):
         flags = []
         for r, c in contour:
@@ -787,18 +811,22 @@ def main(config_path, debug=False):
                 if len(run) * px < cfg["quay_min_length_m"]:
                     continue
                 run = approximate_polygon(run, tolerance=cfg["quay_simplify_px"])
-                en = np.array([frame.from_pixel(r + r0, c + c0) for r, c in run])
-                # Which side is land?
-                mid = len(en) // 2
-                d = en[min(mid + 1, len(en) - 1)] - en[max(mid - 1, 0)]
-                d /= np.linalg.norm(d)
-                lft = np.array([-d[1], d[0]])
-                pm = (en[min(mid + 1, len(en) - 1)] + en[max(mid - 1, 0)]) / 2
-                sign = 1.0 if in_mask(land, *(pm + lft * 6.0)) else -1.0
-                land_dir = miter_normals(en, sign)
-                build_quay(quays, en, land_dir, lv, cfg)
-                quay_runs.append((en, land_dir))
-                print("  quay run: %d corners, %.0f m" % (len(en), np.sum(np.linalg.norm(np.diff(en, axis=0), axis=1))))
+                raw_runs.append(np.array([frame.from_pixel(r + r0, c + c0) for r, c in run]))
+
+    # The contour can break a quay into pieces a few metres apart; join them so the wall is continuous
+    raw_runs = join_polylines(raw_runs, cfg["quay_join_m"])
+    for en in raw_runs:
+        # Which side is land?
+        mid = len(en) // 2
+        d = en[min(mid + 1, len(en) - 1)] - en[max(mid - 1, 0)]
+        d /= np.linalg.norm(d)
+        lft = np.array([-d[1], d[0]])
+        pm = (en[min(mid + 1, len(en) - 1)] + en[max(mid - 1, 0)]) / 2
+        sign = 1.0 if in_mask(land, *(pm + lft * 6.0)) else -1.0
+        land_dir = miter_normals(en, sign)
+        build_quay(quays, en, land_dir, lv, cfg)
+        quay_runs.append((en, land_dir))
+        print("  quay run: %d corners, %.0f m" % (len(en), np.sum(np.linalg.norm(np.diff(en, axis=0), axis=1))))
 
     # Port platform, roads, perimeter wall, lamps and buildings
     buildings = Mesh()

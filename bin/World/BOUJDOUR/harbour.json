@@ -32,6 +32,7 @@
   "quay_simplify_px": 1.0,
   "quay_deck_width": 14,
   "quay_keepout_m": 5,
+  "quay_join_m": 12,
   "fender_spacing": 12,
   "bollard_spacing": 16,
   "coast_setback_m": 10,
