@@ -108,7 +108,7 @@ void Water::setSea(irr::f32 weather, irr::f32 windDirection)
     waterNode->resetParameters((weather + 0.25) * 0.000025f, vector2(-k * sinf(prop), k * cosf(prop)), weather + 0.25);
 }
 
-void Water::setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df nodeRotationDeg, irr::f32 zMin, irr::f32 zMax, irr::f32 centreX, const irr::f32* halfWidths24, const irr::f32* keels24, bool on)
+void Water::setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df nodeRotationDeg, irr::f32 zMin, irr::f32 zMax, irr::f32 waterlineY, const irr::f32* halfWidths24, const irr::f32* centres24, bool on)
 {
     irr::core::matrix4 r;
     r.setRotationDegrees(nodeRotationDeg);
@@ -117,10 +117,10 @@ void Water::setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df 
     const irr::f32 len = sqrtf(fx * fx + fz * fz);
     if (len > 1e-6f) { fx /= len; fz /= len; } else { fx = 0.0f; fz = 1.0f; }
     const irr::f32 a[4] = { nodePosition.X, nodePosition.Z, fx, fz };
-    const irr::f32 b[4] = { zMin, zMax, centreX, on ? 1.0f : 0.0f };
+    const irr::f32 b[4] = { zMin, zMax, waterlineY, on ? 1.0f : 0.0f };
     //World height of a point in the node's frame: nodeY + r[1]*x + r[5]*y + r[9]*z
     const irr::f32 rowY[4] = { r[1], r[5], r[9], nodePosition.Y };
-    waterNode->setHullMask(a, b, halfWidths24, keels24, rowY);
+    waterNode->setHullMask(a, b, halfWidths24, centres24, rowY);
 }
 
 void Water::setSwellShaderData(const irr::f32* comp20, const irr::f32* fade4)

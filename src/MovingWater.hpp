@@ -88,9 +88,9 @@ namespace scene
 		// Hull mask: no sea is drawn inside the own ship's waterline outline, so high crests
 		// never show through the plating or inside the wheelhouse.
 		//   a4 = (ship node X, ship node Z, forward X, forward Z)          world, metres
-		//   b4 = (zMin, zMax, centre X, 1 = on / 0 = off)                 ship-node frame
+		//   b4 = (zMin, zMax, waterline height, 1 = on / 0 = off)         ship-node frame
 		//   w24 = half-widths at 24 stations from zMin to zMax
-		//   k24 = height of her bottom at those stations (ship-node frame)
+		//   k24 = centre (x) of the hull at those stations (ship-node frame)
 		//   rowY4 = how the node's local x, y, z move world height, and the node's world height
 		void setHullMask(const f32* a4, const f32* b4, const f32* w24, const f32* k24, const f32* rowY4);
 

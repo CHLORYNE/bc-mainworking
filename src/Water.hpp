@@ -33,8 +33,8 @@ public:
     irr::core::vector3df getPosition() const;
     void setVisible(bool visible);
     //No sea drawn inside the own ship's hull: her node's position and rotation, and the outline and
-    //bottom measured from her model (see OwnShip::getHullWaterline). on = false: off.
-    void setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df nodeRotationDeg, irr::f32 zMin, irr::f32 zMax, irr::f32 centreX, const irr::f32* halfWidths24, const irr::f32* keels24, bool on);
+    //waterline measured from her model (see OwnShip::getHullWaterline). on = false: off.
+    void setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df nodeRotationDeg, irr::f32 zMin, irr::f32 zMax, irr::f32 waterlineY, const irr::f32* halfWidths24, const irr::f32* centres24, bool on);
 
 private:
     void setSea(irr::f32 weather, irr::f32 windDirection);

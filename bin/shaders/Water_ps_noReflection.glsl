@@ -188,9 +188,9 @@ vec3 waterTinted(vec3 c)
 // roll): that is the water that would show through her plating or inside the wheelhouse. Sea below
 // it is always drawn, so nothing opens up under a bow lifted clear or beside a heeled hull.
 //   hullMaskA = (ship node x, ship node z, forward x, forward z)
-//   hullMaskB = (zMin, zMax, centre x, on)            in the ship node's frame, metres
+//   hullMaskB = (zMin, zMax, waterline y, on)         in the ship node's frame, metres
 //   hullW0..5 = half-widths at 24 stations from zMin (stern) to zMax (bow)
-//   hullK0..5 = height of her waterline at those stations, ship node frame
+//   hullK0..5 = centre (x) of the hull at those stations, ship node frame
 //   hullRowY  = (how local x, y, z move world height, node height): world y of a hull point
 varying float vWorldY;
 uniform vec4 hullK0;
@@ -200,7 +200,7 @@ uniform vec4 hullK3;
 uniform vec4 hullK4;
 uniform vec4 hullK5;
 uniform vec4 hullRowY;
-float hullKeel(int i)
+float hullCentre(int i)
 {
     vec4 v = (i < 4) ? hullK0 : (i < 8) ? hullK1 : (i < 12) ? hullK2 : (i < 16) ? hullK3 : (i < 20) ? hullK4 : hullK5;
     int c = i - 4 * (i / 4);
@@ -226,16 +226,15 @@ bool insideHull(vec2 p)
     vec2 d = p - hullMaskA.xy;
     float lz = d.x * hullMaskA.z + d.y * hullMaskA.w;                  // along the ship
     float lxNode = d.x * hullMaskA.w - d.y * hullMaskA.z;              // across
-    float lx = lxNode - hullMaskB.z;
     float t = (lz - hullMaskB.x) / (hullMaskB.y - hullMaskB.x) * 23.0;
     if (t < 0.0 || t > 23.0) return false;
     int i = int(floor(t));
     if (i > 22) i = 22;
     float f = t - float(i);
     float hw = mix(hullStation(i), hullStation(i + 1), f);
+    float lx = lxNode - mix(hullCentre(i), hullCentre(i + 1), f);
     if (abs(lx) >= hw) return false;
-    float keel = mix(hullKeel(i), hullKeel(i + 1), f);
-    float keelWorldY = hullRowY.w + hullRowY.x * lxNode + hullRowY.y * keel + hullRowY.z * lz;
+    float keelWorldY = hullRowY.w + hullRowY.x * lxNode + hullRowY.y * hullMaskB.z + hullRowY.z * lz;
     return vWorldY > keelWorldY;
 }
 
