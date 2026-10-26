@@ -5508,11 +5508,16 @@ void SimulationModel::update()
         //update water position
         //Hull mask: the sea is not drawn inside the own ship's waterline outline (measured from
         //her model at load), so high crests never show through the plating or inside the wheelhouse.
+        //Only while she is shown: the instructor camera hides her and moves her onto the ship it
+        //watches, where her outline would cut a hole in the sea beside that ship (seabed showing).
         {
-            irr::f32 zMin, zMax, centreX, halfWidths[OwnShip::HULL_STATIONS], keels[OwnShip::HULL_STATIONS];
-            if (ownShip.getSceneNode() && ownShip.getHullWaterline(zMin, zMax, centreX, halfWidths, keels)) {
-                water.setHullMask(ownShip.getSceneNode()->getPosition(), ownShip.getSceneNode()->getRotation(),
-                    zMin, zMax, centreX, halfWidths, keels, true);
+            irr::f32 zMin = 0, zMax = 0, centreX = 0;
+            irr::f32 halfWidths[OwnShip::HULL_STATIONS] = {}, keels[OwnShip::HULL_STATIONS] = {};
+            irr::scene::ISceneNode* own = ownShip.getSceneNode();
+            if (own && own->isVisible() && ownShip.getHullWaterline(zMin, zMax, centreX, halfWidths, keels)) {
+                water.setHullMask(own->getPosition(), own->getRotation(), zMin, zMax, centreX, halfWidths, keels, true);
+            } else {
+                water.setHullMask(irr::core::vector3df(0, 0, 0), irr::core::vector3df(0, 0, 0), 0, 0, 0, halfWidths, keels, false);
             }
         }
         water.update(tideHeight, camera.getPosition(), light.getLightLevel(), weather, windDirection, rainIntensity); // KYARA HOULE: + wind direction for the FFT chop, KYARA METEO: + rain
