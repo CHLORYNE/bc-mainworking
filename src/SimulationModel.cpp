@@ -2325,6 +2325,16 @@ void SimulationModel::setSignificantWeather(int mode)
 }
 int SimulationModel::getSignificantWeather() const { return significantWeather; }
 
+bool SimulationModel::stormIsOn() const
+{
+    if (significantWeather == 2) {
+        //Changing towards a thunderstorm: the sea and the wind first, the thunder last
+        return !weatherChange.active || weatherChange.duration <= 0.0f || weatherChange.time >= 0.85f * weatherChange.duration;
+    }
+    //auto: when the sea gets rough under a cloudy or rainy sky (a clear sky stays fair, whatever the sea)
+    return significantWeather == 0 && weather >= 3.5f && (cloudCover >= 0.5f || rainIntensity >= 3.0f);
+}
+
 //The front: the weather worsens over 'span' (wind up and veering, gusts, cloud, rain, poor
 //visibility, a rougher sea), stays a while, then clears back to what it was over 'span' again.
 namespace
@@ -2355,6 +2365,27 @@ namespace
         s.snow = a.snow + (b.snow - a.snow) * t;
         s.dust = a.dust + (b.dust - a.dust) * t;
         s.sea = a.sea + (b.sea - a.sea) * t;
+        return s;
+    }
+    //A change done in steps, as a real storm comes: the sea rises first, then the wind and the
+    //cloud, then the rain and the poor visibility (thunder comes last, see stormIsOn). Clearing
+    //goes the other way: the rain stops first, the sea goes down last.
+    irr::f32 stage(irr::f32 t, irr::f32 from, irr::f32 span) { return smooth01((t - from) / span); }
+    SimulationModel::WeatherState lerpWeatherStaged(const SimulationModel::WeatherState& a, const SimulationModel::WeatherState& b, irr::f32 t)
+    {
+        //Getting worse or better, all things weighed (sea, wind, rain, cloud)
+        const irr::f32 sevA = a.sea + a.windKn / 10.0f + a.rain / 2.0f + a.cloud;
+        const irr::f32 sevB = b.sea + b.windKn / 10.0f + b.rain / 2.0f + b.cloud;
+        const bool building = sevB >= sevA;
+        const irr::f32 tSea = building ? stage(t, 0.0f, 0.55f) : stage(t, 0.45f, 0.55f);
+        const irr::f32 tWind = building ? stage(t, 0.15f, 0.55f) : stage(t, 0.3f, 0.55f);
+        const irr::f32 tCloud = building ? stage(t, 0.1f, 0.6f) : stage(t, 0.1f, 0.6f);
+        const irr::f32 tRain = building ? stage(t, 0.4f, 0.5f) : stage(t, 0.0f, 0.5f);
+        SimulationModel::WeatherState s = lerpWeather(a, b, tRain);   //rain, snow, dust, visibility
+        const SimulationModel::WeatherState w = lerpWeather(a, b, tWind);
+        s.windKn = w.windKn; s.windDir = w.windDir; s.windVariation = w.windVariation; s.gustKn = w.gustKn;
+        s.cloud = lerpWeather(a, b, tCloud).cloud;
+        s.sea = lerpWeather(a, b, tSea).sea;
         return s;
     }
     SimulationModel::WeatherState frontPeak(const SimulationModel::WeatherState& base)
@@ -2407,7 +2438,7 @@ void SimulationModel::updateWeatherDynamics(irr::f32 deltaTime)
     if (weatherChange.active) {
         weatherChange.time += deltaTime;
         const irr::f32 t = weatherChange.duration > 0 ? weatherChange.time / weatherChange.duration : 1.0f;
-        applyWeatherState(lerpWeather(weatherChange.from, weatherChange.to, smooth01(t)));
+        applyWeatherState(lerpWeatherStaged(weatherChange.from, weatherChange.to, irr::core::clamp(t, 0.0f, 1.0f)));
         if (t >= 1.0f) { weatherChange.active = false; }
     }
 
@@ -5011,7 +5042,7 @@ void SimulationModel::update()
         irr::f32 tR, tG, tB;
         if (light.isDawn()) { tR = 150.0f; tG = 140.0f; tB = 200.0f; } //cool rose/violet (matches dawn glow)
         else { tR = 235.0f; tG = 140.0f; tB = 80.0f; } //warm orange (matches dusk glow)
-        irr::f32 tw = (weather >= 3.5f) ? 0.0f : (w * 0.55f);   // no warm fog tint under storm
+        irr::f32 tw = stormIsOn() ? 0.0f : (w * 0.55f);   // no warm fog tint under storm
         fR = fR * (1.0f - tw) + tR * tw;
         fG = fG * (1.0f - tw) + tG * tw;
         fB = fB * (1.0f - tw) + tB * tw;
@@ -5039,7 +5070,7 @@ void SimulationModel::update()
 
         //KYARA: sky updated AFTER appliedVisibilityRange exists - the haze dome is driven from it,
         //now tinted to the SAME fogColour so the sky matches the sea instead of clashing.
-        bool skyStorm = (significantWeather == 2) || (significantWeather == 0 && weather >= 3.5f); // sea state alone, no fog needed - matches the audio
+        bool skyStorm = stormIsOn(); // sea state alone, no fog needed - matches the audio
         sky.update(light.getLightLevel(), light.getWarmth(), light.isDawn(), appliedVisibilityRange, fogColour, skyStorm, cloudSeen);
 
         lightLevel = light.getLightLevel();
@@ -5487,10 +5518,9 @@ void SimulationModel::update()
         // ---- KYARA WEATHER AUDIO + LIGHTNING --------------------------------------------
         // Storm is DERIVED from the (already-synced) weather + visibility, so primary and
         // secondary agree without any extra network flag.
-        const irr::f32 STORM_WEATHER_MIN = 3.5f;   //tweak: sea state that switches the storm on
         // Visibility is NO LONGER required - storms happen without fog.
         //(Weather window: "none" never has a storm, "thunderstorm" always does)
-        bool stormActive = (significantWeather == 2) || (significantWeather == 0 && weather >= STORM_WEATHER_MIN);
+        bool stormActive = stormIsOn();   //(auto: sea state >= 3.5)
         // Interior bridge views (0/1) hear rain/storm muffled through the glass. Apply the muffle
                 // HERE so each volume is written exactly ONCE per frame. Writing it a second time later
                 // (in the inside/outside block) made the audio thread see two values per frame -> the hiss
@@ -5604,7 +5634,8 @@ void SimulationModel::update()
                     zMin, zMax, centreX, halfWidths, keels, true);
             }
         }
-        water.update(tideHeight, camera.getPosition(), light.getLightLevel(), weather, windDirection, rainIntensity); // KYARA HOULE: + wind direction for the FFT chop, KYARA METEO: + rain
+        //The rough sea goes dark and grey only under a stormy or overcast sky: in clear weather it stays blue
+        water.update(tideHeight, camera.getPosition(), light.getLightLevel(), weather, windDirection, rainIntensity, stormIsOn() ? 1.0f : cloudCover); // KYARA HOULE: + wind direction for the FFT chop, KYARA METEO: + rain
         {
             // KYARA HOULE: hand the same swell to the water shader
             irr::f32 comp[Swell::NCOMP * 4];

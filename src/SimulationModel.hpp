@@ -783,6 +783,7 @@ private:
     WeatherState weatherFrontBase;     //the weather before the front, to come back to
     void applyWeatherState(const WeatherState& state);
     void stopWeatherChanges();
+    bool stormIsOn() const;   //thunderstorm look and sound: during a change towards a storm, only once the sea and wind have built
     void updateWeatherDynamics(irr::f32 deltaTime);
     Snow snow;
     irr::f32 streamOverrideDirection; //0-360
