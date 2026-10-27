@@ -635,6 +635,11 @@ void SimulationModel::setMotionScale(irr::f32 scale) {
     motionScale = scale;
 }
 
+irr::f32 SimulationModel::getLoadFactor() const {
+    const irr::f32 lightKg = ownShip.getEstimatedDisplacement();
+    return lightKg > 0 ? lightKg / (lightKg + cargoLoad * 1000.0f) : 1.0f;
+}
+
 irr::f32 SimulationModel::getMotionScale() const {
     return motionScale;
 }

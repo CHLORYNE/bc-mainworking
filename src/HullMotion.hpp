@@ -79,6 +79,10 @@ public:
     bool consumeSlam(irr::f32& severity, irr::f32& bowSpeed);
     irr::f32 getSlamPitchAngle() const;   // deg, the trigger angle for this hull
 
+    //Load: lightship mass / loaded mass (1 = light). A loaded ship is heavier: slower, steadier
+    //heave, pitch and roll.
+    void setLoadFactor(irr::f32 f) { loadFactor = f < 0.2f ? 0.2f : (f > 1.0f ? 1.0f : f); }
+
     irr::f32 getHeavePeriod() const;
     irr::f32 getPitchPeriod() const;
     irr::f32 getRollPeriod() const;
@@ -88,6 +92,7 @@ private:
 
     Params prm;
     bool first;
+    irr::f32 loadFactor = 1.0f;
 
     // States (physical, unscaled)
     irr::f32 z, zDot;       // heave (m)

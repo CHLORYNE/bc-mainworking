@@ -109,6 +109,7 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
     sonar.setHeaveCompensation(IniFile::iniFileTou32(placementFile, "HeaveCompensation", 1) == 1);
     bgIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Background", 0), 0, BG_COUNT - 1);
     colourIndex = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Colours", 0), 0, COL_COUNT - 1);
+    intensity = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Intensity", 10), 2, 10);
     rebuildPalette();
 
     //For every pixel of the 360 picture: its angle and its range bin
@@ -235,6 +236,7 @@ void SonarWindow::savePlacement(bool isOpenNow)
     f << "HeaveCompensation=" << (sonar.heaveCompensation() ? 1 : 0) << std::endl;
     f << "Background=" << bgIndex << std::endl;
     f << "Colours=" << colourIndex << std::endl;
+    f << "Intensity=" << intensity << std::endl;
 }
 
 void SonarWindow::loadFonts(irr::f32 scale)
@@ -472,6 +474,8 @@ void SonarWindow::act(Action a)
     case A_BG_PREV: bgIndex = (bgIndex + BG_COUNT - 1) % BG_COUNT; rebuildPalette(); break;
     case A_BG_NEXT: bgIndex = (bgIndex + 1) % BG_COUNT; rebuildPalette(); break;
     case A_COL_PREV: colourIndex = (colourIndex + COL_COUNT - 1) % COL_COUNT; rebuildPalette(); break;
+    case A_FADE_DOWN: intensity = irr::core::max_(2, intensity - 1); rebuildPalette(); break;
+    case A_FADE_UP: intensity = irr::core::min_(10, intensity + 1); rebuildPalette(); break;
     case A_COL_NEXT: colourIndex = (colourIndex + 1) % COL_COUNT; rebuildPalette(); break;
     case A_SCROLL_SLOWER: sonar.setScrollSpeed(sonar.scrollSpeed() * 2); break;
     case A_SCROLL_FASTER: sonar.setScrollSpeed(sonar.scrollSpeed() / 2); break;
@@ -596,6 +600,9 @@ void SonarWindow::rebuildPalette()
             const int lo = bright ? 200 : 70, hi = bright ? 0 : 255;
             r = g = b = (int)(lo + (hi - lo) * t);
         }
+        //Intensity: the echoes faded towards the background (easier on the eyes, night or day)
+        const irr::f32 f = intensity / 10.0f;
+        r = (int)(bg[0] + (r - bg[0]) * f); g = (int)(bg[1] + (g - bg[1]) * f); b = (int)(bg[2] + (b - bg[2]) * f);
         palette[v] = argb(r, g, b);
     }
     paletteSerial++;
@@ -831,6 +838,7 @@ void SonarWindow::drawPanel()
     section(L"AFFICHAGE");
     y = panelRow(y, L"Fond", BG_NAMES[bgIndex], A_BG_PREV, A_BG_NEXT, L"<", L">");
     y = panelRow(y, L"Couleurs", COL_NAMES[colourIndex], A_COL_PREV, A_COL_NEXT, L"<", L">");
+    y = panelRow(y, L"Intensit\u00E9", fmt(L"%.0f %%", intensity * 10.0f), A_FADE_DOWN, A_FADE_UP);
     {
         const irr::f32 bh = 12 * k;
         fontSmall->drawIn(L"faible", irr::core::rect<irr::f32>(x0, y, x0 + 60 * k, y + 18 * k), DIM, HudFont::Left);

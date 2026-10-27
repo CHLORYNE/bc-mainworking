@@ -567,6 +567,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 model->setWeather(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 10.0); // Scroll bar 0-120, weather 0-12
             }
+            if (id == GUIMain::GUI_ID_CARGO_LOAD_SCROLL_BAR)
+            {
+                //0..100: up to twice her light displacement
+                const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+                model->setCargoLoad(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 100.0f * 2.0f * lightT);
+            }
             if (id == GUIMain::GUI_ID_MOTION_SCALE_SCROLL_BAR) // KYARA HOULE
             {
                 model->setMotionScale(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 100.0f); // 0-150 -> 0-1.5

@@ -958,6 +958,17 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         motionScaleScrollbar = r.bar; motionScaleValue = r.value;
         motionScaleScrollbar->setPos(60); //60 % by default, as the model
     }
+    //Stability: the load aboard (shown on the VUE page of CONTROLES)
+    {
+        SliderRow r = addSliderRow(extraControlsTabWeather, 6,
+            L"Stabilit\u00E9", GUI_ID_CARGO_LOAD_SCROLL_BAR,
+            0, 100, 2, 10, COL_SEASTATE,
+            L"Le chargement du navire, en tonnes.");
+        cargoLoadScrollbar = r.bar; cargoLoadValue = r.value;
+        cargoLoadScrollbar->setPos(0);
+        cargoLoadScrollbar->setVisible(false);
+        cargoLoadValue->setVisible(false);
+    }
     // KYARA HOULE: read-only line describing the sea the weather has produced, row 7.
     {
         const irr::s32 by = row0Y + 7 * rowPitch;
@@ -1520,12 +1531,26 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         }
 
         //View
-        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.");
+        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.",
+            [this]() {
+                std::vector<ControlsPanel::Readout> out;
+                if (!this->model) { return out; }
+                const irr::f32 lightT = this->model->getOwnShipMassEstimate() / 1000.0f;
+                wchar_t buf[64];
+                swprintf(buf, 64, L"%.0f t", lightT);
+                out.push_back({ L"D\u00E9placement l\u00E8ge", buf, 0 });
+                swprintf(buf, 64, L"%.0f t", this->model->getCargoLoad());
+                out.push_back({ L"Chargement", buf, 0 });
+                swprintf(buf, 64, L"%.0f t", lightT + this->model->getCargoLoad());
+                out.push_back({ L"D\u00E9placement en charge", buf, 0 });
+                return out;
+            });
         cp->setGroup(tView, L"Affichage");
         if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
-        if (motionScaleScrollbar) {
-            cp->addSlider(tView, L"Mouvement du navire", L"La force du tangage et du roulis \u00E0 l'\u00E9cran. 100 % = comme en vrai. Moins = plus doux, pour ne pas avoir le mal de mer devant l'\u00E9cran. Seule l'image change : le comportement du navire reste le m\u00EAme.",
-                motionScaleScrollbar, motionScaleValue);
+        if (cargoLoadScrollbar) {
+            cp->addSlider(tView, L"Stabilit\u00E9", L"Le chargement du navire en tonnes : cargaison, carburant, eau. Plus il est charg\u00E9, plus il est lourd : "
+                L"il roule et tangue plus lentement et moins fort dans la houle. \u00C0 l\u00E8ge (0 t), ses mouvements sont vifs. Jusqu'\u00E0 deux fois son d\u00E9placement l\u00E8ge.",
+                cargoLoadScrollbar, cargoLoadValue);
         }
 
         //COLREG lights of any vessel
@@ -3246,6 +3271,14 @@ void GUIMain::updateGuiData(GUIData* guiData)
     rainScrollbar->setPos(Utilities::round(guiData->rain * 10.0)); //(Rain scroll bar is 0-100, rain is 0-10)
     visibilityScrollbar->setPos(Utilities::round(guiData->visibility * 10.0)); //Visibility scroll bar is 0-100, visibility is near 0 to 10 Nm
     if (motionScaleScrollbar) { motionScaleScrollbar->setPos(Utilities::round(guiData->motionScale * 100.0f)); } // KYARA HOULE
+    //Stability: the load aboard, against her light displacement
+    if (cargoLoadValue && model) {
+        const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+        wchar_t lb[64];
+        swprintf(lb, 64, lightT < 20 ? L"%.1f t" : L"%.0f t", model->getCargoLoad());
+        cargoLoadValue->setText(lb);
+        if (cargoLoadScrollbar && lightT > 0) { cargoLoadScrollbar->setPos(Utilities::round(100.0f * model->getCargoLoad() / (2.0f * lightT))); }
+    }
 
     windDirectionScrollbar->setPos(Utilities::round(guiData->windDirection));
     windSpeedScrollbar->setPos(Utilities::round(guiData->windSpeed));

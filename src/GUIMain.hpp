@@ -268,6 +268,7 @@ public:
         GUI_ID_THUNDER_CHECKBOX,
         GUI_ID_LIGHTNING_CHECKBOX,
         GUI_ID_MOTION_SCALE_SCROLL_BAR, // KYARA HOULE
+        GUI_ID_CARGO_LOAD_SCROLL_BAR,   //Stabilite: the load aboard, 0..100 % of twice her light displacement
         GUI_ID_WINDDIRECTION_SCROLL_BAR,
         GUI_ID_WINDSPEED_SCROLL_BAR,
         GUI_ID_STREAMDIRECTION_SCROLL_BAR,
@@ -704,6 +705,8 @@ private:
     irr::gui::IGUIStaticText* weatherValue;
     irr::gui::IGUIScrollBar* motionScaleScrollbar = 0; // KYARA HOULE
     irr::gui::IGUIStaticText* motionScaleValue = 0;    // KYARA HOULE
+    irr::gui::IGUIScrollBar* cargoLoadScrollbar = 0;   //Stabilite
+    irr::gui::IGUIStaticText* cargoLoadValue = 0;
     irr::gui::IGUIStaticText* swellInfoText = 0;       // KYARA HOULE: "Houle 1.2 m - 7 s - du 270"
     irr::gui::IGUIStaticText* rainValue;
     irr::gui::IGUIStaticText* visibilityValue;

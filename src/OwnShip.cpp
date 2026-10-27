@@ -2616,6 +2616,7 @@ void OwnShip::update(irr::f32 deltaTime, irr::f32 scenarioTime, irr::f32 tideHei
     // them, and what the GUI shows). Irrlicht's X rotation is + bow DOWN and its Z rotation is
     // + starboard UP, hence the minus signs when building the node rotation. (The old code passed
     // the wave slope straight through, so the bow actually dipped INTO an oncoming crest.)
+    hullMotion.setLoadFactor(model->getLoadFactor());
     hullMotion.update(model, deltaTime, xPos, zPos, hdg, model->getMotionScale());
 
     const irr::f32 heave = hullMotion.getHeave();

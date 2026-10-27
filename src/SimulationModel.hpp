@@ -209,6 +209,11 @@ public:
     // KYARA HOULE: swell and instructor motion scale
     const Swell& getSwell() const;
     void setMotionScale(irr::f32 scale); // 0..1.5, 1 = realistic (pitch/roll shown to the trainee)
+    //Stability: what the ship carries (cargo, fuel, water), tonnes. The more she carries, the
+    //heavier she is, and the slower and steadier her motion in a sea.
+    void setCargoLoad(irr::f32 tonnes) { cargoLoad = tonnes < 0 ? 0 : tonnes; }
+    irr::f32 getCargoLoad() const { return cargoLoad; }
+    irr::f32 getLoadFactor() const;
     irr::f32 getMotionScale() const;
     void getSwellNetworkState(irr::f32 out[Swell::NET_FIELDS]) const;   // primary -> network
     void applySwellNetworkState(const irr::f32 in[Swell::NET_FIELDS]);  // network -> secondary
@@ -815,6 +820,7 @@ private:
     ScreenSpray screenSpray; // KYARA SLAM: water on the wheelhouse glass
     bool viewIsInside() const; // KYARA SLAM: wheelhouse views (see bc5 view list)
     irr::f32 motionScale;  // KYARA HOULE: instructor motion scale, 1 = realistic
+    irr::f32 cargoLoad = 0;   //tonnes aboard beyond her light displacement
     Tide tide;
     Rain rain;
     Lines lines;
