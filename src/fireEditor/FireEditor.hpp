@@ -56,7 +56,8 @@ private:
 
     // --- edits
     bool onGuiEvent(const irr::SEvent::SGUIEvent& e);
-    void onEditChanged(irr::s32 id, const std::wstring& text);
+    int onEditChanged(irr::s32 id, const std::wstring& text);   // 1 read, 0 unreadable (old value kept), -1 not a value field
+    void markUnreadable(irr::gui::IGUIEditBox* box, bool unreadable);
     void onComboChanged(irr::s32 id, irr::gui::IGUIComboBox* box);
     void onButton(irr::s32 id);
     void clickMap(irr::core::position2di at);
