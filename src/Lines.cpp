@@ -227,6 +227,23 @@ void Lines::setSelectedLine(int lineID) {
 
 }
 
+int Lines::getAnchorLine() const {
+    for (size_t i = 0; i < lines.size(); i++) { if (lines[i].isAnchor()) { return (int)i; } }
+    return -1;
+}
+
+void Lines::setAnchorLine(int lineID) {
+    if (lineID >= 0 && lineID < (int)lines.size()) { lines[lineID].setAnchor(true); }
+}
+
+irr::f32 Lines::getLineTension(int lineID) const {
+    return (lineID >= 0 && lineID < (int)lines.size()) ? lines[lineID].getTension() : 0.0f;
+}
+
+irr::f32 Lines::getLineActualLength(int lineID) const {
+    return (lineID >= 0 && lineID < (int)lines.size()) ? lines[lineID].getActualLength() : 0.0f;
+}
+
 int Lines::getSelectedLine() const {
     return selectedLine;
 }

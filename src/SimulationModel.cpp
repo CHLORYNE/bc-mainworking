@@ -4799,6 +4799,85 @@ Lines* SimulationModel::getLines() // Get pointer to lines object
     return &lines;
 }
 
+bool SimulationModel::isAnchorDown() const
+{
+    return lines.getAnchorLine() >= 0;
+}
+
+bool SimulationModel::isAnchorHeaving() const
+{
+    const int a = lines.getAnchorLine();
+    return a >= 0 && const_cast<Lines&>(lines).getHeaveIn(a);
+}
+
+bool SimulationModel::dropAnchor(irr::f32 scope)
+{
+    irr::scene::ISceneNode* shipNode = ownShip.getSceneNode();
+    irr::scene::ISceneNode* terrainNode = getTerrainSceneNode(0);
+    if (isAnchorDown() || !shipNode || !terrainNode) { return false; }
+    shipNode->updateAbsolutePosition();
+    const irr::f32 scale = shipNode->getScale().X > 0 ? shipNode->getScale().X : 1.0f;
+
+    //The hawse pipe: at the stem, a couple of metres above the waterline (ship-node frame, metres)
+    irr::f32 zMin = 0, zMax = 0, centreX = 0, halfWidths[OwnShip::HULL_STATIONS], keels[OwnShip::HULL_STATIONS];
+    irr::core::vector3df hawseM(0.0f, 2.0f, getOwnShipLengthM() * 0.45f);
+    if (ownShip.getHullWaterline(zMin, zMax, centreX, halfWidths, keels)) {
+        hawseM = irr::core::vector3df(centreX, keels[OwnShip::HULL_STATIONS - 1] + 2.0f, zMax - 0.03f * (zMax - zMin));
+    }
+    irr::scene::ISceneNode* hawse = smgr->addSphereSceneNode(0.25f, 8, shipNode, -1, hawseM / scale, irr::core::vector3df(0, 0, 0),
+        irr::core::vector3df(1.0f / scale, 1.0f / scale, 1.0f / scale));
+    hawse->setName(shipNode->getName());
+    hawse->setVisible(false);
+    hawse->updateAbsolutePosition();
+
+    //Where it bites: the sea bed straight below
+    irr::core::vector3df bed = hawse->getAbsolutePosition();
+    const irr::f32 seabed = getTerrainHeight(bed.X, bed.Z);
+    if (seabed >= bed.Y - 1.0f) { hawse->remove(); return false; }   //(no water under the bow)
+    bed.Y = seabed;
+    irr::core::vector3df local(bed);
+    irr::core::matrix4 worldToLocal = terrainNode->getAbsoluteTransformation();
+    worldToLocal.makeInverse();
+    worldToLocal.transformVect(local);
+    irr::scene::ISceneNode* anchorNode = smgr->addSphereSceneNode(0.25f, 8, terrainNode, -1, local);
+    anchorNode->setName(terrainNode->getName());
+    anchorNode->setVisible(false);
+    anchorDepth = hawse->getAbsolutePosition().Y - seabed;
+
+    lines.addLine(this);
+    const int id = lines.getNumberOfLines() - 1;
+    lines.setLineStart(hawse, 1, 0, false, id);
+    lines.setLineEnd(anchorNode, getOwnShipMassEstimate(), 5, 0, irr::core::max_(1.2f, scope), false, id);
+    lines.setAnchorLine(id);
+    //An anchor holds far more than one mooring line
+    lines.setLineBreakingTension(id, lines.getLineBreakingTension(id) * 3.0f);
+    wchar_t buf[96];
+    swprintf(buf, 96, L"Ancre mouill\u00E9e par %.0f m de fond, %.0f m de cha\u00EEne", anchorDepth, anchorDepth * scope);
+    logEvent(ExerciseLog::EV_INFO, buf);
+    return true;
+}
+
+void SimulationModel::heaveAnchor(bool on)
+{
+    const int a = lines.getAnchorLine();
+    if (a >= 0) { lines.setHeaveIn(a, on); lines.setKeepSlack(a, false); }
+}
+
+void SimulationModel::setAnchorScope(irr::f32 scope)
+{
+    const int a = lines.getAnchorLine();
+    if (a >= 0 && anchorDepth > 0) { lines.setLineNominalLength(a, anchorDepth * irr::core::max_(1.2f, scope)); }
+}
+
+void SimulationModel::weighAnchor()
+{
+    const int a = lines.getAnchorLine();
+    if (a < 0) { return; }
+    if (lines.getSelectedLine() == a) { lines.setSelectedLine(-1); }
+    lines.removeLine(a);
+    logEvent(ExerciseLog::EV_INFO, L"Ancre lev\u00E9e");
+}
+
 void SimulationModel::updateCameraVRPos(irr::core::quaternion quat, irr::core::vector3df pos, irr::core::vector2df lensShift)
 {
     camera.update(0, quat, pos, lensShift, true);
@@ -4988,6 +5067,11 @@ void SimulationModel::update()
         IPROF("Update lines");
         //update all lines, ready to be used for own ship force
         lines.update(deltaTime);
+        //The anchor hove in until the cable is up and down: it breaks out and comes home
+        {
+            const int a = lines.getAnchorLine();
+            if (a >= 0 && lines.getHeaveIn(a) && lines.getLineNominalLength(a) <= anchorDepth * 1.08f + 1.0f) { weighAnchor(); }
+        }
         // Kyara REMORQUAGE: apply tow constraints from taut ship-to-ship lines,
         // after line geometry is fresh and before own ship integrates the line force.
         updateTows(deltaTime);

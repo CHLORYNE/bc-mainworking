@@ -717,6 +717,15 @@ public:
     void addLine(); // Add a line, which will be undefined
 
     Lines* getLines(); // Get pointer to lines object
+    //The anchor: let go from the bow onto the sea bed below, with scope x the depth of cable; hove
+    //in (it comes up by itself once the cable is short); taken off at once. Status for the page.
+    bool dropAnchor(irr::f32 scope);
+    void heaveAnchor(bool on);
+    bool isAnchorHeaving() const;
+    void weighAnchor();
+    void setAnchorScope(irr::f32 scope);
+    bool isAnchorDown() const;
+    irr::f32 getAnchorDepth() const { return anchorDepth; }
 
     void updateCameraVRPos(irr::core::quaternion quat, irr::core::vector3df pos, irr::core::vector2df lensShift);
 
@@ -809,6 +818,7 @@ private:
     Tide tide;
     Rain rain;
     Lines lines;
+    irr::f32 anchorDepth = 0;   //water under the hawse when the anchor went down (m)
     RadarCalculation radarCalculation;
     RadarScreen radarScreen;
     ControlVisualiser portEngineVisual;

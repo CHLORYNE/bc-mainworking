@@ -371,6 +371,11 @@ public:
         GUI_ID_SONAR_BUTTON,
         GUI_ID_STATION_BUTTON,
         GUI_ID_LINES_COMBO,              //the line chosen on the AMARRES page of CONTROLES
+        GUI_ID_ANCHOR_DROP,              //AMARRES page: let go the anchor, heave in, weigh, cable length
+        GUI_ID_ANCHOR_HEAVE,
+        GUI_ID_ANCHOR_WEIGH,
+        GUI_ID_ANCHOR_SCOPE,
+        GUI_ID_LINES_RELEASE_ALL,
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
         //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
@@ -867,6 +872,12 @@ private:
     irr::gui::IGUICheckBox* anchorLine;
     irr::gui::IGUIListBox* linesList;
     irr::gui::IGUIComboBox* linesCombo = 0;   //"Aucune" then the lines: the choice on the AMARRES page
+    irr::gui::IGUIComboBox* anchorScopeCombo = 0;   //cable: 3, 5 or 7 times the depth
+    irr::core::rect<irr::s32> alertBoxRect;         //the alert list as last drawn (any click on it acknowledges)
+    irr::gui::IGUIStaticText* anchorText = 0;       //the anchor's state, on the AMARRES page
+public:
+    irr::f32 getAnchorScope() const { return anchorScopeCombo ? 3.0f + 2.0f * anchorScopeCombo->getSelected() : 5.0f; }
+private:
     irr::gui::IGUIStaticText* linesText;
 
     irr::gui::IGUIStaticText* pump1On;

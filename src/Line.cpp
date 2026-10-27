@@ -426,6 +426,9 @@ void Line::update(irr::f32 deltaTime) // Calculate the force and torque acting o
 
         }
 
+        lastTension = forceMagnitude;
+        lastActualLength = lineActualLength;
+
         // Debugging output
         //std::cout << "Line tension: " << forceMagnitude << " Nominal length: " << lineNominalLength << " Actual distance: " << lineActualLength << std::endl;
         
@@ -479,25 +482,31 @@ void Line::update(irr::f32 deltaTime) // Calculate the force and torque acting o
             lineVisualisation1->setPosition((startPosAbs + lineCentrePoint)/2.0);
             lineVisualisation2->setPosition((lineCentrePoint + endPosAbs)/2.0);
 
-            irr::video::SColor lineColour = irr::video::SColor(255, 255, 255, 255);
-            
-            // set x & y size based on strength what's selected
+            //Its colour tells its load at a glance: slack yellow (an anchor cable: steel grey),
+            //working orange, near breaking red. Drawn unlit, so it shows by day and by night.
+            const irr::f32 load = (lineBreakingTension > 0) ? irr::core::clamp(forceMagnitude / lineBreakingTension, 0.0f, 1.0f) : 0.0f;
+            const irr::video::SColor slack = anchor ? irr::video::SColor(255, 190, 196, 204) : irr::video::SColor(255, 255, 214, 40);
+            const irr::video::SColor working(255, 255, 140, 0), breaking(255, 255, 40, 30);
+            irr::video::SColor lineColour = (load < 0.5f) ? working.getInterpolated(slack, load / 0.5f)
+                                                          : breaking.getInterpolated(working, (load - 0.5f) / 0.5f);
+
+            // Thick enough to be seen from the bridge (a real hawser is a few cm, but would be a
+            // hair at this distance on screen); the chosen line thicker still
             irr::f32 xySize = 0;
             if (lineBreakingTension > 0) {
-                xySize = sqrt(lineBreakingTension) * 0.00001;
+                xySize = sqrt(lineBreakingTension) * 0.0003;
             }
-            if (xySize < 0.030) {
-                // Min size: 3cm
-                xySize = 0.030;
+            if (xySize < 0.12) {
+                xySize = 0.12;
             }
-            if (xySize > 0.300) {
-                // Max size: 30cm
-                xySize = 0.300;
+            if (xySize > 0.35) {
+                xySize = 0.35;
             }
             if (isSelected) {
-                xySize *= 2;
-                lineColour = irr::video::SColor(255, 255, 0, 0);
+                xySize *= 1.8f;
             }
+            lineVisualisation1->setMaterialFlag(irr::video::EMF_LIGHTING, false);
+            lineVisualisation2->setMaterialFlag(irr::video::EMF_LIGHTING, false);
             
             // Apply colour to vertex (TODO: Store scene manager, to reduce duplication)
             lineVisualisation1->getSceneManager()->getMeshManipulator()->setVertexColors(lineVisualisation1->getMesh(),lineColour);
