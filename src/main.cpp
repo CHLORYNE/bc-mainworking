@@ -798,6 +798,8 @@ int main(int argc, char** argv)
     irr::f32 tanhFrictionFactor = IniFile::iniFileTof32(iniFilename, "contactFriction_tanhFactor", 1); //Contact friction factor (Generally 1-100)
     if (frictionCoefficient < 0) { frictionCoefficient = 0; }
     if (frictionCoefficient > 1) { frictionCoefficient = 1; }
+    irr::f32 stoppingTime = IniFile::iniFileTof32(iniFilename, "stopping_time", 0); //seconds, 0 = off
+    if (stoppingTime < 0) { stoppingTime = 0; }
     if (tanhFrictionFactor < 0) { tanhFrictionFactor = 0; }
 
 
@@ -1534,6 +1536,7 @@ int main(int argc, char** argv)
     modelParameters.contactStiffnessFactor = contactStiffnessFactor;
     modelParameters.contactDampingFactor = contactDampingFactor;
     modelParameters.frictionCoefficient = frictionCoefficient;
+    modelParameters.stoppingTime = stoppingTime;
     modelParameters.tanhFrictionFactor = tanhFrictionFactor;
     modelParameters.lineStiffnessFactor = lineStiffnessFactor;
     modelParameters.lineDampingFactor = lineDampingFactor;

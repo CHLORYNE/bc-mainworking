@@ -666,6 +666,28 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
     // Start in engine control mode
     controlMode = MODE_ENGINE;
 
+    //bc5.ini stopping_time: the same stopping time for every own ship. Drag that grows with the square
+    //of speed (all there is when boat.ini gives maxSpeedAhead) fades away at low speed, so she creeps
+    //on for minutes after the engines stop. A drag in proportion to speed, mass / tau, makes her speed
+    //fall like exp(-t / tau): with tau = stopping_time / 3, 90-95% of it is gone in stopping_time
+    //(sooner from high speed, where the square drag adds to it). The thrust is raised so her top
+    //speed stays what it was.
+    const irr::f32 stoppingTime = model->getModelParameters().stoppingTime;
+    if (stoppingTime > 0 && shipMass > 0) {
+        irr::f32 topSpeed = 0;
+        if (dynamicsSpeedA > 0) {
+            topSpeed = ((-1 * dynamicsSpeedB) + sqrt((dynamicsSpeedB * dynamicsSpeedB) - 4 * dynamicsSpeedA * -2 * maxForce)) / (2 * dynamicsSpeedA);
+        } else if (dynamicsSpeedB > 0) {
+            topSpeed = 2 * maxForce / dynamicsSpeedB;
+        }
+        const irr::f32 extraDrag = shipMass * 3.0f / stoppingTime;
+        dynamicsSpeedB += extraDrag;
+        maxForce += 0.5f * extraDrag * topSpeed; //per engine: she is simulated with two
+        device->getLogger()->log((irr::core::stringw("stopping_time from bc5.ini (s): ") + irr::core::stringw(stoppingTime)).c_str());
+        device->getLogger()->log((irr::core::stringw("dynamicsSpeedB, thrust per engine now: ") + irr::core::stringw(dynamicsSpeedB)
+            + irr::core::stringw(", ") + irr::core::stringw(maxForce)).c_str());
+    }
+
     // calculate max speed from dynamics parameters
     //  DEE this looks like it is in knots and not metres per second
     if (dynamicsSpeedA > 0) {

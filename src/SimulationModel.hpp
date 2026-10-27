@@ -88,6 +88,7 @@ public:
         irr::f32 lineStiffnessFactor;
         irr::f32 lineDampingFactor;
         irr::f32 frictionCoefficient;
+        irr::f32 stoppingTime = 0; //bc5.ini stopping_time: seconds for any own ship to lose her way, 0 = boat.ini alone
         irr::f32 tanhFrictionFactor;
         irr::u32 limitTerrainResolution;
         bool secondaryControlWheel;
