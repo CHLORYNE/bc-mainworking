@@ -6697,9 +6697,15 @@ void GUIMain::lightEditorAction(irr::s32 id)
     }
     else if (id >= GUI_ID_LEDIT_COLOUR_0 && id < GUI_ID_LEDIT_COLOUR_END) {
         lightEditColour = id - GUI_ID_LEDIT_COLOUR_0;
+        //Only a free light takes any colour: choosing one makes the next lamp added a free light
+        lightEditNewType = 0;
         //A free light selected in the list takes the colour at once
         if (lights && lights->setSelectedColour(LAMP_COLOURS[lightEditColour])) {
             setLightEditorStatus(std::wstring(L"Couleur du feu : ") + LAMP_COLOUR_NAMES[lightEditColour] + L" (non enregistr\u00E9).", false);
+        }
+        else {
+            setLightEditorStatus(std::wstring(L"Le prochain feu ajout\u00E9 sera un feu libre ") + LAMP_COLOUR_NAMES[lightEditColour] +
+                L". (Un feu r\u00E9glementaire garde sa couleur : t\u00EAte de m\u00E2t blanc, b\u00E2bord rouge...)", false);
         }
     }
     refreshLightEditor();
