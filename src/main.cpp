@@ -87,6 +87,13 @@ struct cMonitorsVec
     {
         EnumDisplayMonitors(0, 0, MonitorEnum, (LPARAM)this);
     }
+
+    //Whether screen i shows part of a window (the bridge view's window can span several screens)
+    bool showsWindow(size_t i, HWND window) const
+    {
+        RECT w, overlap;
+        return i < rcMonitors.size() && GetWindowRect(window, &w) && IntersectRect(&overlap, &w, &rcMonitors[i]);
+    }
 };
 
 //Unexpected stop: what happened and where (module and offset, then the calls that led there) goes to
@@ -1009,6 +1016,32 @@ int main(int argc, char** argv)
             }
         }
 
+        //Screens side by side without Eyefinity / Surround: span_screens=1 widens the window over the
+        //screens touching the chosen one on its left and right (same top and height), so that three
+        //TVs make one canvas, as Eyefinity would. The chosen screen is the middle one.
+        if (IniFile::iniFileTou32(iniFilename, "span_screens") == 1) {
+            const RECT middle = { windowX, windowY, windowX + (LONG)graphicsWidth, windowY + (LONG)graphicsHeight };
+            RECT span = middle;
+            int beside = 0;
+            for (size_t i = 0; i < Monitors.rcMonitors.size(); i++) {
+                const RECT& r = Monitors.rcMonitors[i];
+                if (r.top == middle.top && r.bottom == middle.bottom && (r.right == middle.left || r.left == middle.right)) {
+                    UnionRect(&span, &span, &r);
+                    beside++;
+                }
+            }
+            windowX = span.left;
+            windowY = span.top;
+            graphicsWidth = span.right - span.left;
+            graphicsHeight = span.bottom - span.top;
+            std::cout << "Spanning " << beside + 1 << " screen(s): " << graphicsWidth << " x " << graphicsHeight
+                << " at " << windowX << ", " << windowY << std::endl;
+            if (beside != 2) {
+                std::cerr << "span_screens: " << beside << " screen(s) found beside the middle one, 2 expected. In the Windows display settings "
+                    "the screens must be side by side, the same height, with their tops lined up." << std::endl;
+            }
+        }
+
     }
 #endif
 
@@ -1293,8 +1326,7 @@ int main(int argc, char** argv)
         if (consoleMonitor >= 0) {
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
-            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
-            if (consoleMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[consoleMonitor] != bridgeMonitor) {
+            if (consoleMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(consoleMonitor, mainWindow)) {
                 const RECT& r = monitors.rcMonitors[consoleMonitor];
                 guiMain.setConsoleScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Instrument console on screen " << consoleMonitor + 1 << std::endl;
@@ -1315,8 +1347,7 @@ int main(int argc, char** argv)
         if (radarMonitor >= 0) {
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
-            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
-            if (radarMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[radarMonitor] != bridgeMonitor && radarMonitor != consoleMonitor) {
+            if (radarMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(radarMonitor, mainWindow) && radarMonitor != consoleMonitor) {
                 const RECT& r = monitors.rcMonitors[radarMonitor];
                 guiMain.setRadarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Radar on screen " << radarMonitor + 1 << std::endl;
@@ -1337,8 +1368,7 @@ int main(int argc, char** argv)
         if (sonarMonitor >= 0) {
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
-            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
-            if (sonarMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[sonarMonitor] != bridgeMonitor &&
+            if (sonarMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(sonarMonitor, mainWindow) &&
                 sonarMonitor != consoleMonitor && sonarMonitor != radarMonitor) {
                 const RECT& r = monitors.rcMonitors[sonarMonitor];
                 guiMain.setSonarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
@@ -1360,8 +1390,7 @@ int main(int argc, char** argv)
         if (stationMonitor >= 0) {
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
-            const HMONITOR bridgeMonitor = MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST);
-            if (stationMonitor < (int)monitors.hMonitors.size() && monitors.hMonitors[stationMonitor] != bridgeMonitor &&
+            if (stationMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(stationMonitor, mainWindow) &&
                 stationMonitor != consoleMonitor && stationMonitor != radarMonitor && stationMonitor != sonarMonitor) {
                 const RECT& r = monitors.rcMonitors[stationMonitor];
                 guiMain.setStationScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
