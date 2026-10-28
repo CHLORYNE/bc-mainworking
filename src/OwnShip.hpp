@@ -213,6 +213,10 @@ public:
     void setCollisionStop(bool active);
 
     irr::f32 getShipMass() const;
+    //Her light displacement from her hull alone (waterplane inside the waterline outline x her
+    //draught there), kg; 0 if the outline could not be measured. Gear (a net, booms, a mast) is
+    //left out, unlike the bounding-box estimate.
+    irr::f32 getHullDisplacement() const { return hullDisplacement; }
     irr::f32 getScaleFactor() const;
     //Live change of size / waterline: hull, lamps, hull mask, views and radar screen follow.
     //Her handling (mass, inertia, drag) is set up at load: restart the scenario for that.
@@ -390,6 +394,7 @@ private:
     HullMotion hullMotion;
     bool hullWlValid;
     irr::f32 hullWlZMin, hullWlZMax, hullWlWaterline;
+    irr::f32 hullDisplacement = 0;
     irr::f32 hullWlHalf[HULL_STATIONS];
     irr::f32 hullWlCentre[HULL_STATIONS];
     void measureHullWaterline();

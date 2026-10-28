@@ -570,7 +570,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             if (id == GUIMain::GUI_ID_CARGO_LOAD_SCROLL_BAR)
             {
                 //0..100: up to twice her light displacement
-                const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+                const irr::f32 lightT = model->getOwnShipLightDisplacement() / 1000.0f;
                 model->setCargoLoad(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 100.0f * 2.0f * lightT);
             }
             if (id == GUIMain::GUI_ID_MOTION_SCALE_SCROLL_BAR) // KYARA HOULE

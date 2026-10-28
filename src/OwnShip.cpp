@@ -30,6 +30,8 @@
 #include <cstdlib> //For rand(), atoi()
 #include <cctype>  //For tolower()
 #include <algorithm>
+#include <functional>
+#include <map>
 
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
@@ -3293,9 +3295,53 @@ void OwnShip::measureHullWaterline()
             }
             if (n < 2) { continue; }
             cuts.push_back({ cut[0].X, cut[0].Y, cut[1].X, cut[1].Y });
-            zLo = std::min(zLo, std::min(cut[0].Y, cut[1].Y));
-            zHi = std::max(zHi, std::max(cut[0].Y, cut[1].Y));
         }
+    }
+
+    //Keep her hull only. Segments sharing an end form the waterline outlines of separate parts of
+    //the model: her hull, and any gear in the water (a net astern, a boom dipping alongside). The
+    //hull is the outline round her reference point (the node origin, where models are centred),
+    //with any piece that overlaps it; with none round the origin, everything is kept as before.
+    if (!cuts.empty()) {
+        std::vector<int> parent(cuts.size());
+        for (size_t i = 0; i < cuts.size(); i++) { parent[i] = (int)i; }
+        std::function<int(int)> root = [&](int i) { return parent[i] == i ? i : (parent[i] = root(parent[i])); };
+        std::map<std::pair<long long, long long>, int> endAt; //ends rounded to 1 cm
+        auto key = [](irr::f32 x, irr::f32 z) { return std::make_pair((long long)llroundf(x * 100.0f), (long long)llroundf(z * 100.0f)); };
+        for (size_t i = 0; i < cuts.size(); i++) {
+            for (const auto& k : { key(cuts[i].x0, cuts[i].z0), key(cuts[i].x1, cuts[i].z1) }) {
+                auto found = endAt.find(k);
+                if (found == endAt.end()) { endAt[k] = (int)i; } else { parent[root((int)i)] = root(found->second); }
+            }
+        }
+        //Each part's extent on the water
+        std::map<int, irr::core::rectf> extent;
+        for (size_t i = 0; i < cuts.size(); i++) {
+            const int r = root((int)i);
+            const irr::core::rectf seg(std::min(cuts[i].x0, cuts[i].x1), std::min(cuts[i].z0, cuts[i].z1),
+                std::max(cuts[i].x0, cuts[i].x1), std::max(cuts[i].z0, cuts[i].z1));
+            auto e = extent.find(r);
+            if (e == extent.end()) { extent[r] = seg; } else { e->second.addInternalPoint(seg.UpperLeftCorner); e->second.addInternalPoint(seg.LowerRightCorner); }
+        }
+        int hull = -1;
+        irr::f32 hullArea = 0;
+        for (const auto& e : extent) {
+            const irr::core::rectf& r = e.second;
+            const irr::f32 area = r.getWidth() * r.getHeight();
+            if (r.isPointInside(irr::core::position2df(0.0f, 0.0f)) && area > hullArea) { hull = e.first; hullArea = area; }
+        }
+        if (hull >= 0) {
+            const irr::core::rectf hullBox = extent[hull];
+            std::vector<Cut> kept;
+            for (size_t i = 0; i < cuts.size(); i++) {
+                if (extent[root((int)i)].isRectCollided(hullBox)) { kept.push_back(cuts[i]); }
+            }
+            cuts.swap(kept);
+        }
+    }
+    for (const Cut& c : cuts) {
+        zLo = std::min(zLo, std::min(c.z0, c.z1));
+        zHi = std::max(zHi, std::max(c.z0, c.z1));
     }
     if (cuts.empty() || zHi - zLo < 0.5f) {
         device->getLogger()->log("Hull waterline outline: none (no hull at the waterline)");
@@ -3359,6 +3405,53 @@ void OwnShip::measureHullWaterline()
         found++;
     }
     hullWlValid = (found >= 3);
+
+    //Her displacement from the hull itself: the waterplane inside her sides, times her draught
+    //(the deepest point of the model within that outline, so a keel counts but gear astern or
+    //alongside does not), times a vertical prismatic coefficient typical of small craft and
+    //fishing vessels.
+    hullDisplacement = 0;
+    if (hullWlValid) {
+        irr::f32 waterplane = 0;
+        for (int i = 0; i < HULL_STATIONS; i++) {
+            if (ok[i]) { waterplane += (right[i] - left[i]) * stationLength * ((i == 0 || i == HULL_STATIONS - 1) ? 0.5f : 1.0f); }
+        }
+        //Points over each triangle (corners, edge middles, centre): a coarse hull may have no
+        //vertex at all inside her outline, only at its ends
+        irr::f32 hullDraught = 0;
+        for (irr::u32 b = 0; mesh && b < mesh->getMeshBufferCount(); b++) {
+            const irr::scene::IMeshBuffer* mb = mesh->getMeshBuffer(b);
+            if (!mb || mb->getIndexCount() < 3) { continue; }
+            const bool idx32 = (mb->getIndexType() == irr::video::EIT_32BIT);
+            const irr::u16* i16 = mb->getIndices();
+            const irr::u32* i32 = (const irr::u32*)mb->getIndices();
+            for (irr::u32 t = 0; t + 2 < mb->getIndexCount(); t += 3) {
+                irr::core::vector3df v[3];
+                bool valid = true;
+                for (int k = 0; k < 3; k++) {
+                    const irr::u32 index = idx32 ? i32[t + k] : i16[t + k];
+                    if (index >= mb->getVertexCount()) { valid = false; break; }
+                    v[k] = mb->getPosition(index);
+                    m.transformVect(v[k]);
+                }
+                if (!valid || (v[0].Y >= 0.0f && v[1].Y >= 0.0f && v[2].Y >= 0.0f)) { continue; }
+                const irr::core::vector3df samples[7] = { v[0], v[1], v[2], (v[0] + v[1]) * 0.5f, (v[1] + v[2]) * 0.5f,
+                    (v[2] + v[0]) * 0.5f, (v[0] + v[1] + v[2]) / 3.0f };
+                for (const irr::core::vector3df& p : samples) {
+                    if (p.Y >= 0.0f || -p.Y <= hullDraught || p.Z < hullWlZMin || p.Z > hullWlZMax) { continue; }
+                    int st = (int)((p.Z - hullWlZMin) / stationLength + 0.5f);
+                    if (st < 0) { st = 0; }
+                    if (st >= HULL_STATIONS) { st = HULL_STATIONS - 1; }
+                    if (ok[st] && p.X >= left[st] - 0.2f && p.X <= right[st] + 0.2f) { hullDraught = -p.Y; }
+                }
+            }
+        }
+        const irr::f32 VERTICAL_PRISMATIC = 0.65f;
+        hullDisplacement = 1025.0f * waterplane * hullDraught * VERTICAL_PRISMATIC;
+        device->getLogger()->log((irr::core::stringw("Hull displacement (t), waterplane (m2), draught (m): ")
+            + irr::core::stringw(hullDisplacement / 1000.0f) + irr::core::stringw(", ") + irr::core::stringw(waterplane)
+            + irr::core::stringw(", ") + irr::core::stringw(hullDraught)).c_str());
+    }
     std::string log = "Hull waterline outline: ";
     log.append(hullWlValid ? "measured (" + std::to_string(found) + " stations)" : "none (no hull at the waterline)");
     device->getLogger()->log(log.c_str());

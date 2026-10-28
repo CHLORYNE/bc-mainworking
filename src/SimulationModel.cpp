@@ -635,8 +635,13 @@ void SimulationModel::setMotionScale(irr::f32 scale) {
     motionScale = scale;
 }
 
+irr::f32 SimulationModel::getOwnShipLightDisplacement() const {
+    const irr::f32 hull = ownShip.getHullDisplacement();
+    return hull > 0 ? hull : ownShip.getEstimatedDisplacement();
+}
+
 irr::f32 SimulationModel::getLoadFactor() const {
-    const irr::f32 lightKg = ownShip.getEstimatedDisplacement();
+    const irr::f32 lightKg = getOwnShipLightDisplacement();
     return lightKg > 0 ? lightKg / (lightKg + cargoLoad * 1000.0f) : 1.0f;
 }
 
@@ -4855,10 +4860,10 @@ bool SimulationModel::dropAnchor(irr::f32 scope)
     const irr::f32 scale = shipNode->getScale().X > 0 ? shipNode->getScale().X : 1.0f;
 
     //The hawse pipe: at the stem, a couple of metres above the waterline (ship-node frame, metres)
-    irr::f32 zMin = 0, zMax = 0, centreX = 0, halfWidths[OwnShip::HULL_STATIONS], keels[OwnShip::HULL_STATIONS];
+    irr::f32 zMin = 0, zMax = 0, waterlineY = 0, halfWidths[OwnShip::HULL_STATIONS], centres[OwnShip::HULL_STATIONS];
     irr::core::vector3df hawseM(0.0f, 2.0f, getOwnShipLengthM() * 0.45f);
-    if (ownShip.getHullWaterline(zMin, zMax, centreX, halfWidths, keels)) {
-        hawseM = irr::core::vector3df(centreX, keels[OwnShip::HULL_STATIONS - 1] + 2.0f, zMax - 0.03f * (zMax - zMin));
+    if (ownShip.getHullWaterline(zMin, zMax, waterlineY, halfWidths, centres)) {
+        hawseM = irr::core::vector3df(centres[OwnShip::HULL_STATIONS - 1], waterlineY + 2.0f, zMax - 0.03f * (zMax - zMin));
     }
     irr::scene::ISceneNode* hawse = smgr->addSphereSceneNode(0.25f, 8, shipNode, -1, hawseM / scale, irr::core::vector3df(0, 0, 0),
         irr::core::vector3df(1.0f / scale, 1.0f / scale, 1.0f / scale));
@@ -5115,7 +5120,28 @@ void SimulationModel::update()
         IPROF("Update own ship");
         //update own ship (the instructor camera has none of its own: it goes with the ship watched)
         if (modelParameters.spectator) { updateSpectator(); }
-        else { ownShip.update(deltaTime, scenarioTime, tideHeight, weather, lines.getOverallForceLocal(), lines.getOverallTorqueLocal()); }
+        else {
+            irr::core::vector3df linesForce = lines.getOverallForceLocal();
+            //Anchored: the cable lying on the sea bed drags whichever way she moves over the ground,
+            //and takes her way off. The anchor line alone pulls only once the cable is out to its
+            //full length and pulls nothing on the way back, so she surged to and fro on it.
+            if (isAnchorDown() && ownShip.getSceneNode() && getOwnShipMass() > 0) {
+                const irr::f32 ANCHOR_CHAIN_DRAG_TIME = 15.0f; //seconds for the cable to take most of her way off
+                const irr::f32 cog = getCOG() * irr::core::DEGTORAD;
+                const irr::core::vector3df velocity(sinf(cog) * getSOG(), 0.0f, cosf(cog) * getSOG()); //over the ground, m/s
+                //Into her own frame, as the lines' forces are (the node carries her ScaleFactor)
+                irr::scene::ISceneNode* own = ownShip.getSceneNode();
+                irr::core::matrix4 worldToLocal = own->getAbsoluteTransformation();
+                worldToLocal.makeInverse();
+                irr::core::vector3df p0 = own->getAbsolutePosition(), p1 = p0 + velocity;
+                worldToLocal.transformVect(p0);
+                worldToLocal.transformVect(p1);
+                irr::core::vector3df velocityLocal = (p1 - p0) * own->getScale().X;
+                velocityLocal.Y = 0.0f;
+                linesForce -= velocityLocal * (getOwnShipMass() / ANCHOR_CHAIN_DRAG_TIME);
+            }
+            ownShip.update(deltaTime, scenarioTime, tideHeight, weather, linesForce, lines.getOverallTorqueLocal());
+        }
 
         //KYARA ENGINE PITCH: drive engine pitch from actual speed through water, not throttle
         //lever position. Using speed (which only changes gradually, under the ship's own

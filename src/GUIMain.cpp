@@ -1535,7 +1535,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             [this]() {
                 std::vector<ControlsPanel::Readout> out;
                 if (!this->model) { return out; }
-                const irr::f32 lightT = this->model->getOwnShipMassEstimate() / 1000.0f;
+                const irr::f32 lightT = this->model->getOwnShipLightDisplacement() / 1000.0f;
                 wchar_t buf[64];
                 swprintf(buf, 64, L"%.0f t", lightT);
                 out.push_back({ L"D\u00E9placement l\u00E8ge", buf, 0 });
@@ -3273,7 +3273,7 @@ void GUIMain::updateGuiData(GUIData* guiData)
     if (motionScaleScrollbar) { motionScaleScrollbar->setPos(Utilities::round(guiData->motionScale * 100.0f)); } // KYARA HOULE
     //Stability: the load aboard, against her light displacement
     if (cargoLoadValue && model) {
-        const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+        const irr::f32 lightT = model->getOwnShipLightDisplacement() / 1000.0f;
         wchar_t lb[64];
         swprintf(lb, 64, lightT < 20 ? L"%.1f t" : L"%.0f t", model->getCargoLoad());
         cargoLoadValue->setText(lb);

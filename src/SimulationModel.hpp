@@ -215,6 +215,10 @@ public:
     void setCargoLoad(irr::f32 tonnes) { cargoLoad = tonnes < 0 ? 0 : tonnes; }
     irr::f32 getCargoLoad() const { return cargoLoad; }
     irr::f32 getLoadFactor() const;
+    //Her light displacement for the Stabilite page, kg: from the hull alone where it can be
+    //measured (the bounding-box estimate, which mooring lines and the anchor still use, counts
+    //her nets and gear too)
+    irr::f32 getOwnShipLightDisplacement() const;
     irr::f32 getMotionScale() const;
     void getSwellNetworkState(irr::f32 out[Swell::NET_FIELDS]) const;   // primary -> network
     void applySwellNetworkState(const irr::f32 in[Swell::NET_FIELDS]);  // network -> secondary
