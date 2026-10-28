@@ -567,6 +567,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 model->setWeather(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 10.0); // Scroll bar 0-120, weather 0-12
             }
+            if (id == GUIMain::GUI_ID_CARGO_LOAD_SCROLL_BAR)
+            {
+                //0..100: up to twice her light displacement
+                const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+                model->setCargoLoad(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 100.0f * 2.0f * lightT);
+            }
             if (id == GUIMain::GUI_ID_MOTION_SCALE_SCROLL_BAR) // KYARA HOULE
             {
                 model->setMotionScale(((irr::gui::IGUIScrollBar*)event.GUIEvent.Caller)->getPos() / 100.0f); // 0-150 -> 0-1.5
@@ -1154,6 +1160,36 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 gui->setLinesControlsText(std::wstring(L"Cliquer dans la vue 3D le point de d\u00E9part, sur le navire"));
             }
 
+            //The anchor (AMARRES page)
+            if (id == GUIMain::GUI_ID_ANCHOR_DROP)
+            {
+                if (!model->isAnchorDown()) {
+                    if (!model->dropAnchor(gui->getAnchorScope())) {
+                        gui->setLinesControlsText(std::wstring(L"Pas d'eau sous l'\u00E9trave : impossible de mouiller ici."));
+                    }
+                }
+                else if (model->isAnchorHeaving()) { model->heaveAnchor(false); }   //(stop heaving)
+            }
+            if (id == GUIMain::GUI_ID_ANCHOR_HEAVE)
+            {
+                if (model->isAnchorDown()) { model->heaveAnchor(!model->isAnchorHeaving()); }
+            }
+            if (id == GUIMain::GUI_ID_ANCHOR_WEIGH)
+            {
+                model->weighAnchor();
+            }
+            if (id == GUIMain::GUI_ID_LINES_RELEASE_ALL)
+            {
+                //Every mooring line let go; the anchor stays
+                Lines* l = model->getLines();
+                for (int i = l->getNumberOfLines() - 1; i >= 0; i--) {
+                    if (i != l->getAnchorLine()) { l->removeLine(i); }
+                }
+                l->setSelectedLine(-1);
+                linesMode = 0;
+                gui->setLinesControlsText("");
+            }
+
             if (id == GUIMain::GUI_ID_REMOVE_LINE_BUTTON)
             {
                 model->getLines()->removeLine(model->getLines()->getSelectedLine());
@@ -1168,6 +1204,12 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
 
         if (event.GUIEvent.EventType == irr::gui::EGET_COMBO_BOX_CHANGED)
         {
+
+            //AMARRES page: the anchor's cable, for the next anchoring and the one down now
+            if (id == GUIMain::GUI_ID_ANCHOR_SCOPE)
+            {
+                model->setAnchorScope(gui->getAnchorScope());
+            }
 
             //AMARRES page: the line the keys and switches act on (item 0 is "Aucune")
             if (id == GUIMain::GUI_ID_LINES_COMBO)

@@ -174,6 +174,7 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
     irr::f32 s = SIZE_AT_REF * std::pow(dClamped / REF_DIST, SIZE_POWER) * REF_DIST * 0.0035f * zoomFactor;
 
     s *= parentScaleFix;
+    if (editVisible >= 0) { s *= 1.8f; }   //larger while lamps are being placed, so their colour shows
     lightNode->setScale(irr::core::vector3df(s, s, s));
 
     //set light visibility depending on range
@@ -268,6 +269,17 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
 
     irr::f32 b = bAmbient * bRange * bFog;   // KYARA: fog folded in as pure dimming
 
+    //While lamps are being placed the core is drawn solid in its own colour: added to a white
+    //superstructure in daylight, a red lamp would add up to white and its colour could not be seen.
+    const bool solid = (editVisible >= 0);
+    if (solid != coreSolid) {
+        lightNode->setMaterialType(solid ? irr::video::EMT_SOLID : irr::video::EMT_TRANSPARENT_ADD_COLOR);
+        lightNode->setMaterialFlag(irr::video::EMF_ZWRITE_ENABLE, solid);
+        coreSolid = solid;
+        currentAlpha = -1;
+    }
+    if (solid) { b = 1.0f; }
+
     // Halo share of the light: 0.25 in clear air, rising towards 0.70 in thick fog
     irr::f32 haloShare = 0.25f + HAZE_LIFT * haze;
 
@@ -277,17 +289,19 @@ void NavLight::update(irr::f32 scenarioTime, irr::u32 lightLevel) {
 
         irr::f32 bq = (irr::f32)bQuant / 32.0f;
 
+        //(brighter than the base colour at night: each channel stops at 255 rather than wrapping
+        //round to a dark value, which turned a red lamp brown)
         irr::video::SColor core(255,
-            (irr::u32)(baseColour.getRed() * bq),
-            (irr::u32)(baseColour.getGreen() * bq),
-            (irr::u32)(baseColour.getBlue() * bq));
+            (irr::u32)irr::core::min_(255.0f, baseColour.getRed() * bq),
+            (irr::u32)irr::core::min_(255.0f, baseColour.getGreen() * bq),
+            (irr::u32)irr::core::min_(255.0f, baseColour.getBlue() * bq));
 
         // Halo is dimmer than the core, but always the SAME hue - never blended
         // towards the fog colour, which is what used to grey the lights out.
         irr::video::SColor halo(255,
-            (irr::u32)(baseColour.getRed() * bq * haloShare),
-            (irr::u32)(baseColour.getGreen() * bq * haloShare),
-            (irr::u32)(baseColour.getBlue() * bq * haloShare));
+            (irr::u32)irr::core::min_(255.0f, baseColour.getRed() * bq * haloShare),
+            (irr::u32)irr::core::min_(255.0f, baseColour.getGreen() * bq * haloShare),
+            (irr::u32)irr::core::min_(255.0f, baseColour.getBlue() * bq * haloShare));
 
         smgr->getMeshManipulator()->setVertexColors(lightNode->getMesh(), core);
         smgr->getMeshManipulator()->setVertexColors(glowNode->getMesh(), halo);

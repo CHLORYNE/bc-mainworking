@@ -59,6 +59,20 @@ namespace station
             c.accentInk = rgb(255, 208, 64);
             return c;
         }
+        Colours makeDay()
+        {
+            //Day: a light Nord - snow-storm whites, polar-night lettering, frost-blue for what is
+            //chosen; strong contrast for a bright room
+            Colours c;
+            c.bg = rgb(236, 239, 244); c.nav = rgb(229, 233, 240); c.raised = rgb(216, 222, 233); c.navSel = rgb(206, 220, 238); c.rule = rgb(208, 214, 224);
+            c.edge = rgb(150, 162, 182); c.edge2 = rgb(194, 202, 215);
+            c.text = rgb(36, 41, 51); c.dim = rgb(67, 76, 94); c.faint = rgb(106, 116, 134);
+            c.accent = rgb(94, 129, 172); c.accentDim = rgb(214, 226, 242); c.accentText = rgb(30, 58, 100); c.tagText = rgb(255, 255, 255);
+            c.ok = rgb(60, 122, 52); c.warn = rgb(176, 104, 18); c.err = rgb(184, 52, 62); c.errDim = rgb(246, 218, 220); c.warnDim = rgb(248, 232, 206);
+            c.key = rgb(246, 248, 251); c.hover = rgb(224, 231, 242); c.selRow = rgb(206, 222, 242);
+            c.accentInk = rgb(62, 98, 146);
+            return c;
+        }
         Colours makeMarine()
         {
             //Black; lettering in starboard green, selection and alarms in port red
@@ -104,8 +118,9 @@ namespace station
 
     const Colours& colours()
     {
-        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital(), red = makeRed(), marine = makeMarine();
+        static const Colours navy = makeNavy(), night = makeNight(), digital = makeDigital(), red = makeRed(), marine = makeMarine(), day = makeDay();
         switch (bridge::currentMode()) {
+        case bridge::MODE_DAY: return day;
         case bridge::MODE_NIGHT: return night;
         case bridge::MODE_DIGITAL: return digital;
         case bridge::MODE_RED: return red;
@@ -372,7 +387,11 @@ namespace station
     {
         const Colours& c = colours();
         if (hover) { fill(d, r, c.hover, &clip); }
-        else if (odd) { fill(d, r, Colour(7, 255, 255, 255), &clip); }
+        else if (odd) {
+            //Every other row a shade apart: lighter on a dark page, darker on a light one
+            const bool light = c.bg.getLuminance() > 128.0f;
+            fill(d, r, light ? Colour(14, 40, 60, 100) : Colour(7, 255, 255, 255), &clip);
+        }
         if (active) { fill(d, Rect(r.UpperLeftCorner.X, r.UpperLeftCorner.Y, r.UpperLeftCorner.X + std::max(2.0f, 2 * k), r.LowerRightCorner.Y), c.accent, &clip); }
         hline(d, r.UpperLeftCorner.X, r.LowerRightCorner.X, r.LowerRightCorner.Y - 1, c.rule, &clip);
     }

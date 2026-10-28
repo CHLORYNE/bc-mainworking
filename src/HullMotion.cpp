@@ -183,9 +183,12 @@ void HullMotion::update(const SimulationModel* model, irr::f32 dt, irr::f32 x, i
         first = false;
     } else if (dt > 0.0f) {
         const irr::f32 TWO_PI = 6.2831853f;
-        integrate(z, zDot, heaveEq, TWO_PI / prm.heavePeriod, prm.heaveDamping, dt);
-        integrate(p, pDot, pitchEq, TWO_PI / prm.pitchPeriod, prm.pitchDamping, dt);
-        integrate(r, rDot, rollEq, TWO_PI / prm.rollPeriod, prm.rollDamping, dt);
+        //A loaded ship (more mass on the same hull) answers the sea more slowly: her natural
+        //periods grow as the square root of her mass
+        const irr::f32 slow = sqrtf(loadFactor);
+        integrate(z, zDot, heaveEq, slow * TWO_PI / prm.heavePeriod, prm.heaveDamping, dt);
+        integrate(p, pDot, pitchEq, slow * TWO_PI / prm.pitchPeriod, prm.pitchDamping, dt);
+        integrate(r, rDot, rollEq, slow * TWO_PI / prm.rollPeriod, prm.rollDamping, dt);
 
         const irr::f32 pMax = MAX_PITCH_DEG * irr::core::DEGTORAD;
         const irr::f32 rMax = MAX_ROLL_DEG * irr::core::DEGTORAD;
@@ -198,8 +201,10 @@ void HullMotion::update(const SimulationModel* model, irr::f32 dt, irr::f32 x, i
     // Instructor motion scale: displayed attitude only. Heave stays physical, otherwise a
     // reduced heave would let the swell crests swallow the hull.
     const irr::f32 ms = clampf(motionScale, 0.0f, 2.0f);
-    pitchShown = p * ms;
-    rollShown = r * ms;
+    //(and she heels and pitches a little less: deeper in the water, more of her to move)
+    const irr::f32 steadier = sqrtf(sqrtf(loadFactor));
+    pitchShown = p * ms * steadier;
+    rollShown = r * ms * steadier;
 
     // Anti-clip: find how far any crest rises above the deck edge at that sample, for the pose
     // actually shown. Only this excess is lifted, and smoothly - the old version lifted the

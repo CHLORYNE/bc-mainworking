@@ -67,6 +67,13 @@ class Lines
         irr::f32 getLineNominalShipMass(int lineID, bool networkLine = false);
         void setLineNominalShipMass(int lineID, irr::f32 lineNominalShipMass, bool networkLine = false);
         
+        //The anchor's cable, if the anchor is down (-1: none)
+        int getAnchorLine() const;
+        void setAnchorLine(int lineID);
+        //Tension (N), breaking tension (N) and length (m) of a line
+        irr::f32 getLineTension(int lineID) const;
+        irr::f32 getLineActualLength(int lineID) const;
+
         void update(irr::f32 deltaTime);
         irr::core::vector3df getOverallForceLocal(); // Find sum of forces on own ship in local coordinate system, call after update()
         irr::core::vector3df getOverallTorqueLocal(); // Find sum of torques on own ship in local coordinate system, call after update()

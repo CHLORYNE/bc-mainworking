@@ -958,6 +958,17 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         motionScaleScrollbar = r.bar; motionScaleValue = r.value;
         motionScaleScrollbar->setPos(60); //60 % by default, as the model
     }
+    //Stability: the load aboard (shown on the VUE page of CONTROLES)
+    {
+        SliderRow r = addSliderRow(extraControlsTabWeather, 6,
+            L"Stabilit\u00E9", GUI_ID_CARGO_LOAD_SCROLL_BAR,
+            0, 100, 2, 10, COL_SEASTATE,
+            L"Le chargement du navire, en tonnes.");
+        cargoLoadScrollbar = r.bar; cargoLoadValue = r.value;
+        cargoLoadScrollbar->setPos(0);
+        cargoLoadScrollbar->setVisible(false);
+        cargoLoadValue->setVisible(false);
+    }
     // KYARA HOULE: read-only line describing the sea the weather has produced, row 7.
     {
         const irr::s32 by = row0Y + 7 * rowPitch;
@@ -1520,12 +1531,26 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
         }
 
         //View
-        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.");
+        const int tView = cp->addTab(L"Vue", L"Ce que voit le stagiaire : la vue de la passerelle et les mouvements du navire.",
+            [this]() {
+                std::vector<ControlsPanel::Readout> out;
+                if (!this->model) { return out; }
+                const irr::f32 lightT = this->model->getOwnShipMassEstimate() / 1000.0f;
+                wchar_t buf[64];
+                swprintf(buf, 64, L"%.0f t", lightT);
+                out.push_back({ L"D\u00E9placement l\u00E8ge", buf, 0 });
+                swprintf(buf, 64, L"%.0f t", this->model->getCargoLoad());
+                out.push_back({ L"Chargement", buf, 0 });
+                swprintf(buf, 64, L"%.0f t", lightT + this->model->getCargoLoad());
+                out.push_back({ L"D\u00E9placement en charge", buf, 0 });
+                return out;
+            });
         cp->setGroup(tView, L"Affichage");
         if (show3d) { cp->addToggle(tView, L"Vue 3D", L"Afficher ou masquer la vue de la passerelle.", show3d); }
-        if (motionScaleScrollbar) {
-            cp->addSlider(tView, L"Mouvement du navire", L"La force du tangage et du roulis \u00E0 l'\u00E9cran. 100 % = comme en vrai. Moins = plus doux, pour ne pas avoir le mal de mer devant l'\u00E9cran. Seule l'image change : le comportement du navire reste le m\u00EAme.",
-                motionScaleScrollbar, motionScaleValue);
+        if (cargoLoadScrollbar) {
+            cp->addSlider(tView, L"Stabilit\u00E9", L"Le chargement du navire en tonnes : cargaison, carburant, eau. Plus il est charg\u00E9, plus il est lourd : "
+                L"il roule et tangue plus lentement et moins fort dans la houle. \u00C0 l\u00E8ge (0 t), ses mouvements sont vifs. Jusqu'\u00E0 deux fois son d\u00E9placement l\u00E8ge.",
+                cargoLoadScrollbar, cargoLoadValue);
         }
 
         //COLREG lights of any vessel
@@ -1780,29 +1805,69 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     linesCombo = guienv->addComboBox(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_LINES_COMBO);
     linesCombo->addItem(L"Aucune");
     linesCombo->setSelected(0);
+    //The anchor's keys and state (shown on the AMARRES page)
+    irr::gui::IGUIButton* anchorDropKey = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_ANCHOR_DROP, L"");
+    irr::gui::IGUIButton* anchorHeaveKey = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_ANCHOR_HEAVE, L"");
+    irr::gui::IGUIButton* anchorWeighKey = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_ANCHOR_WEIGH, L"");
+    irr::gui::IGUIButton* releaseAllKey = guienv->addButton(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_LINES_RELEASE_ALL, L"");
+    anchorScopeCombo = guienv->addComboBox(irr::core::rect<irr::s32>(0, 0, 10, 10), linesControlsWindow, GUI_ID_ANCHOR_SCOPE);
+    anchorScopeCombo->addItem(L"3 \u00D7 le fond");
+    anchorScopeCombo->addItem(L"5 \u00D7 le fond");
+    anchorScopeCombo->addItem(L"7 \u00D7 le fond");
+    anchorScopeCombo->setSelected(1);
+    anchorText = guienv->addStaticText(L"", irr::core::rect<irr::s32>(0, 0, 10, 10), false, true, linesControlsWindow);
     if (controlsPanel) {
+        //A line's state: its length, and its load against what breaks it
+        auto lineState = [this](int i) -> std::wstring {
+            Lines* l = this->model ? this->model->getLines() : 0;
+            if (!l || i < 0 || i >= l->getNumberOfLines()) { return std::wstring(); }
+            const irr::f32 breaking = l->getLineBreakingTension(i);
+            wchar_t buf[64];
+            swprintf(buf, 64, L"%.0f m \u00B7 charge %.0f %%", l->getLineActualLength(i), breaking > 0 ? 100.0f * l->getLineTension(i) / breaking : 0.0f);
+            return buf;
+        };
         const int tLines = controlsPanel->addTab(L"Amarres",
-            L"Amarres et remorques du navire propre. \u00AB Ajouter \u00BB, puis cliquer dans la vue 3D : d'abord le point sur le navire, "
-            L"ensuite le point \u00E0 terre ou sur l'autre navire. Choisir une amarre pour la garder mollie, la raidir ou la retirer.",
-            [this]() {
+            L"L'ancre et les amarres du navire propre. Ancre : \u00AB Mouiller \u00BB la laisse tomber de l'\u00E9trave sur le fond, avec la longueur de cha\u00EEne choisie ; "
+            L"\u00AB Virer \u00BB la reprend (elle remonte d'elle-m\u00EAme quand la cha\u00EEne est \u00E0 pic) ; \u00AB Lever \u00BB la remonte tout de suite. "
+            L"Amarre : \u00AB Ajouter \u00BB, puis cliquer dans la vue 3D d'abord le point sur le navire, ensuite le point \u00E0 terre, sur une bou\u00E9e ou sur l'autre navire. "
+            L"Une amarre se voit dans la vue : jaune molle, orange au travail, rouge pr\u00E8s de casser.",
+            [this, lineState]() {
                 std::vector<ControlsPanel::Readout> out;
                 if (!this->model || !this->model->getLines()) { return out; }
-                const int n = this->model->getLines()->getNumberOfLines();
+                Lines* l = this->model->getLines();
+                const int a = l->getAnchorLine();
+                out.push_back({ L"Ancre", a >= 0 ? (this->model->isAnchorHeaving() ? std::wstring(L"On vire") : std::wstring(L"Au fond")) : std::wstring(L"Haute"), a >= 0 ? 1 : 0 });
+                if (a >= 0) {
+                    const irr::f32 breaking = l->getLineBreakingTension(a);
+                    wchar_t buf[64];
+                    swprintf(buf, 64, L"%.0f m fil\u00E9s \u00B7 charge %.0f %%", l->getLineNominalLength(a), breaking > 0 ? 100.0f * l->getLineTension(a) / breaking : 0.0f);
+                    out.push_back({ L"Cha\u00EEne", buf, 0 });
+                }
+                const int n = l->getNumberOfLines() - (a >= 0 ? 1 : 0);
                 out.push_back({ L"Amarres", n > 0 ? std::to_wstring(n) : std::wstring(L"Aucune"), 0 });
-                const int sel = this->model->getLines()->getSelectedLine();
+                const int sel = l->getSelectedLine();
                 if (sel >= 0 && linesCombo && sel + 1 < (int)linesCombo->getItemCount()) {
-                    out.push_back({ L"Choisie", linesCombo->getItem(sel + 1), 1 });
+                    const irr::f32 breaking = l->getLineBreakingTension(sel);
+                    const bool high = breaking > 0 && l->getLineTension(sel) > 0.8f * breaking;
+                    out.push_back({ linesCombo->getItem(sel + 1), lineState(sel), high ? 2 : 1 });
                 }
                 return out;
             });
         controlsPanel->setGroup(tLines, L"Man\u0153uvre");
-        controlsPanel->addKeys(tLines, L"Amarre", L"Ajouter une amarre (puis cliquer ses deux points dans la vue 3D), ou retirer celle qui est choisie.",
-            { addLine, removeLine }, { L"Ajouter", L"Retirer" });
+        controlsPanel->addSection(tLines, L"Ancre");
+        controlsPanel->addKeys(tLines, L"Ancre", L"Mouiller : l'ancre tombe de l'\u00E9trave sur le fond. Virer : le guindeau reprend la cha\u00EEne. Lever : l'ancre remonte tout de suite.",
+            { anchorDropKey, anchorHeaveKey, anchorWeighKey }, { L"Mouiller", L"Virer", L"Lever" },
+            [this]() { return !this->model || !this->model->isAnchorDown() ? -1 : (this->model->isAnchorHeaving() ? 1 : 0); });
+        controlsPanel->addChoice(tLines, L"Longueur de cha\u00EEne", L"La cha\u00EEne fil\u00E9e, en fois la hauteur d'eau : 3 par beau temps, 5 d'ordinaire, 7 par mauvais temps. Change aussi celle d'une ancre d\u00E9j\u00E0 au fond.",
+            anchorScopeCombo);
+        controlsPanel->addText(tLines, anchorText, 1);
+        controlsPanel->addSection(tLines, L"Amarres");
+        controlsPanel->addKeys(tLines, L"Amarre", L"Ajouter une amarre (puis cliquer ses deux points dans la vue 3D), retirer celle qui est choisie, ou larguer toutes les amarres (pas l'ancre).",
+            { addLine, removeLine, releaseAllKey }, { L"Ajouter", L"Retirer", L"Tout larguer" });
         controlsPanel->addText(tLines, linesText, 2);
-        controlsPanel->addChoice(tLines, L"Amarre choisie", L"L'amarre que r\u00E8glent les lignes ci-dessous.", linesCombo);
+        controlsPanel->addChoice(tLines, L"Amarre choisie", L"L'amarre que r\u00E8glent les lignes ci-dessous. Elle est dessin\u00E9e plus \u00E9paisse dans la vue.", linesCombo);
         controlsPanel->addToggle(tLines, L"Garder mollie", L"L'amarre choisie file \u00E0 la demande : elle ne se tend pas.", keepLineSlack);
         controlsPanel->addToggle(tLines, L"Raidir", L"Le treuil reprend l'amarre choisie.", heaveLineIn);
-        controlsPanel->addToggle(tLines, L"Sur l'ancre", L"La prochaine amarre ajout\u00E9e part de l'ancre.", anchorLine);
     }
 
     //add radar buttons
@@ -3206,6 +3271,14 @@ void GUIMain::updateGuiData(GUIData* guiData)
     rainScrollbar->setPos(Utilities::round(guiData->rain * 10.0)); //(Rain scroll bar is 0-100, rain is 0-10)
     visibilityScrollbar->setPos(Utilities::round(guiData->visibility * 10.0)); //Visibility scroll bar is 0-100, visibility is near 0 to 10 Nm
     if (motionScaleScrollbar) { motionScaleScrollbar->setPos(Utilities::round(guiData->motionScale * 100.0f)); } // KYARA HOULE
+    //Stability: the load aboard, against her light displacement
+    if (cargoLoadValue && model) {
+        const irr::f32 lightT = model->getOwnShipMassEstimate() / 1000.0f;
+        wchar_t lb[64];
+        swprintf(lb, 64, lightT < 20 ? L"%.1f t" : L"%.0f t", model->getCargoLoad());
+        cargoLoadValue->setText(lb);
+        if (cargoLoadScrollbar && lightT > 0) { cargoLoadScrollbar->setPos(Utilities::round(100.0f * model->getCargoLoad() / (2.0f * lightT))); }
+    }
 
     windDirectionScrollbar->setPos(Utilities::round(guiData->windDirection));
     windSpeedScrollbar->setPos(Utilities::round(guiData->windSpeed));
@@ -4083,6 +4156,19 @@ void GUIMain::drawGUI()
         refreshInstrumentEditor();
     }
 
+    //The anchor's state on the AMARRES page
+    if (model && anchorText) {
+        std::wstring t = L"Ancre haute.";
+        const int a = model->getLines() ? model->getLines()->getAnchorLine() : -1;
+        if (a >= 0) {
+            wchar_t buf[128];
+            swprintf(buf, 128, model->isAnchorHeaving() ? L"On vire : %.0f m de cha\u00EEne pour %.0f m d'eau." : L"Au fond : %.0f m de cha\u00EEne pour %.0f m d'eau.",
+                model->getLines()->getLineNominalLength(a), model->getAnchorDepth());
+            t = buf;
+        }
+        if (t != anchorText->getText()) { anchorText->setText(t.c_str()); }
+    }
+
     //Multiplayer: what the instructor keeps for himself (see SimulationModel::getControlsByInstructor)
     if (model) {
         if (controlsPanel) { controlsPanel->setLocked(model->getControlsByInstructor()); }
@@ -4117,6 +4203,7 @@ void GUIMain::drawGUI()
                 else if (name == "Line to vessel") { fr = L"Vers un navire"; }
                 else if (name == "Line to buoy") { fr = L"Vers une bou\u00E9e"; }
                 else if (name == "Line to land" || name == "Line to terrain") { fr = L"Vers la terre"; }
+                else if (name == "Anchor") { fr = L"Ancre"; }
                 return std::to_wstring(i + 1) + L" \u00B7 " + fr;
             };
             bool same = linesCombo->getItemCount() == linesNames.size() + 1;
@@ -4881,7 +4968,9 @@ void GUIMain::selectLine(int index)
 
 bool GUIMain::ackKeyAt(irr::s32 x, irr::s32 y) const
 {
-    return ackAlarms && ackAlarms->isVisible() && ackAlarms->getAbsolutePosition().isPointInside(irr::core::position2di(x, y));
+    //The key, or anywhere on the alert list around it
+    return ackAlarms && ackAlarms->isVisible() &&
+        (ackAlarms->getAbsolutePosition().isPointInside(irr::core::position2di(x, y)) || alertBoxRect.isPointInside(irr::core::position2di(x, y)));
 }
 void GUIMain::togglePrimaryControls()
 {
@@ -5984,15 +6073,16 @@ void GUIMain::drawBridgeAlerts()
     irr::s32 w = (irr::s32)font->getDimension(title).Width;
     for (size_t i = 0; i < guiAlertText.size(); i++) { w = std::max(w, (irr::s32)font->getDimension(guiAlertText[i].c_str()).Width); }
     w += 28;
-    const irr::s32 keyH = lineH + 10;
-    if (ackKey) { w = std::max(w, (irr::s32)font->getDimension(L"ACQUITTER").Width + 60); }
+    const irr::s32 keyH = lineH + 22;   //a key big enough to hit at once
+    if (ackKey) { w = std::max(w, (irr::s32)font->getDimension(L"ACQUITTER").Width + 120); }
     //Over the bridge view, top left; with the large radar, in the free column left of the scope
     const irr::s32 x = 12;
     const irr::s32 y = radarLarge ? (irr::s32)(0.20f * driver->getScreenSize().Height) : 12;
-    const irr::s32 h = lineH * (irr::s32)(guiAlertText.size() + 1) + 8 + (ackKey ? keyH + 6 : 0);
+    const irr::s32 h = lineH * (irr::s32)(guiAlertText.size() + 1) + 8 + (ackKey ? keyH + 10 : 0);
+    alertBoxRect = ackKey ? irr::core::rect<irr::s32>(x, y, x + w, y + h) : irr::core::rect<irr::s32>(0, 0, 0, 0);
     if (ackAlarms) {
         if (ackKey) {
-            ackAlarms->setRelativePosition(irr::core::rect<irr::s32>(x + 12, y + h - keyH - 6, x + w - 8, y + h - 6));
+            ackAlarms->setRelativePosition(irr::core::rect<irr::s32>(x + 12, y + h - keyH - 8, x + w - 10, y + h - 8));
             guienv->getRootGUIElement()->bringToFront(ackAlarms);
         }
         ackAlarms->setVisible(ackKey);
@@ -6607,9 +6697,15 @@ void GUIMain::lightEditorAction(irr::s32 id)
     }
     else if (id >= GUI_ID_LEDIT_COLOUR_0 && id < GUI_ID_LEDIT_COLOUR_END) {
         lightEditColour = id - GUI_ID_LEDIT_COLOUR_0;
+        //Only a free light takes any colour: choosing one makes the next lamp added a free light
+        lightEditNewType = 0;
         //A free light selected in the list takes the colour at once
         if (lights && lights->setSelectedColour(LAMP_COLOURS[lightEditColour])) {
             setLightEditorStatus(std::wstring(L"Couleur du feu : ") + LAMP_COLOUR_NAMES[lightEditColour] + L" (non enregistr\u00E9).", false);
+        }
+        else {
+            setLightEditorStatus(std::wstring(L"Le prochain feu ajout\u00E9 sera un feu libre ") + LAMP_COLOUR_NAMES[lightEditColour] +
+                L". (Un feu r\u00E9glementaire garde sa couleur : t\u00EAte de m\u00E2t blanc, b\u00E2bord rouge...)", false);
         }
     }
     refreshLightEditor();

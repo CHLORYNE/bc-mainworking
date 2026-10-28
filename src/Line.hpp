@@ -41,6 +41,12 @@ class Line
         void setHeaveIn(bool heaveIn);
 
         void setSelected(bool selected);
+        //The anchor's cable (from the bow to the sea bed)
+        void setAnchor(bool on) { anchor = on; if (on) { lineName = "Anchor"; } }
+        bool isAnchor() const { return anchor; }
+        //Last computed tension (N) and length between the ends (m)
+        irr::f32 getTension() const { return lastTension; }
+        irr::f32 getActualLength() const { return lastActualLength; }
         irr::core::vector3df getLineStartAbsolutePosition() const; // Kyara: world attach point on own ship
         irr::core::vector3df getLineEndAbsolutePosition() const;   // Kyara: world attach point on remote end
         irr::f32 getLineStartX() const;
@@ -82,6 +88,9 @@ class Line
         bool keepSlack;
         bool heaveIn;
         bool isSelected;
+        bool anchor = false;
+        irr::f32 lastTension = 0;
+        irr::f32 lastActualLength = 0;
         int startNodeType; //0: Unknown, 1: Own ship, 2: Other ship, 3: Buoy, 4: Land object
         int endNodeType; //0: Unknown, 1: Own ship, 2: Other ship, 3: Buoy, 4: Land object
         int startNodeID;

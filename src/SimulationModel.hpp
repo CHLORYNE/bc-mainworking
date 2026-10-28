@@ -210,6 +210,11 @@ public:
     // KYARA HOULE: swell and instructor motion scale
     const Swell& getSwell() const;
     void setMotionScale(irr::f32 scale); // 0..1.5, 1 = realistic (pitch/roll shown to the trainee)
+    //Stability: what the ship carries (cargo, fuel, water), tonnes. The more she carries, the
+    //heavier she is, and the slower and steadier her motion in a sea.
+    void setCargoLoad(irr::f32 tonnes) { cargoLoad = tonnes < 0 ? 0 : tonnes; }
+    irr::f32 getCargoLoad() const { return cargoLoad; }
+    irr::f32 getLoadFactor() const;
     irr::f32 getMotionScale() const;
     void getSwellNetworkState(irr::f32 out[Swell::NET_FIELDS]) const;   // primary -> network
     void applySwellNetworkState(const irr::f32 in[Swell::NET_FIELDS]);  // network -> secondary
@@ -718,6 +723,15 @@ public:
     void addLine(); // Add a line, which will be undefined
 
     Lines* getLines(); // Get pointer to lines object
+    //The anchor: let go from the bow onto the sea bed below, with scope x the depth of cable; hove
+    //in (it comes up by itself once the cable is short); taken off at once. Status for the page.
+    bool dropAnchor(irr::f32 scope);
+    void heaveAnchor(bool on);
+    bool isAnchorHeaving() const;
+    void weighAnchor();
+    void setAnchorScope(irr::f32 scope);
+    bool isAnchorDown() const;
+    irr::f32 getAnchorDepth() const { return anchorDepth; }
 
     void updateCameraVRPos(irr::core::quaternion quat, irr::core::vector3df pos, irr::core::vector2df lensShift);
 
@@ -770,6 +784,7 @@ private:
     WeatherState weatherFrontBase;     //the weather before the front, to come back to
     void applyWeatherState(const WeatherState& state);
     void stopWeatherChanges();
+    bool stormIsOn() const;   //thunderstorm look and sound: during a change towards a storm, only once the sea and wind have built
     void updateWeatherDynamics(irr::f32 deltaTime);
     Snow snow;
     irr::f32 streamOverrideDirection; //0-360
@@ -807,9 +822,11 @@ private:
     ScreenSpray screenSpray; // KYARA SLAM: water on the wheelhouse glass
     bool viewIsInside() const; // KYARA SLAM: wheelhouse views (see bc5 view list)
     irr::f32 motionScale;  // KYARA HOULE: instructor motion scale, 1 = realistic
+    irr::f32 cargoLoad = 0;   //tonnes aboard beyond her light displacement
     Tide tide;
     Rain rain;
     Lines lines;
+    irr::f32 anchorDepth = 0;   //water under the hawse when the anchor went down (m)
     RadarCalculation radarCalculation;
     RadarScreen radarScreen;
     ControlVisualiser portEngineVisual;

@@ -148,7 +148,7 @@ void WeatherPanel::buildRows()
         L"Du sable ou de la poussi\u00E8re dans l'air, couleur ocre. Plus le chiffre est haut, moins on voit loin.", 0, 100, 1));
     v.push_back(section(L"Orage et grains"));
     v.push_back(choice(P_SIGWX, L"Orage et grains", L"Orage et grains",
-        L"Auto : l'orage arrive tout seul quand la mer devient grosse. Aucun : jamais d'orage. Orage : tonnerre et \u00E9clairs tout de suite. Grains : toutes les 5 minutes, un coup de vent avec une averse pendant 1 minute 30.",
+        L"Auto : l'orage arrive tout seul quand la mer devient grosse sous un ciel nuageux ou pluvieux (ciel clair : jamais d'orage). Aucun : jamais d'orage. Orage : tonnerre et \u00E9clairs (avec une \u00E9volution, ils arrivent en dernier, apr\u00E8s la mer et le vent). Grains : toutes les 5 minutes, un coup de vent avec une averse pendant 1 minute 30.",
         { L"Auto", L"Aucun", L"Orage", L"Grains" }));
     v.push_back(choice(P_THUNDER, L"Tonnerre", L"Tonnerre",
         L"Le bruit du tonnerre pendant l'orage. Non = orage sans bruit.", { L"Non", L"Oui" }));

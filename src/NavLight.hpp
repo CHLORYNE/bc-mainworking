@@ -57,6 +57,7 @@ private:
     irr::f32 timeOffset;
     bool enabled;                           // KYARA FEUX
     int editVisible;                        // KYARA FEUX EDIT: -1 normal, 0 hidden, 1 shown
+    bool coreSolid = false;                 //core drawn solid in its own colour (while placing lamps)
     irr::f32 parentScaleFix;                // Undoes a rescale of the ship since loading
     irr::u16 currentAlpha; //Note that this is u16 not u8 so we can indicate an initial implausible value.
     //bool setAlpha(irr::u8 alpha, irr::video::ITexture* tex);

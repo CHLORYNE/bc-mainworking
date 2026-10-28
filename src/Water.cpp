@@ -67,7 +67,7 @@ void Water::load(irr::scene::ISceneManager* smgr, irr::scene::ISceneNode* ownShi
     setSea(weather, 225.0f);
 }
 
-void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection, irr::f32 rainIntensity)
+void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::u32 lightLevel, irr::f32 weather, irr::f32 windDirection, irr::f32 rainIntensity, irr::f32 seaGloomScale)
 {
     //Round these to nearest tileWidth
     irr::f32 xPos = tileWidth * Utilities::round(viewPosition.X / tileWidth);
@@ -84,7 +84,8 @@ void Water::update(irr::f32 tideHeight, irr::core::vector3df viewPosition, irr::
     //   Sea state: starts at weather 1.5, full at 4.0 (the "Mauvais temps" preset).
     //   Rain: full at 7/10 - under a rain sky the sea goes grey even when it is calm.
     // Whichever is stronger wins. Tune the four numbers here; the colours are in the shaders.
-    irr::f32 seaGloom = (weather - 1.5f) / (4.0f - 1.5f);
+    //   seaGloomScale: 1 in a storm, the cloud cover otherwise (a clear sky keeps a rough sea blue).
+    irr::f32 seaGloom = irr::core::clamp((weather - 1.5f) / (4.0f - 1.5f), 0.0f, 1.0f) * seaGloomScale;
     irr::f32 rainGloom = rainIntensity / 7.0f;
     irr::f32 gloom = (seaGloom > rainGloom) ? seaGloom : rainGloom;
     if (gloom < 0.0f) { gloom = 0.0f; }

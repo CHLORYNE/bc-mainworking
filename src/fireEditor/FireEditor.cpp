@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cwctype>
 #include <locale>
 #include <sstream>
 
@@ -80,21 +81,53 @@ bool parseNumber(const std::wstring& text, double& out)
     return true;
 }
 
-// "mm:ss" or plain seconds.
+// "mm:ss", "h:mm:ss", a number of minutes ("8", "7.5") or with units ("8 min", "1h30", "8m30s", "90 s").
 bool parseTime(const std::wstring& text, float& secs)
 {
     std::wstring t = trimW(text);
-    size_t colon = t.find(L':');
-    if (colon == std::wstring::npos) {
-        double v;
-        if (!parseNumber(t, v) || v < 0) { return false; }
-        secs = (float)v;
+    if (t.empty()) { return false; }
+    if (t.find(L':') != std::wstring::npos) {
+        std::vector<double> parts;
+        size_t from = 0;
+        while (true) {
+            const size_t colon = t.find(L':', from);
+            double v;
+            if (!parseNumber(t.substr(from, colon == std::wstring::npos ? std::wstring::npos : colon - from), v) || v < 0) { return false; }
+            parts.push_back(v);
+            if (colon == std::wstring::npos) { break; }
+            from = colon + 1;
+        }
+        if (parts.size() < 2 || parts.size() > 3) { return false; }
+        for (size_t i = 1; i < parts.size(); i++) { if (parts[i] >= 60) { return false; } }
+        secs = (float)(parts.size() == 2 ? parts[0] * 60.0 + parts[1] : parts[0] * 3600.0 + parts[1] * 60.0 + parts[2]);
         return true;
     }
-    double m, s;
-    if (!parseNumber(t.substr(0, colon), m) || !parseNumber(t.substr(colon + 1), s)) { return false; }
-    if (m < 0 || s < 0 || s >= 60) { return false; }
-    secs = (float)(m * 60.0 + s);
+    //Numbers with units; a number without one is minutes (or what follows the previous unit: 1h30, 8m30)
+    std::wstring u;
+    for (size_t i = 0; i < t.size(); i++) { if (t[i] != L' ') { u += (wchar_t)std::towlower(t[i]); } }
+    double total = 0, lastScale = 0;
+    size_t i = 0;
+    while (i < u.size()) {
+        size_t j = i;
+        while (j < u.size() && (std::iswdigit(u[j]) || u[j] == L'.' || u[j] == L',')) { j++; }
+        double v;
+        if (j == i || !parseNumber(u.substr(i, j - i), v)) { return false; }
+        size_t k = j;
+        while (k < u.size() && std::iswalpha(u[k])) { k++; }
+        const std::wstring unit = u.substr(j, k - j);
+        double scale;
+        if (unit.empty()) { scale = (lastScale == 3600) ? 60 : (lastScale == 60 ? 1 : 60); }
+        else if (unit == L"h" || unit == L"hr" || unit == L"heure" || unit == L"heures") { scale = 3600; }
+        else if (unit == L"m" || unit == L"mn" || unit == L"min" || unit == L"mins" || unit == L"minute" || unit == L"minutes") { scale = 60; }
+        else if (unit == L"s" || unit == L"sec" || unit == L"secs" || unit == L"seconde" || unit == L"secondes") { scale = 1; }
+        else { return false; }
+        if (unit.empty() && k < u.size()) { return false; }   //a bare number only at the end
+        total += v * scale;
+        lastScale = scale;
+        i = k;
+    }
+    if (total < 0) { return false; }
+    secs = (float)total;
     return true;
 }
 
@@ -449,6 +482,7 @@ void FireEditor::buildGui()
 static void setEditText(irr::gui::IGUIEnvironment* env, irr::gui::IGUIEditBox* box, const std::wstring& text)
 {
     if (env->getFocus() == box) { return; }   // do not fight the user's typing
+    if (box->isOverrideColorEnabled()) { return; }   // unreadable value: left as typed, in red, until corrected
     box->setText(text.c_str());
 }
 
@@ -733,6 +767,9 @@ void FireEditor::setTool(Tool t)
 
 void FireEditor::select(const Pick& p, bool switchTab)
 {
+    //Another boat or helicopter: its fields show its own values again
+    irr::gui::IGUIEditBox* perItem[] = { boatHdgBox, boatSpeedBox, boatDelayBox, boatMoorBox, heloBaseHBox, heloPadHBox };
+    for (size_t i = 0; i < sizeof(perItem) / sizeof(perItem[0]); i++) { if (perItem[i]) { markUnreadable(perItem[i], false); } }
     selected = p;
     switch (p.type) {
     case Pick_Own: if (switchTab) { tabs->setActiveTab(TAB_SCENARIO); } break;
@@ -884,7 +921,11 @@ bool FireEditor::onGuiEvent(const irr::SEvent::SGUIEvent& e)
         return true;
     case irr::gui::EGET_EDITBOX_CHANGED:
     case irr::gui::EGET_EDITBOX_ENTER:
-        onEditChanged(id, e.Caller->getText());
+        if (e.Caller->getType() == irr::gui::EGUIET_EDIT_BOX) {
+            //A value that cannot be read stays in red: the scenario keeps the last good one until it is corrected
+            const int read = onEditChanged(id, e.Caller->getText());
+            if (read >= 0) { markUnreadable((irr::gui::IGUIEditBox*)e.Caller, read == 0); }
+        }
         if (e.EventType == irr::gui::EGET_EDITBOX_ENTER && id != ID_DESC) { guienv->setFocus(0); refreshAll(); }
         return false;
     case irr::gui::EGET_ELEMENT_FOCUSED:
@@ -930,7 +971,13 @@ bool FireEditor::onGuiEvent(const irr::SEvent::SGUIEvent& e)
     }
 }
 
-void FireEditor::onEditChanged(irr::s32 id, const std::wstring& text)
+void FireEditor::markUnreadable(irr::gui::IGUIEditBox* box, bool unreadable)
+{
+    box->setOverrideColor(irr::video::SColor(255, 255, 90, 90));
+    box->enableOverrideColor(unreadable);
+}
+
+int FireEditor::onEditChanged(irr::s32 id, const std::wstring& text)
 {
     double v = 0;
     float t = 0;
@@ -978,7 +1025,7 @@ void FireEditor::onEditChanged(irr::s32 id, const std::wstring& text)
     case ID_HELO_SPEED: if (num && v >= 1) { c.heloSpeedKts = (float)v; } else { changed = false; } break;
     case ID_HELO_BASE_H: if (num && selHelo >= 0) { c.helos[selHelo].baseHeight = (float)v; } else { changed = false; } break;
     case ID_HELO_PAD_H: if (num && selHelo >= 0) { c.helos[selHelo].padHeight = (float)v; } else { changed = false; } break;
-    default: changed = false; break;
+    default: return -1;
     }
     if (changed) {
         markDirty();
@@ -986,6 +1033,7 @@ void FireEditor::onEditChanged(irr::s32 id, const std::wstring& text)
         std::wstring caption = L"\u00C9diteur de sc\u00E9narios incendie / SAR - " + wide(scn->name) + L" *";
         device->setWindowCaption(caption.c_str());
     }
+    return changed ? 1 : 0;
 }
 
 void FireEditor::onComboChanged(irr::s32 id, irr::gui::IGUIComboBox* box)
@@ -1262,6 +1310,27 @@ bool FireEditor::save(bool confirmedOverwrite)
         statusText->setText(L"Nom invalide : il ne doit pas \u00EAtre vide ni contenir / \\ : * ? \" < > |");
         statusText->setOverrideColor(irr::video::SColor(255, 255, 110, 110));
         return false;
+    }
+    //Read every field again as it is written now, so the check below sees the corrected values;
+    //a value that cannot be read stops the save rather than keeping the old one silently.
+    {
+        irr::gui::IGUIEditBox* fields[] = { abandonBox, spreadBox, durationBox, sinkLeadBox, permListBox, intervalBox,
+            boatDelayBox, heloDelayBox, heloSpeedBox };
+        for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+            irr::gui::IGUIEditBox* box = fields[i];
+            if (!box || !box->isEnabled() || (box == boatDelayBox && selBoat < 0)) { continue; }
+            const int read = onEditChanged(box->getID(), box->getText());
+            if (read >= 0) { markUnreadable(box, read == 0); }
+            if (read == 0) {
+                const std::wstring what = FireHelp::title(helpFieldFor(box->getID()));
+                statusText->setText((L"Valeur illisible : " + what + L" = \"" + std::wstring(box->getText()) +
+                    L"\". \u00C9crivez par exemple 08:00, 8 (minutes), 8 min ou 1h30.").c_str());
+                statusText->setOverrideColor(irr::video::SColor(255, 255, 110, 110));
+                if (box->getParent() && box->getParent()->getType() == irr::gui::EGUIET_TAB) { tabs->setActiveTab((irr::gui::IGUITab*)box->getParent()); }
+                guienv->setFocus(box);
+                return false;
+            }
+        }
     }
     // Kyara: do not silently save a timeline the trainee cannot win (e.g. sinking before the
     // survivors are in the water) - the instructor can still confirm.

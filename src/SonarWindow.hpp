@@ -52,7 +52,7 @@ private:
         A_RANGE_DOWN, A_RANGE_UP, A_TILT_DOWN, A_TILT_UP, A_GAIN360_DOWN, A_GAIN360_UP, A_NORTH_UP, A_HEAD_UP, A_CLEAR_MARKER,
         A_SRANGE_DOWN, A_SRANGE_UP, A_SAUTO, A_SGAIN_DOWN, A_SGAIN_UP, A_FREQ50, A_FREQ200, A_SCROLL_SLOWER, A_SCROLL_FASTER,
         A_CLUTTER_DOWN, A_CLUTTER_UP, A_FREQBOTH, A_WHITELINE_ON, A_WHITELINE_OFF, A_BG_PREV, A_BG_NEXT, A_COL_PREV, A_COL_NEXT,
-        A_HEAVE_ON, A_HEAVE_OFF, A_HELP, A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2
+        A_FADE_DOWN, A_FADE_UP, A_HEAVE_ON, A_HEAVE_OFF, A_HELP, A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2
     };
     struct Button {
         irr::core::rect<irr::f32> r;
@@ -147,6 +147,7 @@ private:
     bool whiteLine;           //the bottom's first edge in white (fish close to the bottom stand out)
     int bgIndex;              //background: dark blue, black, white, light blue
     int colourIndex;          //echoes: 16 colours, 8 colours, amber, grey
+    int intensity = 10;       //echo colours, 2..10 tenths: lower fades them towards the background
     int colourLevels;
     irr::f32 headingDrawn;
     irr::u32 lastTex360Ms;

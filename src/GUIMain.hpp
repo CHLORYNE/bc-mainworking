@@ -268,6 +268,7 @@ public:
         GUI_ID_THUNDER_CHECKBOX,
         GUI_ID_LIGHTNING_CHECKBOX,
         GUI_ID_MOTION_SCALE_SCROLL_BAR, // KYARA HOULE
+        GUI_ID_CARGO_LOAD_SCROLL_BAR,   //Stabilite: the load aboard, 0..100 % of twice her light displacement
         GUI_ID_WINDDIRECTION_SCROLL_BAR,
         GUI_ID_WINDSPEED_SCROLL_BAR,
         GUI_ID_STREAMDIRECTION_SCROLL_BAR,
@@ -371,6 +372,11 @@ public:
         GUI_ID_SONAR_BUTTON,
         GUI_ID_STATION_BUTTON,
         GUI_ID_LINES_COMBO,              //the line chosen on the AMARRES page of CONTROLES
+        GUI_ID_ANCHOR_DROP,              //AMARRES page: let go the anchor, heave in, weigh, cable length
+        GUI_ID_ANCHOR_HEAVE,
+        GUI_ID_ANCHOR_WEIGH,
+        GUI_ID_ANCHOR_SCOPE,
+        GUI_ID_LINES_RELEASE_ALL,
         GUI_ID_DETACH_RADAR_BUTTON,
         GUI_ID_RADAR_FULLSCREEN_BUTTON,
         //Large radar tools: vector and trail lengths, coastline, CPA alarm, parallel index, trial manoeuvre
@@ -699,6 +705,8 @@ private:
     irr::gui::IGUIStaticText* weatherValue;
     irr::gui::IGUIScrollBar* motionScaleScrollbar = 0; // KYARA HOULE
     irr::gui::IGUIStaticText* motionScaleValue = 0;    // KYARA HOULE
+    irr::gui::IGUIScrollBar* cargoLoadScrollbar = 0;   //Stabilite
+    irr::gui::IGUIStaticText* cargoLoadValue = 0;
     irr::gui::IGUIStaticText* swellInfoText = 0;       // KYARA HOULE: "Houle 1.2 m - 7 s - du 270"
     irr::gui::IGUIStaticText* rainValue;
     irr::gui::IGUIStaticText* visibilityValue;
@@ -867,6 +875,12 @@ private:
     irr::gui::IGUICheckBox* anchorLine;
     irr::gui::IGUIListBox* linesList;
     irr::gui::IGUIComboBox* linesCombo = 0;   //"Aucune" then the lines: the choice on the AMARRES page
+    irr::gui::IGUIComboBox* anchorScopeCombo = 0;   //cable: 3, 5 or 7 times the depth
+    irr::core::rect<irr::s32> alertBoxRect;         //the alert list as last drawn (any click on it acknowledges)
+    irr::gui::IGUIStaticText* anchorText = 0;       //the anchor's state, on the AMARRES page
+public:
+    irr::f32 getAnchorScope() const { return anchorScopeCombo ? 3.0f + 2.0f * anchorScopeCombo->getSelected() : 5.0f; }
+private:
     irr::gui::IGUIStaticText* linesText;
 
     irr::gui::IGUIStaticText* pump1On;
