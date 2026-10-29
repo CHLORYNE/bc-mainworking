@@ -36,6 +36,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h> // For GetSystemMetrics
+#include <mmsystem.h> // timeBeginPeriod
 #include <direct.h> //for windows _mkdir
 #include <shellapi.h>
 #include <dbghelp.h> //crash report (MiniDumpWriteDump, loaded at run time)
@@ -594,6 +595,11 @@ static LRESULT CALLBACK CustomWndProc(HWND hWnd, UINT message,
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    //Sleeps to the millisecond: Windows rounds them up to its 15.6 ms tick otherwise, and the frame
+    //limiter then holds frames that are ready.
+    timeBeginPeriod(1);
+#endif
     // --- 1. NAUTITECH USB STARTUP CHECK ---
     std::string reason;
     if (!UsbKeyPresent(&reason))

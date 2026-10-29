@@ -145,6 +145,11 @@ namespace scene
     //Create local camera for reflections
     _camera = 0;
     _reflectionMap = 0;
+    columnMaps[0] = columnMaps[1] = columnMaps[2] = 0;
+    column = -1;
+    columnFrame = 0;
+    seaMoved = false;
+    seaMovedMs = 0;
     
 	if (!disableShaders) {
 		if (withReflection) {
@@ -154,6 +159,7 @@ namespace scene
             //huge fraction of the screen, so this saves real fill on every frame.
             _reflectionMap = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256));
 		}
+		columnMaps[0] = _reflectionMap;
 		
 		irr::video::ITexture* bumpTexture = driver->getTexture("media/waterbump.png");
 
@@ -289,6 +295,7 @@ void MovingWaterSceneNode::resetParameters(float A, vector2 w, float seaState)
 {
     ocean->resetParameters(A,w);
     this->seaState = seaState;
+    seaMoved = false; //a new sea: worked out again even while the clock stands still
 }
 
 void MovingWaterSceneNode::OnSetConstants(video::IMaterialRendererServices* services, irr::s32 userData)
@@ -422,8 +429,12 @@ void MovingWaterSceneNode::setVerticalScale(irr::f32 scale)
 void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
 {
 	//std::cout << "In OnAnimate()" << std::endl;
-	if (mesh && IsVisible)
+	//Every drawAll() animates the scene, and the triple screen draws it once per column: the sea
+	//only needs moving on once for the same time.
+	if (mesh && IsVisible && (!seaMoved || timeMs != seaMovedMs))
 	{
+        seaMoved = true;
+        seaMovedMs = timeMs;
         shaderTime = timeMs / 1000.f;   // NEW: expose time to the water shader
 
         // KYARA METEO: ease the storm look in and out over ~20 s (simulation time) instead of
@@ -571,6 +582,9 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
         const irr::u32 reflectionEveryNsafe = (reflectionEveryN < 1) ? 1 : reflectionEveryN;
         static irr::u32 reflectionFrameCounter = 0;
         bool updateReflectionThisFrame = ((reflectionFrameCounter++ % reflectionEveryNsafe) == 0);
+        //Triple screen: each column its own reflection, its turn staggered so that with 'half' the
+        //columns do not all fall on the same frame.
+        if (column >= 0) { updateReflectionThisFrame = ((columnFrame + (u32)column) % reflectionEveryNsafe) == 0; }
 
         if (withReflection && updateReflectionThisFrame) {
             //fixes glitches with incomplete refraction
@@ -783,6 +797,25 @@ void MovingWaterSceneNode::setMesh(IMesh* mesh)
     //std::cout << "In setMesh()" << std::endl;
 }
 
+
+void MovingWaterSceneNode::setColumn(s32 c)
+{
+    if (c < 0 || c > 2) { return; }
+    column = c;
+    if (c == 0) { columnFrame++; }
+    if (!withReflection || disableShaders || !_reflectionMap || !mesh) { return; }
+    if (!columnMaps[c]) {
+        columnMaps[c] = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256), ("water-reflection-" + std::to_string(c)).c_str());
+        if (!columnMaps[c]) { columnMaps[c] = columnMaps[0]; }
+    }
+    if (_reflectionMap != columnMaps[c]) {
+        _reflectionMap = columnMaps[c];
+        for (irr::u32 i = 0; i < mesh->getMeshBufferCount(); ++i) {
+            scene::IMeshBuffer* mb = mesh->getMeshBuffer(i);
+            if (mb) { mb->getMaterial().setTexture(1, _reflectionMap); }
+        }
+    }
+}
 
 void MovingWaterSceneNode::render()
 {

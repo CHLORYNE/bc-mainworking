@@ -29,6 +29,7 @@
 //headers for execl
 #ifdef _WIN32
 #include <windows.h>
+#include <mmsystem.h>
 #include <process.h>
 #include <direct.h> //_mkdir
 #else
@@ -1771,6 +1772,11 @@ public:
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    //Sleeps to the millisecond: Windows rounds them up to its 15.6 ms tick otherwise, and the frame
+    //limiter then holds frames that are ready.
+    timeBeginPeriod(1);
+#endif
 
     if ((argc > 1) && (strcmp(argv[1], "--version") == 0)) {
         std::cout << LONGVERSION << std::endl;

@@ -2995,6 +2995,7 @@ void SimulationModel::updateViewport(irr::f32 aspect)
 void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY)
 {
     camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg, shiftY);
+    water.setColumn(yawOffsetDeg < 0 ? 0 : (yawOffsetDeg > 0 ? 2 : 1));
 }
 void SimulationModel::setTripleScreen(bool on, irr::f32 perScreenFOVdeg, irr::f32 bezelYawDeg)
 {
