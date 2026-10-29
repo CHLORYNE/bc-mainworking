@@ -783,10 +783,27 @@ private:
     bool spannedBy(int i) const
     {
         if (!spanBridge || i < 0 || i == selected || i >= (int)screens.size() || selected < 0 || selected >= (int)screens.size()) { return false; }
-        const irr::core::rect<irr::s32>& a = screens[i].area;
+        //The simulator's rule (main.cpp): the best placed screen on each side that touches the middle
+        //one within 2 % of its width and shares three quarters of the shorter height
         const irr::core::rect<irr::s32>& m = screens[selected].area;
-        return a.UpperLeftCorner.Y == m.UpperLeftCorner.Y && a.LowerRightCorner.Y == m.LowerRightCorner.Y
-            && (a.LowerRightCorner.X == m.UpperLeftCorner.X || a.UpperLeftCorner.X == m.LowerRightCorner.X);
+        const irr::s32 gapAllowed = irr::core::max_(32, m.getWidth() / 50);
+        for (int side = 0; side < 2; side++) {
+            int best = -1;
+            irr::s32 bestShared = 0;
+            for (int k = 0; k < (int)screens.size(); k++) {
+                if (k == selected) { continue; }
+                const irr::core::rect<irr::s32>& a = screens[k].area;
+                const irr::s32 gap = side == 0 ? m.UpperLeftCorner.X - a.LowerRightCorner.X : a.UpperLeftCorner.X - m.LowerRightCorner.X;
+                const irr::s32 shared = irr::core::min_(a.LowerRightCorner.Y, m.LowerRightCorner.Y) - irr::core::max_(a.UpperLeftCorner.Y, m.UpperLeftCorner.Y);
+                const irr::s32 shorter = irr::core::min_(a.getHeight(), m.getHeight());
+                if (gap >= -gapAllowed && gap <= gapAllowed && shared * 4 >= shorter * 3 && shared > bestShared) {
+                    best = k;
+                    bestShared = shared;
+                }
+            }
+            if (best == i) { return true; }
+        }
+        return false;
     }
 
     //A screen the instruments, radar, sonar or instructor screen can go on.
@@ -1376,14 +1393,18 @@ std::string launcherScreensFile()
     return Utilities::getUserDir() + "launcherScreens.ini";
 }
 
-//Keeps a screen picker choice for next time: Bridge, Instruments or Repeater (the others are kept).
-bool saveLauncherScreen(const std::string& key, int value)
+//Keeps a screen picker choice for next time (the others are kept). With each screen number, where
+//that screen is on the desk (BridgeAt...: left,top,right,bottom): Windows numbers the screens again
+//when one comes or goes (a spacedesk display, a TV turned off), and the place finds it again.
+bool saveLauncherValue(const std::string& key, const std::string& value)
 {
     //StationLayoutIni: bc5.ini's station_layout when StationLayout was picked (a later change in the
     //settings wins over the picker's choice)
-    const char* keys[8] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar", "Station", "StationLayout", "StationLayoutIni" };
-    std::string values[8];
-    for (int k = 0; k < 8; k++) { values[k] = (key == keys[k]) ? std::to_string(value) : readIniNow(launcherScreensFile(), keys[k]); }
+    const int N = 14;
+    const char* keys[N] = { "Bridge", "Instruments", "Repeater", "Radar", "Sonar", "Station", "StationLayout", "StationLayoutIni",
+        "BridgeAt", "InstrumentsAt", "RepeaterAt", "RadarAt", "SonarAt", "StationAt" };
+    std::string values[N];
+    for (int k = 0; k < N; k++) { values[k] = (key == keys[k]) ? value : readIniNow(launcherScreensFile(), keys[k]); }
 
     //User folder, as the settings editor creates it.
     const std::string dirs[2] = { Utilities::getUserDirBase(), Utilities::getUserDir() };
@@ -1399,10 +1420,43 @@ bool saveLauncherScreen(const std::string& key, int value)
         }
     }
     std::ofstream out(launcherScreensFile().c_str(), std::ios::trunc);
-    for (int k = 0; k < 8; k++) {
+    for (int k = 0; k < N; k++) {
         if (!values[k].empty()) { out << keys[k] << "=" << values[k] << "\n"; }
     }
     return out.good();
+}
+
+bool saveLauncherScreen(const std::string& key, int value)
+{
+    return saveLauncherValue(key, std::to_string(value));
+}
+
+//Where screen n (1..) is on the desk, "left,top,right,bottom"; "" for none
+std::string screenPlace(const std::vector<ScreenInfo>& screens, int n)
+{
+    if (n < 1 || n > (int)screens.size()) { return ""; }
+    const irr::core::rect<irr::s32>& a = screens[n - 1].area;
+    return std::to_string(a.UpperLeftCorner.X) + "," + std::to_string(a.UpperLeftCorner.Y) + ","
+        + std::to_string(a.LowerRightCorner.X) + "," + std::to_string(a.LowerRightCorner.Y);
+}
+
+//A choice saved for key: the screen now at the place saved with it, else its number
+int savedScreen(const std::vector<ScreenInfo>& screens, const std::string& key)
+{
+    const int number = atoi(readIniNow(launcherScreensFile(), key).c_str());
+    const std::string place = readIniNow(launcherScreensFile(), key + "At");
+    if (number <= 0 || place.empty()) { return number; }
+    for (int n = 1; n <= (int)screens.size(); n++) {
+        if (screenPlace(screens, n) == place) { return n; }
+    }
+    return number;
+}
+
+//Saves a choice, with where its screen is
+void saveScreenChoice(const std::string& key, int screen)
+{
+    saveLauncherScreen(key, screen);
+    saveLauncherValue(key + "At", screenPlace(listScreens(), screen));
 }
 
 //Starts the simulator. When screens were picked: the bridge view's (1..n) as "-monitor N", the
@@ -1446,12 +1500,12 @@ void startSimulator()
     const bool borderless = readIniNow(ini, "graphics_mode") == "3";
     const std::vector<ScreenInfo> screens = listScreens();
     if (g_screenPicker && borderless && screens.size() > 1) {
-        int bridge = atoi(readIniNow(launcherScreensFile(), "Bridge").c_str());
-        int console = atoi(readIniNow(launcherScreensFile(), "Instruments").c_str());
-        int radar = atoi(readIniNow(launcherScreensFile(), "Radar").c_str());
-        int sonar = atoi(readIniNow(launcherScreensFile(), "Sonar").c_str());
+        int bridge = savedScreen(screens, "Bridge");
+        int console = savedScreen(screens, "Instruments");
+        int radar = savedScreen(screens, "Radar");
+        int sonar = savedScreen(screens, "Sonar");
         const std::string savedStation = readIniNow(launcherScreensFile(), "Station");
-        int station = savedStation.empty() ? atoi(readIniNow(ini, "station_screen").c_str()) : atoi(savedStation.c_str());
+        int station = savedStation.empty() ? atoi(readIniNow(ini, "station_screen").c_str()) : savedScreen(screens, "Station");
         //The layout last picked here, unless station_layout was changed in the settings since
         const std::string savedLayout = readIniNow(launcherScreensFile(), "StationLayout");
         const int iniLayout = atoi(readIniNow(ini, "station_layout").c_str());
@@ -1504,7 +1558,7 @@ void startRepeater()
     const bool borderless = readIniNow(ini, "graphics_mode") == "3";
     const std::vector<ScreenInfo> screens = listScreens();
     if (g_screenPicker && borderless && screens.size() > 1) {
-        int last = atoi(readIniNow(launcherScreensFile(), "Repeater").c_str());
+        int last = savedScreen(screens, "Repeater");
         if (last <= 0) { last = atoi(readIniNow(ini, "monitor").c_str()); }
         g_screenPicker->openForRepeater(screens, last);
         return;
@@ -2278,18 +2332,18 @@ int main(int argc, char** argv)
     g_keySheet->drop();
     g_screenPicker = new ScreenPicker(env, french, bigFont ? bigFont : titleFont, titleFont, textFont, smallFont,
         [](int screen, int consoleScreen, int radarScreen, int sonarScreen, int stationScreen, int stationLayout) {
-            saveLauncherScreen("Bridge", screen);
-            saveLauncherScreen("Instruments", consoleScreen);
-            saveLauncherScreen("Radar", radarScreen);
-            saveLauncherScreen("Sonar", sonarScreen);
-            saveLauncherScreen("Station", stationScreen);
+            saveScreenChoice("Bridge", screen);
+            saveScreenChoice("Instruments", consoleScreen);
+            saveScreenChoice("Radar", radarScreen);
+            saveScreenChoice("Sonar", sonarScreen);
+            saveScreenChoice("Station", stationScreen);
             saveLauncherScreen("StationLayout", stationLayout);
             saveLauncherScreen("StationLayoutIni", atoi(readIniNow(currentBc5Ini(), "station_layout").c_str()));
             showLaunchToast(g_simulatorTitle);
             launchSimulator(screen, consoleScreen, radarScreen, sonarScreen, stationScreen, stationLayout);
         },
         [](int screen) {
-            saveLauncherScreen("Repeater", screen);
+            saveScreenChoice("Repeater", screen);
             showLaunchToast(g_repeaterTitle);
             launchRepeater(screen);
         });

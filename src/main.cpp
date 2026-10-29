@@ -1027,17 +1027,40 @@ int main(int argc, char** argv)
         }
 
         //Screens side by side without Eyefinity / Surround: span_screens=1 widens the window over the
-        //screens touching the chosen one on its left and right (same top and height), so that three
-        //TVs make one canvas, as Eyefinity would. The chosen screen is the middle one.
+        //screens beside the chosen one on its left and right, so that three TVs make one canvas, as
+        //Eyefinity would. The chosen screen is the middle one. "Beside": touching it (within 2 % of its
+        //width) and level with it (three quarters of their heights shared) - screens placed by hand in
+        //the display settings, or added by spacedesk, are seldom lined up to the pixel.
         if (IniFile::iniFileTou32(iniFilename, "span_screens") == 1) {
             const RECT middle = { windowX, windowY, windowX + (LONG)graphicsWidth, windowY + (LONG)graphicsHeight };
             RECT span = middle;
             int beside = 0;
-            for (size_t i = 0; i < Monitors.rcMonitors.size(); i++) {
-                const RECT& r = Monitors.rcMonitors[i];
-                if (r.top == middle.top && r.bottom == middle.bottom && (r.right == middle.left || r.left == middle.right)) {
+            const LONG gapAllowed = (LONG)(graphicsWidth / 50 > 32 ? graphicsWidth / 50 : 32);
+            for (int side = 0; side < 2; side++) {
+                int best = -1;
+                LONG bestShared = 0;
+                for (size_t i = 0; i < Monitors.rcMonitors.size(); i++) {
+                    const RECT& r = Monitors.rcMonitors[i];
+                    const LONG gap = side == 0 ? middle.left - r.right : r.left - middle.right;
+                    const LONG shared = (r.bottom < middle.bottom ? r.bottom : middle.bottom) - (r.top > middle.top ? r.top : middle.top);
+                    const LONG shorter = (r.bottom - r.top) < (middle.bottom - middle.top) ? (r.bottom - r.top) : (middle.bottom - middle.top);
+                    if (gap >= -gapAllowed && gap <= gapAllowed && shared * 4 >= shorter * 3 && shared > bestShared) {
+                        best = (int)i;
+                        bestShared = shared;
+                    }
+                }
+                if (best >= 0) {
+                    const RECT& r = Monitors.rcMonitors[best];
+                    std::cout << (side == 0 ? "Left" : "Right") << " of the middle screen: screen " << best + 1 << ", " << (r.right - r.left) << " x " << (r.bottom - r.top)
+                        << " at " << r.left << ", " << r.top << std::endl;
                     UnionRect(&span, &span, &r);
                     beside++;
+                }
+            }
+            if (beside != 2) {
+                for (size_t i = 0; i < Monitors.rcMonitors.size(); i++) {
+                    const RECT& r = Monitors.rcMonitors[i];
+                    std::cerr << "  screen " << i + 1 << ": " << (r.right - r.left) << " x " << (r.bottom - r.top) << " at " << r.left << ", " << r.top << std::endl;
                 }
             }
             windowX = span.left;
