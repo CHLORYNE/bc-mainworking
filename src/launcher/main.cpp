@@ -25,6 +25,7 @@
 #include <vector>
 #include <fstream>
 #include <functional>
+#include <algorithm>
 
 //headers for execl
 #ifdef _WIN32
@@ -377,6 +378,7 @@ public:
     {
         repeaterMode = true;
         spanBridge = false;
+        fixedBridge.clear();
         screens = list;
         const int n = (int)screens.size();
         selected = (lastScreen >= 1 && lastScreen <= n) ? lastScreen - 1 : firstOffLauncher();
@@ -403,6 +405,25 @@ public:
         spanBridge = readIniNow(currentBc5Ini(), "span_screens") == "1" && readIniNow(currentBc5Ini(), "graphics_mode") == "3";
         const int n = (int)screens.size();
         selected = (lastBridge >= 1 && lastBridge <= n) ? lastBridge - 1 : firstOffLauncher();
+        //bc5.ini bridge_screens="3,1,4": the bridge view's screens are set there (all connected), the
+        //picker only chooses the others. The middle one is the one passed as the bridge's screen.
+        fixedBridge.clear();
+        {
+            const std::string list = readIniNow(currentBc5Ini(), "bridge_screens");
+            int v = 0;
+            bool inNumber = false, connected = true;
+            for (size_t c = 0; c <= list.size(); c++) {
+                if (c < list.size() && list[c] >= '0' && list[c] <= '9') { v = v * 10 + (list[c] - '0'); inNumber = true; }
+                else if (inNumber) {
+                    if (v < 1 || v > n) { connected = false; }
+                    fixedBridge.push_back(v - 1);
+                    v = 0;
+                    inNumber = false;
+                }
+            }
+            if (!connected) { fixedBridge.clear(); }
+        }
+        if (!fixedBridge.empty()) { selected = fixedBridge[fixedBridge.size() / 2]; }
         consoleScreen = (lastConsole >= 1 && lastConsole <= n) ? lastConsole - 1 : -1;
         //Something already open there (another simulator for a second view, the repeater...): offer a free screen.
         if (n > 0 && !screens[selected].inUse.empty()) {
@@ -542,7 +563,11 @@ public:
         drawTextIn(titleFont, repeaterMode ? (french ? L"Choisir l'\u00E9cran du r\u00E9p\u00E9titeur gyro" : L"Choose the gyro repeater screen")
             : (french ? L"Choisir les \u00E9crans du simulateur" : L"Choose the simulator screens"),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 22, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 52), Theme::text, false);
+        std::wstring fixedList;
+        for (size_t k = 0; k < fixedBridge.size(); k++) { fixedList += (k ? L", " : L"") + std::to_wstring(fixedBridge[k] + 1); }
         drawTextIn(textFont, repeaterMode ? (french ? L"Cliquez sur l'\u00E9cran o\u00F9 afficher le r\u00E9p\u00E9titeur." : L"Click the screen the repeater should be shown on.")
+            : !fixedBridge.empty() ? (french ? L"Vue passerelle : \u00E9crans " + fixedList + L" (bridge_screens, bc5.ini). Choisissez les autres \u00E9crans ci-dessous."
+                : L"Bridge view: screens " + fixedList + L" (bridge_screens, bc5.ini). Choose the other screens below.")
             : (french ? L"Cliquez sur l'\u00E9cran de la vue passerelle. Pupitre, instruments, grand radar et sonar peuvent aller sur d'autres \u00E9crans."
             : L"Click the screen for the bridge view. The instructor screen, instruments, large radar and sonar can go on other screens."),
             irr::core::rect<irr::f32>(x, panel.UpperLeftCorner.Y + 54, panel.LowerRightCorner.X, panel.UpperLeftCorner.Y + 78), Theme::textDim, false);
@@ -637,7 +662,7 @@ public:
             hintsEn[0] = L"1 to 9: screen"; hintsEn[1] = L"Enter: launch"; hintsEn[2] = L"Esc: cancel"; hintsEn[3] = L""; hintsEn[4] = L""; hintsEn[5] = L"";
         }
         std::wstring hints;
-        for (int h = 0; h < 6; h++) {
+        for (int h = (!repeaterMode && !fixedBridge.empty()) ? 1 : 0; h < 6; h++) { //(bridge set in bc5.ini: no "1 to 9")
             const std::wstring part = french ? hintsFr[h] : hintsEn[h];
             if (part.empty()) { break; }
             const std::wstring longer = hints.empty() ? part : hints + L"  \u00B7  " + part;
@@ -782,6 +807,9 @@ private:
     //With span_screens, screen i is beside the bridge view's screen, the same height: part of the bridge view.
     bool spannedBy(int i) const
     {
+        if (!fixedBridge.empty()) {
+            return i != selected && std::find(fixedBridge.begin(), fixedBridge.end(), i) != fixedBridge.end();
+        }
         if (!spanBridge || i < 0 || i == selected || i >= (int)screens.size() || selected < 0 || selected >= (int)screens.size()) { return false; }
         //The simulator's rule (main.cpp): the best placed screen on each side that touches the middle
         //one within 2 % of its width and shares three quarters of the shorter height
@@ -831,7 +859,7 @@ private:
     //The bridge view goes on screen i; if the instruments were there, they take the bridge view's old screen.
     void selectBridge(int i)
     {
-        if (i == selected) { return; }
+        if (i == selected || !fixedBridge.empty()) { return; } //(set in bc5.ini: bridge_screens)
         if (i == consoleScreen) { consoleScreen = selected; }
         if (i == radarScreen) { radarScreen = selected; }
         if (i == sonarScreen) { sonarScreen = selected; }
@@ -1015,6 +1043,7 @@ private:
     bool repeaterMode;     //choosing the gyro repeater's screen, not the simulator's
     std::vector<ScreenInfo> screens;
     bool spanBridge = false; //bc5.ini span_screens: the bridge view covers the screens beside its own
+    std::vector<int> fixedBridge; //bc5.ini bridge_screens: the bridge view's screens (0..), left to right
     std::vector<irr::core::rect<irr::f32> > screenRects;
     std::vector<Chip> chips;
     std::vector<Chip> radarChips;

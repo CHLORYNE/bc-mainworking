@@ -972,9 +972,47 @@ int main(int argc, char** argv)
 
         cMonitorsVec Monitors; //The constructor for this initialises it with a list of the monitors
 
+        //bc5.ini bridge_screens="3,1,4": the bridge view's screens, left to right, numbered as the
+        //launcher's screen picker shows them. Set and all connected: the window covers exactly those,
+        //nothing is asked, and monitor, -monitor and span_screens are not used.
+        bool bridgeFixed = false;
+        {
+            const std::string list = IniFile::iniFileToString(iniFilename, "bridge_screens");
+            std::vector<int> numbers;
+            int n = 0;
+            bool inNumber = false;
+            for (size_t c = 0; c <= list.size(); c++) {
+                if (c < list.size() && list[c] >= '0' && list[c] <= '9') { n = n * 10 + (list[c] - '0'); inNumber = true; }
+                else if (inNumber) { numbers.push_back(n); n = 0; inNumber = false; }
+            }
+            bool connected = !numbers.empty();
+            for (size_t k = 0; k < numbers.size(); k++) {
+                if (numbers[k] < 1 || numbers[k] > (int)Monitors.rcMonitors.size()) { connected = false; }
+            }
+            if (connected) {
+                RECT span = Monitors.rcMonitors[numbers[0] - 1];
+                std::string names;
+                for (size_t k = 0; k < numbers.size(); k++) {
+                    UnionRect(&span, &span, &Monitors.rcMonitors[numbers[k] - 1]);
+                    names += (k ? ", " : "") + std::to_string(numbers[k]);
+                }
+                windowX = span.left;
+                windowY = span.top;
+                graphicsWidth = span.right - span.left;
+                graphicsHeight = span.bottom - span.top;
+                bridgeFixed = true;
+                std::cout << "Bridge view on screens " << names << " (bridge_screens): " << graphicsWidth << " x " << graphicsHeight
+                    << " at " << windowX << ", " << windowY << std::endl;
+            }
+            else if (!numbers.empty()) {
+                std::cerr << "bridge_screens=\"" << list << "\": a screen in it is not connected (" << Monitors.rcMonitors.size()
+                    << " screen(s)). Not used: the screen is chosen as without it." << std::endl;
+            }
+        }
+
         //Started directly (the launcher always says which screen) on a desk with several screens, and no
         //screen set in bc5.ini: ask which one.
-        if (requestedMonitor < 0 && Monitors.iMonitors.size() > 1) {
+        if (!bridgeFixed && requestedMonitor < 0 && Monitors.iMonitors.size() > 1) {
             const bool french = (modifier == "fr");
             const int chosen = ScreenChooser::ask(
                 french ? L"Sur quel \u00E9cran ouvrir le simulateur ?" : L"Which screen should the simulator open on?",
@@ -988,7 +1026,10 @@ int main(int argc, char** argv)
             requestedMonitor = chosen;
         }
 
-        if (requestedMonitor > -1 && (int)Monitors.iMonitors.size() > requestedMonitor) {
+        if (bridgeFixed) {
+            //(placed above)
+        }
+        else if (requestedMonitor > -1 && (int)Monitors.iMonitors.size() > requestedMonitor) {
             //The user has requested a specific monitor
 
             //Set to fill requested monitor
@@ -1031,7 +1072,7 @@ int main(int argc, char** argv)
         //Eyefinity would. The chosen screen is the middle one. "Beside": touching it (within 2 % of its
         //width) and level with it (three quarters of their heights shared) - screens placed by hand in
         //the display settings, or added by spacedesk, are seldom lined up to the pixel.
-        if (IniFile::iniFileTou32(iniFilename, "span_screens") == 1) {
+        if (!bridgeFixed && IniFile::iniFileTou32(iniFilename, "span_screens") == 1) {
             const RECT middle = { windowX, windowY, windowX + (LONG)graphicsWidth, windowY + (LONG)graphicsHeight };
             RECT span = middle;
             int beside = 0;
