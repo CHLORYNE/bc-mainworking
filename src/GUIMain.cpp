@@ -818,6 +818,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     irr::gui::IGUIButton* ecLightsEditKey = 0;
     irr::gui::IGUIButton* ecInstrEditKey = 0;
     irr::gui::IGUIButton* ecSizeEditKey = 0;
+    irr::gui::IGUIButton* ecNozzleEditKey = 0;
     irr::gui::IGUIStaticText* ecSizeHelp = 0;
 
     // Weather tab
@@ -1253,14 +1254,20 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             GUI_ID_SIZE_EDIT_BUTTON, L"Taille et flottaison",
             L"R\u00E9gler la longueur et la ligne de flottaison de ce navire en direct, puis les enregistrer dans son boat.ini");
 
-        //Rows 2..5: what it does
+        //Row 2: the fire monitor nozzle (firefighting own ships)
+        ecNozzleEditKey = guienv->addButton(irr::core::rect<irr::s32>(x0, rowY(2), x1, rowY(2) + rowH), tabTaille,
+            GUI_ID_NOZZLE_EDIT_BUTTON, L"Lance incendie",
+            L"Placer le point d'o\u00F9 sort l'eau sur la lance du mod\u00E8le du navire propre, puis l'enregistrer dans son boat.ini");
+
+        //Rows 3..6: what it does
         irr::gui::IGUIStaticText* help = guienv->addStaticText(
             L"Choisir un navire, puis \u00AB Taille et flottaison \u00BB : sa longueur et sa ligne de flottaison "
             L"changent en direct, et \u00AB Enregistrer \u00BB les \u00E9crit dans son boat.ini.\n"
             L"Les navires du sc\u00E9nario qui utilisent le m\u00EAme boat.ini changent ensemble.\n"
             L"Navire propre : vues, radar et commandes suivent tout de suite ; sa man\u0153uvrabilit\u00E9 "
-            L"(masse, inertie) suit au prochain lancement du sc\u00E9nario.",
-            irr::core::rect<irr::s32>(x0, rowY(2), xEnd, rowY(5) + rowH), false, true, tabTaille);
+            L"(masse, inertie) suit au prochain lancement du sc\u00E9nario.\n"
+            L"\u00AB Lance incendie \u00BB (navire de lutte contre l'incendie) : cliquer sur la lance de son mod\u00E8le, l'eau sortira de l\u00E0.",
+            irr::core::rect<irr::s32>(x0, rowY(3), xEnd, rowY(6) + rowH), false, true, tabTaille);
         help->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_UPPERLEFT);
         ecSizeHelp = help;
     }
@@ -1649,7 +1656,10 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             const int tSize = cp->addTab(L"Taille", ecSizeHelp ? textOf(ecSizeHelp) : std::wstring());
             cp->setInstructorTab(tSize);
             cp->addChoice(tSize, L"Navire", L"Le navire \u00E0 r\u00E9gler : le navire propre ou un autre navire de l'exercice.", sizeVesselBox);
-            if (ecSizeEditKey) { cp->addKeys(tSize, L"", L"", { ecSizeEditKey }, { L"Taille et flottaison" }); }
+            if (ecSizeEditKey && ecNozzleEditKey) {
+                cp->addKeys(tSize, L"", L"", { ecSizeEditKey, ecNozzleEditKey }, { L"Taille et flottaison", L"Lance incendie" });
+            }
+            else if (ecSizeEditKey) { cp->addKeys(tSize, L"", L"", { ecSizeEditKey }, { L"Taille et flottaison" }); }
         }
     }
 
@@ -3350,10 +3360,11 @@ void GUIMain::updateGuiData(GUIData* guiData)
     guiDistressTimer = guiData->distressTimer;
     guiMaydayLines = guiData->maydayLines;
     guiCommsLog = guiData->commsLog;
-    void drawCommsOverlay();                       // Inc 3 (comms)
-    bool guiDistressActive = false;                // Inc 3 (comms)
-    std::vector<std::wstring> guiMaydayLines;      // Inc 3 (comms)
-    std::vector<std::wstring> guiCommsLog;         // Inc 3 (comms)
+    guiDistressVessel = guiData->distressVessel;
+    guiDistressPosition = guiData->distressPosition;
+    guiDistressElapsed = guiData->distressElapsed;
+    guiDistressDeadline = guiData->distressDeadline;
+    guiCommsStep = guiData->commsStep;
     guiLong = guiData->longitude;
     guiCursorLat = guiData->cursorLat;   //kyara
     guiCursorLong = guiData->cursorLong;  //kyara
@@ -4155,6 +4166,9 @@ void GUIMain::drawGUI()
     if (instrEditWindow) {
         refreshInstrumentEditor();
     }
+    if (nozzleEditWindow) {
+        refreshNozzleEditor();
+    }
 
     //The anchor's state on the AMARRES page
     if (model && anchorText) {
@@ -4697,76 +4711,70 @@ void GUIMain::drawAlarmMutedIndicator()
     }
 }
 
+//B612 lettering (the face made for cockpit displays) at a size in pixels, within the sizes on disk
+irr::gui::IGUIFont* GUIMain::commsFont(irr::s32 size)
+{
+    size = irr::core::clamp(size, (irr::s32)12, (irr::s32)36);
+    irr::gui::IGUIFont* f = guienv->getFont(("media/fonts/b612/b612-" + std::to_string(size) + ".xml").c_str());
+    if (!f && guienv->getSkin()) { f = guienv->getSkin()->getFont(); }
+    return f;
+}
+
 void GUIMain::drawCommsOverlay()
 {
-    irr::video::IVideoDriver* driver = device->getVideoDriver();    if (!driver) { return; }
-    irr::gui::IGUIFont* font = guienv->getSkin() ? guienv->getSkin()->getFont() : 0;
-    if (!font) { return; }
+    irr::video::IVideoDriver* driver = device->getVideoDriver();
+    if (!driver) { return; }
 
-    // --- palette -------------------------------------------------------------------------
-    // Deep navy ground with a signal-red frame. Amber for the running clock, red for the
-    // distress header, warm off-white for the MAYDAY body, steel blue for the log heading,
-    // cool grey for log entries. Reads as an emergency panel without shouting.
-    const irr::video::SColor colPanel(232, 8, 18, 38);
-    const irr::video::SColor colFrame(255, 198, 58, 52);
-    const irr::video::SColor colRule(255, 38, 70, 112);
-    const irr::video::SColor colClock(255, 255, 194, 92);
-    const irr::video::SColor colDistress(255, 238, 92, 82);
-    const irr::video::SColor colMayday(255, 240, 228, 204);
-    const irr::video::SColor colLogHead(255, 128, 176, 228);
-    const irr::video::SColor colLogText(255, 202, 214, 228);
-    const irr::video::SColor colHint(255, 118, 198, 168);
+    //The distress traffic as a GMDSS VHF / DSC set shows it: a black screen with white lettering,
+    //the alert in red (flashing until the MAYDAY is acknowledged), what was received set out field
+    //by field, the time left before she sinks, the radio log, and the next action (Ctrl+A).
+    //Sizes follow the screen's height, so it reads from the helm on a big TV as on a monitor.
+    const irr::s32 F = irr::core::clamp((irr::s32)(sh / 46.0f + 0.5f), (irr::s32)15, (irr::s32)30);
+    irr::gui::IGUIFont* fValue = commsFont(F);
+    irr::gui::IGUIFont* fLabel = commsFont((irr::s32)(F * 0.68f + 0.5f));
+    irr::gui::IGUIFont* fBanner = commsFont((irr::s32)(F * 1.3f + 0.5f));
+    irr::gui::IGUIFont* fLog = commsFont((irr::s32)(F * 0.8f + 0.5f));
+    if (!fValue || !fLabel || !fBanner || !fLog) { return; }
+    auto lineH = [](irr::gui::IGUIFont* f) { return (irr::s32)f->getDimension(L"Ég").Height; };
+    auto textW = [](irr::gui::IGUIFont* f, const std::wstring& t) { return (irr::s32)f->getDimension(t.c_str()).Width; };
+    const irr::s32 hValue = lineH(fValue), hLabel = lineH(fLabel), hBanner = lineH(fBanner), hLog = lineH(fLog);
+    const irr::s32 pad = F / 2 + 2;
 
-    const irr::s32 lh = (irr::s32)font->getDimension(L"Xg").Height + 2;   // line height
-    const irr::s32 pad = lh / 2;
+    const irr::video::SColor casing(245, 24, 27, 32), casingEdge(255, 78, 84, 94);
+    const irr::video::SColor screen(250, 4, 6, 8), rule(255, 52, 58, 66);
+    const irr::video::SColor white(255, 255, 255, 255), label(255, 150, 160, 172), dim(255, 112, 122, 134);
+    const irr::video::SColor alertRed(255, 204, 20, 24), alertDark(255, 104, 10, 14);
+    const irr::video::SColor fireText(255, 255, 132, 96), amber(255, 255, 192, 40), go(255, 112, 232, 140);
+    const irr::video::SColor logText(255, 222, 228, 236), keycap(255, 48, 54, 62);
 
-    // --- panel frame ---------------------------------------------------------------------
-    // KYARA: the panel anchors flush to the very top edge (panelT = 0) and, when open, is given a
-    // fixed tall height so it fills the empty space across the top of the view. Its WIDTH is now
-    // measured from the widest line actually drawn, so there's no dead space on the right; it is
-    // still capped at the old su*0.28 ceiling, so nothing that fitted before can start clipping.
-    const irr::s32 panelL = pad;
-    const irr::s32 panelT = 0;                            // flush to the very top edge
-    const irr::s32 panelWCap = (irr::s32)(su * 0.28f);    // never wider than the original
-    const irr::s32 btnSize = lh + pad;
+    //Flashing until acknowledged (as the set's alarm does), steady after
+    const bool acknowledged = guiCommsStep > 0;
+    const bool flashOn = acknowledged || ((device->getTimer()->getRealTime() / 500) % 2) == 0;
+    const irr::video::SColor bannerColour = flashOn ? alertRed : alertDark;
 
-    // How many log lines are visible depends only on the (fixed) height, so we can work it out
-    // before deciding the width.
-    const irr::s32 panelB = panelT + (irr::s32)(sh * 0.45f);   // fill the top of the view
-    const irr::s32 nMayday = (irr::s32)guiMaydayLines.size();
-    const irr::s32 yLog = panelT + pad + (3 + nMayday) * lh + lh / 2;  // timer+distress+heading + mayday + rule
-    const irr::s32 hintY = panelB - pad - lh;
-    irr::s32 logCap = (hintY - yLog > 0) ? (hintY - yLog) / lh : 0;
-    if (logCap > 30) { logCap = 30; }
-    const irr::u32 nLog = (irr::u32)guiCommsLog.size();
-    const irr::u32 showLog = (nLog < (irr::u32)logCap) ? nLog : (irr::u32)logCap;
+    const irr::s32 panelW = irr::core::min_(F * 25, (irr::s32)(su * 0.45f));
+    const irr::s32 panelL = pad, panelT = pad, panelR = panelL + panelW;
+    const irr::s32 x0 = panelL + pad, x1 = panelR - pad;
+    auto box = [&](irr::s32 l, irr::s32 t, irr::s32 r, irr::s32 b, irr::video::SColor c) {
+        driver->draw2DRectangle(c, irr::core::rect<irr::s32>(l, t, r, b));
+    };
+    auto text = [&](irr::gui::IGUIFont* f, const std::wstring& t, irr::s32 l, irr::s32 top, irr::s32 r, irr::s32 h, irr::video::SColor c, bool centre = false) {
+        const irr::core::rect<irr::s32> area(l, top, r, top + h);
+        f->draw(t.c_str(), area, c, centre, true, &area);
+    };
+    auto mmss = [](irr::f32 seconds) {
+        const int t = (int)(seconds > 0 ? seconds : 0);
+        wchar_t b[16];
+        swprintf(b, 16, L"%02d:%02d", t / 60, t % 60);
+        return std::wstring(b);
+    };
 
-    // Widest line among everything we draw. The timer line also has to clear the button.
-    auto textW = [&](const wchar_t* s) -> irr::s32 {
-        return (irr::s32)font->getDimension(s).Width;
-        };
-    irr::s32 contentW = textW(guiDistressTimer.c_str()) + pad + btnSize;   // timer + button
-    auto grow = [&](irr::s32 w) { if (w > contentW) { contentW = w; } };
-    grow(textW(L"\u2014 D\u00C9TRESSE / COMMUNICATIONS \u2014"));
-    for (irr::u32 i = 0; i < guiMaydayLines.size(); ++i) { grow(textW(guiMaydayLines[i].c_str())); }
-    grow(textW(L"JOURNAL DES COMMUNICATIONS"));
-    for (irr::u32 i = nLog - showLog; i < nLog; ++i) { grow(textW(guiCommsLog[i].c_str())); }
-    grow(textW(L"[Ctrl+A] action de comm. suivante"));
-
-    irr::s32 panelW = contentW + 2 * pad;
-    if (panelW > panelWCap) { panelW = panelWCap; }
-    const irr::s32 panelR = panelL + panelW;
-
-    // --- minimise / restore toggle (top-right of the panel) ------------------------------
-    // A push button, created once and polled with isPressed() - exactly how binosButton and the
-    // EBL buttons already work in this file, so no EventReceiver wiring is needed. Pressed == minimised.
-    const irr::s32 btnR = panelR - pad / 2;
-    const irr::s32 btnL = btnR - btnSize;
-    const irr::s32 btnT = panelT + pad / 2;
-    const irr::s32 btnB = btnT + btnSize;
-    const irr::core::rect<irr::s32> btnRect(btnL, btnT, btnR, btnB);
+    //--- header: the set, channel 16, the minimise key -----------------------------------
+    const irr::s32 headerH = hLabel + pad;
+    const irr::s32 btnSize = headerH - 6;
+    const irr::core::rect<irr::s32> btnRect(panelR - 3 - btnSize, panelT + 3, panelR - 3, panelT + 3 + btnSize);
     if (!commsMinButton) {
-        commsMinButton = guienv->addButton(btnRect, 0, GUI_ID_COMMS_MINIMISE_BUTTON, L"\u2013");
+        commsMinButton = guienv->addButton(btnRect, 0, GUI_ID_COMMS_MINIMISE_BUTTON, L"–");
         commsMinButton->setIsPushButton(true);
     }
     else {
@@ -4774,59 +4782,171 @@ void GUIMain::drawCommsOverlay()
     }
     commsMinButton->setVisible(true);
     const bool minimised = commsMinButton->isPressed();
-    commsMinButton->setText(minimised ? L"+" : L"\u2013");   // "+" restores, "\u2013" minimises
+    commsMinButton->setText(minimised ? L"+" : L"–");
 
-    // --- minimised: collapse to a slim header bar (just the running clock) ----------------
+    const std::wstring channel = L"CH 16";
+    const irr::s32 chW = textW(fLabel, channel) + pad;
+    const irr::s32 chR = btnRect.UpperLeftCorner.X - pad / 2;
+
+    //Minimised: one bar - the alert, the casualty and the clock
     if (minimised) {
-        const irr::s32 panelBmin = btnB + pad / 2;
-        driver->draw2DRectangle(colPanel,
-            irr::core::rect<irr::s32>(panelL, panelT, panelR, panelBmin));
-        driver->draw2DRectangleOutline(
-            irr::core::rect<irr::s32>(panelL, panelT, panelR, panelBmin), colFrame);
-        font->draw(guiDistressTimer.c_str(),
-            irr::core::rect<irr::s32>(panelL + pad, panelT + pad, btnL - pad, panelT + pad + lh),
-            colClock);
-        return;   // button itself is drawn on top by guienv->drawAll()
+        box(panelL, panelT, panelR, panelT + headerH, bannerColour);
+        driver->draw2DRectangleOutline(irr::core::rect<irr::s32>(panelL, panelT, panelR, panelT + headerH), casingEdge);
+        text(fLabel, L"MAYDAY  ·  " + guiDistressVessel + L"  ·  T+" + mmss(guiDistressElapsed),
+            x0, panelT, chR, headerH, white);
+        return; //the key itself is drawn by guienv->drawAll()
     }
 
-    // --- expanded: tall panel covering the top-left space --------------------------------
-    driver->draw2DRectangle(colPanel,
-        irr::core::rect<irr::s32>(panelL, panelT, panelR, panelB));
-    driver->draw2DRectangleOutline(
-        irr::core::rect<irr::s32>(panelL, panelT, panelR, panelB), colFrame);
+    //--- the traffic received, field by field --------------------------------------------
+    struct Field { std::wstring name, value; irr::video::SColor colour; };
+    std::vector<Field> fields;
+    fields.push_back({ L"NAVIRE", guiDistressVessel, white });
+    fields.push_back({ L"POSITION", guiDistressPosition, white });
+    fields.push_back({ L"NATURE", L"INCENDIE À BORD", fireText });
+    fields.push_back({ L"ASSISTANCE", L"IMMÉDIATE  ·  POB INCONNU", white });
+    fields.push_back({ L"VEILLE", L"VHF CANAL 16", white });
+    irr::s32 labelCol = 0;
+    for (size_t i = 0; i < fields.size(); i++) { labelCol = irr::core::max_(labelCol, textW(fLabel, fields[i].name)); }
+    labelCol += pad;
+    const irr::s32 rowH = hValue + pad / 2;
 
-    irr::s32 x = panelL + pad;
-    irr::s32 y = panelT + pad;
-
-    // Timer shares its line with the minimise button, so stop its text short of the button.
-    font->draw(guiDistressTimer.c_str(),
-        irr::core::rect<irr::s32>(x, y, btnL - pad, y + lh), colClock); y += lh;
-    font->draw(L"\u2014 D\u00C9TRESSE / COMMUNICATIONS \u2014",
-        irr::core::rect<irr::s32>(x, y, panelR - pad, y + lh), colDistress); y += lh;
-
-    for (irr::u32 i = 0; i < guiMaydayLines.size(); ++i) {
-        font->draw(guiMaydayLines[i].c_str(),
-            irr::core::rect<irr::s32>(x, y, panelR - pad, y + lh), colMayday); y += lh;
+    //--- the radio log, wrapped to the panel ----------------------------------------------
+    //Each entry: its time in its own column, the message wrapped beside it.
+    struct LogRow { std::wstring time, line; bool latest; };
+    std::vector<LogRow> rows;
+    const irr::s32 timeCol = textW(fLog, L"00:00:00") + pad / 2;
+    const irr::s32 msgW = (x1 - x0) - timeCol;
+    for (size_t e = 0; e < guiCommsLog.size(); e++) {
+        std::wstring entry = guiCommsLog[e];
+        std::wstring time;
+        if (entry.size() > 10 && entry[2] == L':' && entry[5] == L':') { time = entry.substr(0, 8); entry = entry.substr(8); }
+        while (!entry.empty() && entry[0] == L' ') { entry.erase(0, 1); }
+        std::wstring current;
+        size_t pos = 0;
+        bool first = true;
+        while (pos <= entry.size()) {
+            size_t sp = entry.find(L' ', pos);
+            if (sp == std::wstring::npos) { sp = entry.size(); }
+            const std::wstring word = entry.substr(pos, sp - pos);
+            pos = sp + 1;
+            if (word.empty()) { continue; }
+            const std::wstring candidate = current.empty() ? word : current + L" " + word;
+            if (!current.empty() && textW(fLog, candidate) > msgW) {
+                rows.push_back({ first ? time : std::wstring(), current, false });
+                first = false;
+                current = word;
+            }
+            else {
+                current = candidate;
+            }
+        }
+        if (!current.empty() || first) { rows.push_back({ first ? time : std::wstring(), current, false }); }
+        if (e + 1 == guiCommsLog.size()) {
+            for (size_t r = rows.size(); r > 0; r--) { rows[r - 1].latest = true; if (!rows[r - 1].time.empty()) { break; } }
+        }
     }
 
-    // Hairline rule separating the traffic from the running log.
-    y += lh / 4;
-    driver->draw2DRectangle(colRule,
-        irr::core::rect<irr::s32>(x, y, panelR - pad, y + 1));
-    y += lh / 4;
+    //--- heights: everything fixed, then as much of the log as the panel may hold ---------
+    const irr::s32 bannerH = hBanner + pad;
+    const irr::s32 timerH = hValue + pad / 2 + irr::core::max_((irr::s32)4, F / 4) + pad / 2;
+    const irr::s32 logRowH = hLog + 2;
+    const irr::s32 actionH = hValue + pad;
+    const irr::s32 fixedH = headerH + bannerH + pad / 2 + (irr::s32)fields.size() * rowH + pad / 2 + 1 + pad / 2 + timerH
+        + 1 + pad / 2 + hLabel + pad / 4 + pad + 1 + actionH + pad / 2 + 3;
+    const irr::s32 maxH = (irr::s32)(sh * 0.66f);
+    const irr::s32 logRowsRoom = irr::core::max_((irr::s32)2, (maxH - fixedH) / logRowH);
+    const irr::s32 logRows = irr::core::clamp((irr::s32)rows.size(), (irr::s32)2, logRowsRoom);
+    const irr::s32 panelB = panelT + fixedH + logRows * logRowH;
 
-    font->draw(L"JOURNAL DES COMMUNICATIONS",
-        irr::core::rect<irr::s32>(x, y, panelR - pad, y + lh), colLogHead); y += lh;
+    //--- casing and screen ----------------------------------------------------------------
+    box(panelL, panelT, panelR, panelB, casing);
+    driver->draw2DRectangleOutline(irr::core::rect<irr::s32>(panelL, panelT, panelR, panelB), casingEdge);
+    box(panelL + 3, panelT + headerH, panelR - 3, panelB - 3, screen);
 
-    // The hint is pinned to the bottom of the (now taller) panel; the log fills the gap between
-    // the heading and the hint, showing as many of the most recent entries as fit.
-    for (irr::u32 i = nLog - showLog; i < nLog; ++i) {
-        font->draw(guiCommsLog[i].c_str(),
-            irr::core::rect<irr::s32>(x, y, panelR - pad, y + lh), colLogText); y += lh;
+    //Header: name of the set, channel 16 in a box
+    text(fLabel, L"VHF  ·  ASN / DSC", x0, panelT, chR - chW - pad, headerH, label);
+    const irr::core::rect<irr::s32> chBox(chR - chW, panelT + 4, chR, panelT + headerH - 4);
+    driver->draw2DRectangleOutline(chBox, white);
+    text(fLabel, channel, chBox.UpperLeftCorner.X, chBox.UpperLeftCorner.Y, chBox.LowerRightCorner.X, chBox.getHeight(), white, true);
+
+    irr::s32 y = panelT + headerH;
+    //Alert banner
+    box(panelL + 3, y, panelR - 3, y + bannerH, bannerColour);
+    {
+        std::wstring alert = L"ALERTE DE DÉTRESSE  ·  MAYDAY";
+        if (textW(fBanner, alert) > x1 - x0) { alert = L"MAYDAY"; }
+        text(fBanner, alert, x0, y, x1, bannerH, white, true);
     }
+    y += bannerH + pad / 2;
 
-    font->draw(L"[Ctrl+A] action de comm. suivante",
-        irr::core::rect<irr::s32>(x, hintY, panelR - pad, hintY + lh), colHint);
+    //Fields
+    for (size_t i = 0; i < fields.size(); i++) {
+        text(fLabel, fields[i].name, x0, y, x0 + labelCol, rowH, label);
+        text(fValue, fields[i].value, x0 + labelCol, y, x1, rowH, fields[i].colour);
+        y += rowH;
+    }
+    y += pad / 2;
+    box(x0, y, x1, y + 1, rule);
+    y += 1 + pad / 2;
+
+    //Time since the fire broke out, time left, and the bar running down
+    {
+        const std::wstring elapsed = L"T+ " + mmss(guiDistressElapsed);
+        text(fValue, elapsed, x0, y, x1, hValue, amber);
+        irr::f32 left = guiDistressDeadline - guiDistressElapsed;
+        if (left < 0) { left = 0; }
+        if (guiDistressDeadline > 0) {
+            const std::wstring value = mmss(left);
+            const irr::s32 vw = textW(fValue, value);
+            text(fValue, value, x1 - vw, y, x1, hValue, white);
+            const std::wstring name = L"ÉCHÉANCE";
+            text(fLabel, name, x1 - vw - pad / 2 - textW(fLabel, name), y, x1 - vw - pad / 2, hValue, label);
+        }
+        y += hValue + pad / 2;
+        const irr::s32 barH = irr::core::max_((irr::s32)4, F / 4);
+        box(x0, y, x1, y + barH, irr::video::SColor(255, 40, 45, 52));
+        if (guiDistressDeadline > 0) {
+            const irr::f32 f = irr::core::clamp(left / guiDistressDeadline, 0.0f, 1.0f);
+            const irr::video::SColor fill = f > 0.5f ? go : (f > 0.2f ? amber : alertRed);
+            box(x0, y, x0 + (irr::s32)((x1 - x0) * f), y + barH, fill);
+        }
+        y += barH + pad / 2;
+    }
+    box(x0, y, x1, y + 1, rule);
+    y += 1 + pad / 2;
+
+    //Radio log: the latest entries that fit, the newest in white
+    text(fLabel, L"JOURNAL RADIO", x0, y, x1, hLabel, label);
+    y += hLabel + pad / 4;
+    const size_t firstRow = rows.size() > (size_t)logRows ? rows.size() - (size_t)logRows : 0;
+    for (size_t r = firstRow; r < rows.size(); r++) {
+        text(fLog, rows[r].time, x0, y, x0 + timeCol, logRowH, dim);
+        text(fLog, rows[r].line, x0 + timeCol, y, x1, logRowH, rows[r].latest ? white : logText);
+        y += logRowH;
+    }
+    y = panelB - 3 - pad / 2 - actionH;
+    box(x0, y - pad / 2, x1, y - pad / 2 + 1, rule);
+
+    //Next action: the key, then what it does
+    {
+        static const wchar_t* actions[5] = {
+            L"ACCUSER RÉCEPTION DU MAYDAY",
+            L"MAYDAY RELAY AU CROSS / MRCC",
+            L"COORDINATION SUR ZONE (OSC)",
+            L"COMPTE-RENDU AU MRCC",
+            L"POINT DE SITUATION AU MRCC" };
+        const std::wstring key = L"Ctrl+A";
+        const irr::s32 keyW = textW(fLabel, key) + pad;
+        const irr::core::rect<irr::s32> keyBox(x0, y + 4, x0 + keyW, y + actionH - 4);
+        driver->draw2DRectangle(keycap, keyBox);
+        driver->draw2DRectangleOutline(keyBox, casingEdge);
+        text(fLabel, key, keyBox.UpperLeftCorner.X, keyBox.UpperLeftCorner.Y, keyBox.LowerRightCorner.X, keyBox.getHeight(), white, true);
+        const int step = irr::core::clamp((int)guiCommsStep, 0, 4);
+        std::wstring next = actions[step];
+        irr::gui::IGUIFont* fNext = fValue;
+        if (textW(fNext, next) > x1 - (x0 + keyW + pad)) { fNext = fLog; }
+        text(fNext, next, x0 + keyW + pad, y, x1, actionH, go);
+    }
 }
 void GUIMain::setExtraControlsWindowVisible(bool windowVisible)
 {
@@ -6460,6 +6580,7 @@ void GUIMain::openLightEditor(int vessel)
 {
     closeLightEditor();
     closeSizeEditor(); //one editor at a time: they share the camera
+    closeNozzleEditor();
     closeInstrumentEditor();
     if (!model) { return; }
     ShipLights* lights = model->getShipLights(vessel);
@@ -6761,6 +6882,7 @@ namespace
 void GUIMain::openSizeEditor(int vessel)
 {
     closeSizeEditor();
+    closeNozzleEditor();
     closeLightEditor(); //one editor at a time: they share the camera
     closeInstrumentEditor();
     if (!model) { return; }
@@ -7170,6 +7292,131 @@ void GUIMain::refreshSizeEditor()
     }
 }
 
+//Fire monitor nozzle -----------------------------------------------------------------------------
+void GUIMain::openNozzleEditor()
+{
+    closeNozzleEditor();
+    closeSizeEditor(); //one editor at a time: they share the camera
+    closeLightEditor();
+    closeInstrumentEditor();
+    if (!model) { return; }
+
+    irr::s32 fh = 16;
+    if (guienv->getSkin() && guienv->getSkin()->getFont()) {
+        fh = (irr::s32)guienv->getSkin()->getFont()->getDimension(L"Ag").Height;
+    }
+    const irr::s32 pad = fh / 2;
+    const irr::s32 rowH = fh + 10;
+    const irr::s32 w = fh * 28;
+    const irr::s32 readH = fh * 5;
+    const irr::s32 statusH = fh * 3;
+    const irr::s32 helpH = fh * 7;
+    const irr::s32 h = 2 * fh + readH + pad + 5 * (rowH + pad) + statusH + pad + helpH + pad;
+    const irr::s32 sw = (irr::s32)device->getVideoDriver()->getScreenSize().Width;
+    const irr::s32 sh = (irr::s32)device->getVideoDriver()->getScreenSize().Height;
+    const irr::s32 x = sw - w - fh;
+    irr::s32 y = sh - h - fh * 4;
+    if (y < fh * 3) { y = fh * 3; }
+
+    nozzleEditWindow = guienv->addWindow(irr::core::rect<irr::s32>(x, y, x + w, y + h), false, L"Lance incendie - sortie de l'eau");
+    if (nozzleEditWindow->getCloseButton()) { nozzleEditWindow->getCloseButton()->setVisible(false); }
+
+    irr::s32 cy = 2 * fh;
+    nozzleEditReadout = guienv->addStaticText(L"", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + readH), true, true, nozzleEditWindow);
+    cy += readH + pad;
+
+    const irr::s32 half = (w - 3 * pad) / 2;
+    auto buttonPair = [&](int idA, const wchar_t* a, const wchar_t* tipA, int idB, const wchar_t* b, const wchar_t* tipB) {
+        guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + half, cy + rowH), nozzleEditWindow, idA, a, tipA);
+        guienv->addButton(irr::core::rect<irr::s32>(2 * pad + half, cy, w - pad, cy + rowH), nozzleEditWindow, idB, b, tipB);
+        cy += rowH + pad;
+    };
+    buttonPair(GUI_ID_NEDIT_FORE, L"Vers l'avant 5 cm", L"Fl\u00E8che haut (Maj : 1 cm, Ctrl : 25 cm)",
+        GUI_ID_NEDIT_AFT, L"Vers l'arri\u00E8re 5 cm", L"Fl\u00E8che bas (Maj : 1 cm, Ctrl : 25 cm)");
+    buttonPair(GUI_ID_NEDIT_PORT, L"Vers b\u00E2bord 5 cm", L"Fl\u00E8che gauche (Maj : 1 cm, Ctrl : 25 cm)",
+        GUI_ID_NEDIT_STBD, L"Vers tribord 5 cm", L"Fl\u00E8che droite (Maj : 1 cm, Ctrl : 25 cm)");
+    buttonPair(GUI_ID_NEDIT_UP, L"Monter 5 cm", L"Pg.Pr\u00E9c (Maj : 1 cm, Ctrl : 25 cm)",
+        GUI_ID_NEDIT_DOWN, L"Descendre 5 cm", L"Pg.Suiv (Maj : 1 cm, Ctrl : 25 cm)");
+    nozzleEditTestKey = guienv->addButton(irr::core::rect<irr::s32>(pad, cy, w - pad, cy + rowH), nozzleEditWindow,
+        GUI_ID_NEDIT_TEST, L"Tester le jet", L"Ouvrir / fermer l'eau pour voir d'o\u00F9 elle sort (vers le feu s'il y en a un, sinon droit devant)");
+    nozzleEditTestKey->setIsPushButton(true);
+    cy += rowH + pad;
+
+    const irr::s32 third = (w - 4 * pad) / 3;
+    guienv->addButton(irr::core::rect<irr::s32>(pad, cy, pad + third, cy + rowH), nozzleEditWindow,
+        GUI_ID_NEDIT_SAVE, L"Enregistrer", L"\u00C9crire NozzleX / NozzleY / NozzleZ dans le boat.ini du navire (copie .bak / .prev)");
+    guienv->addButton(irr::core::rect<irr::s32>(2 * pad + third, cy, 2 * pad + 2 * third, cy + rowH), nozzleEditWindow,
+        GUI_ID_NEDIT_REVERT, L"Annuler", L"Revenir au point de l'ouverture");
+    guienv->addButton(irr::core::rect<irr::s32>(3 * pad + 2 * third, cy, w - pad, cy + rowH), nozzleEditWindow,
+        GUI_ID_NEDIT_CLOSE, L"Terminer", L"Fermer et revenir \u00E0 la passerelle (ce qui n'est pas enregistr\u00E9 reste jusqu'\u00E0 la fin du sc\u00E9nario)");
+    cy += rowH + pad;
+
+    nozzleEditStatus = guienv->addStaticText(L"Non enregistr\u00E9.", irr::core::rect<irr::s32>(pad, cy, w - pad, cy + statusH),
+        false, true, nozzleEditWindow);
+    cy += statusH + pad;
+
+    guienv->addStaticText(
+        L"Cliquer sur la bouche de la lance du mod\u00E8le : l'eau sortira de ce point (le point vert, visible \u00E0 travers le mod\u00E8le).\n"
+        L"Fl\u00E8ches : avant / arri\u00E8re, b\u00E2bord / tribord ; Pg.Pr\u00E9c / Pg.Suiv : monter / descendre "
+        L"(5 cm ; Maj : 1 cm ; Ctrl : 25 cm)\n"
+        L"Tourner autour : glisser dans la vue, ou A / D et W / S ; zoom : molette, ou Q / E\n"
+        L"Avec ce point, le simulateur ne dessine plus sa propre lance.",
+        irr::core::rect<irr::s32>(pad, cy, w - pad, cy + helpH), false, true, nozzleEditWindow);
+
+    refreshNozzleEditor();
+}
+
+void GUIMain::closeNozzleEditor()
+{
+    if (nozzleEditWindow) { nozzleEditWindow->remove(); }
+    nozzleEditWindow = 0;
+    nozzleEditReadout = 0;
+    nozzleEditStatus = 0;
+    nozzleEditTestKey = 0;
+}
+
+void GUIMain::refreshNozzleEditor()
+{
+    if (!nozzleEditWindow || !nozzleEditReadout || !model || !model->isNozzleEditing()) { return; }
+    irr::core::vector3df p;
+    const bool placed = model->getNozzleEdit(p);
+    std::wstring t;
+    if (placed) {
+        t = L"Sortie de l'eau, depuis l'origine du mod\u00E8le :\n";
+        t += L"Avant : " + metresFr(p.X, 2) + L" m     Tribord : " + metresFr(p.Y, 2) + L" m     Hauteur : " + metresFr(p.Z, 2) + L" m\n";
+        t += L"Lance du mod\u00E8le (le simulateur n'en dessine pas)";
+    }
+    else {
+        t = L"Pas encore de point : l'eau sort de la lance dessin\u00E9e par le simulateur.\n"
+            L"Cliquer sur la lance du mod\u00E8le dans la vue.";
+    }
+    nozzleEditReadout->setText(t.c_str());
+    if (nozzleEditTestKey) { nozzleEditTestKey->setText(nozzleEditTestKey->isPressed() ? L"Fermer l'eau" : L"Tester le jet"); }
+}
+
+bool GUIMain::isNozzleTestOn() const
+{
+    return nozzleEditTestKey && nozzleEditTestKey->isPressed();
+}
+
+void GUIMain::setNozzleEditorStatus(const std::wstring& text, bool isError)
+{
+    if (!nozzleEditStatus) { return; }
+    nozzleEditStatus->setText(text.c_str());
+    nozzleEditStatus->setOverrideColor(isError ? bridge::palette().error : bridge::palette().ok);
+}
+
+void GUIMain::nozzleEditorClick(const irr::core::line3df& worldRay)
+{
+    if (!model || !model->isNozzleEditing()) { return; }
+    if (model->nozzleEditPick(worldRay)) {
+        setNozzleEditorStatus(L"Point plac\u00E9 (non enregistr\u00E9). Affiner avec les fl\u00E8ches, puis Enregistrer.", false);
+    }
+    else {
+        setNozzleEditorStatus(L"Clic \u00E0 c\u00F4t\u00E9 du navire : cliquer sur sa lance.", true);
+    }
+}
+
 void GUIMain::setSizeEditorStatus(const std::wstring& text, bool isError)
 {
     if (!sizeEditStatus) { return; }
@@ -7206,6 +7453,7 @@ void GUIMain::openInstrumentEditor()
     closeInstrumentEditor();
     closeLightEditor();
     closeSizeEditor();
+    closeNozzleEditor();
     if (!model) { return; }
 
     irr::s32 fh = 16;

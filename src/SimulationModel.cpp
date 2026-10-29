@@ -485,6 +485,8 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
             monitorOffset = irr::core::vector3df(0.0f, deckY, fwdZ);
         }
         fireMonitor.mount(smgr, driver, ownShip.getSceneNode(), monitorOffset);
+        //Her model's own monitor (placed with the nozzle tool): the water leaves from its nozzle
+        if (ownShip.getFireNozzleOffsetSet()) { fireMonitor.setNozzle(true, ownShip.getFireNozzleOffset()); }
     }
     monitorFiringDesired = false; // FIRE FEATURE
     fireWasBurning = false; // FIRE FEATURE
@@ -1227,6 +1229,7 @@ bool SimulationModel::lightEditPick(const irr::core::line3df& worldRay, irr::cor
 bool SimulationModel::beginLightEdit(int vessel)
 {
     if (lightEditVessel != -2) { endLightEdit(); }
+    endNozzleEdit();
     if (sizeEditVessel != -2) { endSizeEdit(); }
     endInstrumentEdit();
     setFreeView(false); //the lamp editor has its own orbit
@@ -1443,6 +1446,7 @@ void SimulationModel::applyVesselSize(int vessel, irr::f32 scale, irr::f32 yCorr
 bool SimulationModel::beginSizeEdit(int vessel)
 {
     if (sizeEditVessel != -2) { endSizeEdit(); }
+    endNozzleEdit();
     if (lightEditVessel != -2) { endLightEdit(); }
     endInstrumentEdit();
     setFreeView(false); //this editor has its own orbit
@@ -1471,6 +1475,141 @@ void SimulationModel::endSizeEdit()
 bool SimulationModel::isSizeEditing() const
 {
     return sizeEditVessel != -2;
+}
+
+//Fire monitor nozzle editor -----------------------------------------------------------------------
+//Her bow and her starboard side in the coordinates of her node (as for her lamps)
+void SimulationModel::nozzleAxes(irr::core::vector3df& bow, irr::core::vector3df& stbd) const
+{
+    const irr::f32 t = -ownShip.getAngleCorrection() * irr::core::DEGTORAD;
+    bow = irr::core::vector3df(std::sin(t), 0.0f, std::cos(t));
+    stbd = irr::core::vector3df(std::sin(t + irr::core::HALF_PI), 0.0f, std::cos(t + irr::core::HALF_PI));
+}
+
+bool SimulationModel::beginNozzleEdit(std::wstring& message)
+{
+    if (!fireBoatIsOwnShip || !fireMonitor.isMounted() || !ownShip.getSceneNode()) {
+        message = L"Le navire propre n'a pas de lance : il faut FireFighting=1 dans son boat.ini.";
+        return false;
+    }
+    if (nozzleEditOpen) { return true; }
+    if (lightEditVessel != -2) { endLightEdit(); }
+    if (sizeEditVessel != -2) { endSizeEdit(); }
+    endInstrumentEdit();
+    setFreeView(false); //this editor has its own orbit
+    nozzleEditOpen = true;
+    nozzleEditOrigSet = fireMonitor.hasNozzle();
+    nozzleEditOrig = fireMonitor.getNozzleOffset();
+    nozzleEditPlaced = nozzleEditOrigSet;
+    fireMonitor.showMarker(true);
+    nozzleEditRevision++;
+    //From her quarter and above, close enough to click a monitor on her deck
+    irr::f32 radius = 0.6f * ownShip.getLength();
+    if (radius < 12.0f) { radius = 12.0f; }
+    camera.setOrbit(true, radius);
+    camera.orbitBy(-35.0f, 20.0f, 1.0f);
+    device->getLogger()->log("Nozzle editor opened");
+    return true;
+}
+
+void SimulationModel::endNozzleEdit()
+{
+    if (!nozzleEditOpen) { return; }
+    nozzleEditOpen = false;
+    fireMonitor.showMarker(false);
+    monitorFiringDesired = false;
+    fireMonitor.setFiring(false);
+    camera.setOrbit(false);
+}
+
+bool SimulationModel::isNozzleEditing() const
+{
+    return nozzleEditOpen;
+}
+
+bool SimulationModel::nozzleEditPick(const irr::core::line3df& worldRay)
+{
+    irr::scene::ISceneNode* node = ownShip.getSceneNode();
+    if (!nozzleEditOpen || !node) { return false; }
+    node->updateAbsolutePosition();
+    bool found = false;
+    irr::core::vector3df hit;
+    irr::f32 bestDistSq = 0.0f;
+    pickMeshes(node, worldRay, found, hit, bestDistSq);
+    if (!found) { return false; }
+    irr::core::matrix4 toModel;
+    if (!node->getAbsoluteTransformation().getInverse(toModel)) { return false; }
+    irr::core::vector3df local;
+    toModel.transformVect(local, hit);
+    fireMonitor.setNozzle(true, local);
+    nozzleEditPlaced = true;
+    nozzleEditRevision++;
+    return true;
+}
+
+void SimulationModel::nozzleEditStep(irr::f32 foreMetres, irr::f32 stbdMetres, irr::f32 upMetres)
+{
+    irr::scene::ISceneNode* node = ownShip.getSceneNode();
+    if (!nozzleEditOpen || !node) { return; }
+    const irr::f32 scale = (node->getScale().X > 0.000001f) ? node->getScale().X : 1.0f;
+    irr::core::vector3df bow, stbd;
+    nozzleAxes(bow, stbd);
+    const irr::core::vector3df delta = (bow * foreMetres + stbd * stbdMetres + irr::core::vector3df(0.0f, upMetres, 0.0f)) / scale;
+    fireMonitor.setNozzle(true, fireMonitor.getNozzleOffset() + delta); //(from the built monitor's foot if none yet)
+    nozzleEditPlaced = true;
+    nozzleEditRevision++;
+}
+
+void SimulationModel::nozzleEditRevert()
+{
+    if (!nozzleEditOpen) { return; }
+    fireMonitor.setNozzle(nozzleEditOrigSet, nozzleEditOrigSet ? nozzleEditOrig : fireMonitor.getNozzleOffset());
+    nozzleEditPlaced = nozzleEditOrigSet;
+    nozzleEditRevision++;
+}
+
+bool SimulationModel::nozzleEditSave(std::wstring& message)
+{
+    VesselSize size;
+    if (!nozzleEditOpen || !getVesselSize(-1, size)) {
+        message = L"L'outil de la lance n'est pas ouvert.";
+        return false;
+    }
+    if (!nozzleEditPlaced) {
+        message = L"Cliquez d'abord sur la lance du navire dans la vue.";
+        return false;
+    }
+    const irr::core::vector3df p = fireMonitor.getNozzleOffset();
+    std::vector<std::pair<std::string, std::string> > values;
+    values.push_back(std::make_pair(std::string("NozzleX"), iniNumber(p.X)));
+    values.push_back(std::make_pair(std::string("NozzleY"), iniNumber(p.Y)));
+    values.push_back(std::make_pair(std::string("NozzleZ"), iniNumber(p.Z)));
+    const bool ok = writeKeysToBoatIni(size.iniFile, values, message);
+    if (ok) {
+        nozzleEditOrig = p;
+        nozzleEditOrigSet = true;
+    }
+    device->getLogger()->log(ok ? ("Nozzle editor: saved " + size.iniFile).c_str() : "Nozzle editor: SAVE FAILED");
+    return ok;
+}
+
+void SimulationModel::nozzleEditTest(bool on)
+{
+    if (!nozzleEditOpen) { return; }
+    monitorFiringDesired = on;
+    fireMonitor.setFiring(on);
+}
+
+bool SimulationModel::getNozzleEdit(irr::core::vector3df& foreStbdUp) const
+{
+    irr::scene::ISceneNode* node = ownShip.getSceneNode();
+    if (!node) { return false; }
+    const irr::f32 scale = (node->getScale().X > 0.000001f) ? node->getScale().X : 1.0f;
+    const irr::core::vector3df m = fireMonitor.getNozzleOffset() * scale;
+    irr::core::vector3df bow, stbd;
+    nozzleAxes(bow, stbd);
+    foreStbdUp = irr::core::vector3df(m.dotProduct(bow), m.dotProduct(stbd), m.Y);
+    return nozzleEditPlaced;
 }
 
 int SimulationModel::getSizeEditVessel() const
@@ -1551,6 +1690,7 @@ bool SimulationModel::beginInstrumentEdit()
 {
     if (instrumentEditOpen) { return true; }
     if (lightEditVessel != -2) { endLightEdit(); }
+    endNozzleEdit();
     if (sizeEditVessel != -2) { endSizeEdit(); }
     instrumentEditOpen = true;
     instrumentEditSnapshot = ownShip.getInstrumentMaterialList();
@@ -4642,7 +4782,7 @@ void SimulationModel::placeCarriedRafts(RescueBoat& b)
 }
 void SimulationModel::pushComms(const std::wstring& line)
 {
-    std::wstring ts = widen(Utilities::timestampToString(absoluteTime)); // trim to HH:MM:SS if too long
+    std::wstring ts = widen(Utilities::timestampToString(absoluteTime, "%H:%M:%S"));
     std::wstring full = ts + L"  " + line;
 
     // Kyara: the comms overlay box has a fixed width, and a long line (e.g. the MAYDAY
@@ -4689,6 +4829,7 @@ void SimulationModel::beginDistressComms(int shipIndex)
     maydayLines.push_back(L"ICI " + wname + L", " + wname + L", " + wname);
     maydayLines.push_back(L"MAYDAY " + wname);
     maydayLines.push_back(L"POSITION " + wpos);
+    distressPosition = wpos;
     maydayLines.push_back(L"NATURE : INCENDIE \u00C0 BORD");
     maydayLines.push_back(L"ASSISTANCE IMM\u00C9DIATE REQUISE - POB INCONNU");
     maydayLines.push_back(L"\u00C0 L'\u00C9COUTE VHF CANAL 16");
@@ -5801,6 +5942,13 @@ void SimulationModel::update()
             }
         }
 
+        //Nozzle editor: circle the nozzle, turning with her
+        if (nozzleEditOpen && ownShip.getSceneNode()) {
+            camera.setOrbitCentre(fireMonitor.getNozzleWorldPos(), ownShip.getSceneNode()->getRotation().Y - ownShip.getAngleCorrection());
+            const irr::core::vector3df eye = camera.getOrbitPosition();
+            camera.setOrbitMinHeight(tideHeight + getWaveHeight(eye.X, eye.Z) + 1.0f);
+        }
+
         //Free view: circle the middle of the own ship's model, turning with her
         if (freeView && lightEditVessel == -2 && ownShip.getSceneNode()) {
             camera.setOrbitCentre(ownShip.getSceneNode()->getTransformedBoundingBox().getCenter(), ownShip.getHeading());
@@ -6012,6 +6160,11 @@ void SimulationModel::update()
         guiData->maydayLines = maydayLines;
         guiData->commsLog = commsLog;
         guiData->distressTimer = distressTimer;   // Inc 3: countdown atop the comms box
+        guiData->distressVessel = distressActive ? widen(casualtyName) : std::wstring();
+        guiData->distressPosition = distressPosition;
+        guiData->distressElapsed = fireElapsed;
+        guiData->distressDeadline = incident.sinkStartTime();
+        guiData->commsStep = commsStep;
         guiData->paused = paused;
         guiData->collided = collided;
         guiData->proxyAlarmMuted = proxyAlarmMuted;   //KYARA: so the GUI can show the silenced-alarm badge

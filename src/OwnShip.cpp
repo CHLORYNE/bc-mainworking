@@ -300,6 +300,13 @@ void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContact
         fireMonitorOffsetSet = (mX > -99998.0f && mY > -99998.0f && mZ > -99998.0f);
         fireMonitorOffset = irr::core::vector3df(mX, mY, mZ);
         if (!fireMonitorOffsetSet) { fireMonitorOffset = irr::core::vector3df(0, 0, 0); }
+        //The model has a monitor of its own: the water comes out of its nozzle (placed with the
+        //tool in the Taille tab), and the simulator draws none
+        const irr::f32 nX = IniFile::iniFileTof32(shipIniFilename, "NozzleX", -99999.0f);
+        const irr::f32 nY = IniFile::iniFileTof32(shipIniFilename, "NozzleY", -99999.0f);
+        const irr::f32 nZ = IniFile::iniFileTof32(shipIniFilename, "NozzleZ", -99999.0f);
+        fireNozzleOffsetSet = (nX > -99998.0f && nY > -99998.0f && nZ > -99998.0f);
+        fireNozzleOffset = fireNozzleOffsetSet ? irr::core::vector3df(nX, nY, nZ) : irr::core::vector3df(0, 0, 0);
     }
 
     // Do not scale portThrottlePosition, stbd... and wheelControlPosition, as these are implicitly scaled as position used relative to parent
@@ -1521,6 +1528,16 @@ std::string OwnShip::getName() const
 irr::core::vector3df OwnShip::getScreenDisplayPosition() const
 {
     return screenDisplayPosition;
+}
+
+bool OwnShip::getFireNozzleOffsetSet() const
+{
+    return fireNozzleOffsetSet;
+}
+
+irr::core::vector3df OwnShip::getFireNozzleOffset() const
+{
+    return fireNozzleOffset;
 }
 
 bool OwnShip::getFireMonitorOffsetSet() const

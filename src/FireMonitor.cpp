@@ -5,7 +5,7 @@ using namespace irr;
 
 FireMonitor::FireMonitor()
     : waterPS(0), waterEmitter(0), mistPS(0), mistEmitter(0), nozzleNode(0),
-    monitorBase(0), monitorSwivel(0), barrelPivot(0),
+    monitorBase(0), monitorSwivel(0), barrelPivot(0), tipNode(0), marker(0), tipSet(false),
     barrelLen(2.4f), pedestalH(1.2f),
     firing(false), mounted(false), aimPoint(0, 0, 0),
     baseMinPPS(1100), baseMaxPPS(1500),   // denser, more solid-looking column
@@ -22,6 +22,8 @@ FireMonitor::~FireMonitor()
     if (monitorBase)   monitorBase->remove();
     if (monitorSwivel) monitorSwivel->remove();
     if (barrelPivot)   barrelPivot->remove(); // removes barrel + cone children too
+    if (tipNode)       tipNode->remove();
+    if (marker)        marker->remove();
 }
 
 void FireMonitor::mount(scene::ISceneManager* smgr, video::IVideoDriver* driver,
@@ -141,7 +143,50 @@ void FireMonitor::mount(scene::ISceneManager* smgr, video::IVideoDriver* driver,
 
     barrelPivot->setVisible(false); // hides its children too
 
+    //The boat's own nozzle, if boat.ini gives one (setNozzle), rides the boat like the anchor
+    tipNode = smgr->addEmptySceneNode(fireBoatNode);
+    tipNode->setPosition(nozzleOffset);
+
+    //Marker for placing the nozzle: bright, unlit, drawn over the model so it shows inside a monitor
+    //(unit radius, scaled with the distance to the camera; drawn in the transparent pass, after the
+    //hull, without the depth test)
+    marker = smgr->addSphereSceneNode(1.0f, 12);
+    marker->setMaterialType(video::EMT_TRANSPARENT_VERTEX_ALPHA);
+    marker->setMaterialFlag(video::EMF_LIGHTING, false);
+    marker->setMaterialFlag(video::EMF_ZBUFFER, false);
+    marker->setMaterialFlag(video::EMF_ZWRITE_ENABLE, false);
+    marker->setMaterialFlag(video::EMF_FOG_ENABLE, false);
+    for (u32 v = 0; v < marker->getMaterialCount(); v++) {
+        marker->getMaterial(v).DiffuseColor = video::SColor(255, 60, 255, 120);
+        marker->getMaterial(v).EmissiveColor = video::SColor(255, 60, 255, 120);
+        marker->getMaterial(v).AmbientColor = video::SColor(255, 60, 255, 120);
+    }
+    {
+        scene::IMesh* mesh = ((scene::IMeshSceneNode*)marker)->getMesh();
+        if (mesh) { smgr->getMeshManipulator()->setVertexColors(mesh, video::SColor(255, 60, 255, 120)); }
+    }
+    marker->setVisible(false);
+
     mounted = true;
+}
+
+void FireMonitor::setNozzle(bool set, core::vector3df offset)
+{
+    tipSet = set;
+    if (tipNode) { tipNode->setPosition(offset); }
+}
+
+bool FireMonitor::hasNozzle() const { return tipSet; }
+
+core::vector3df FireMonitor::getNozzleOffset() const
+{
+    if (tipSet && tipNode) { return tipNode->getPosition(); }
+    return nozzleNode ? nozzleNode->getPosition() : core::vector3df(0, 0, 0);
+}
+
+void FireMonitor::showMarker(bool on)
+{
+    if (marker) { marker->setVisible(on); }
 }
 
 void FireMonitor::setFiring(bool f) { firing = f; }
@@ -152,6 +197,7 @@ bool FireMonitor::isMounted() const { return mounted; }
 
 core::vector3df FireMonitor::getNozzleWorldPos() const
 {
+    if (tipSet && tipNode) { tipNode->updateAbsolutePosition(); return tipNode->getAbsolutePosition(); }
     if (nozzleNode) { nozzleNode->updateAbsolutePosition(); return nozzleNode->getAbsolutePosition(); }
     return core::vector3df(0, 0, 0);
 }
@@ -160,7 +206,40 @@ void FireMonitor::update(f32 /*deltaTime*/)
 {
     if (!mounted || !waterEmitter) return;
 
-    if (firing) {
+    if (marker && marker->isVisible()) {
+        const core::vector3df p = getNozzleWorldPos();
+        marker->setPosition(p);
+        //About 1 % of the distance across: a dot that can be seen, small enough to aim with
+        scene::ICameraSceneNode* cam = marker->getSceneManager()->getActiveCamera();
+        f32 r = cam ? 0.008f * cam->getAbsolutePosition().getDistanceFrom(p) : 0.2f;
+        if (r < 0.04f) { r = 0.04f; }
+        marker->setScale(core::vector3df(r, r, r));
+    }
+
+    if (firing && tipSet) {
+        //The boat's own monitor: the water leaves from her nozzle, aimed at the target
+        const core::vector3df tip = getNozzleWorldPos();
+        core::vector3df dir = aimPoint - tip;
+        const f32 distance = dir.getLength();
+        if (distance > 0.001f) dir /= distance;
+        if (monitorBase)   monitorBase->setVisible(false);
+        if (monitorSwivel) monitorSwivel->setVisible(false);
+        if (barrelPivot)   barrelPivot->setVisible(false);
+        //(the emission box is 1.2 m across: its back face on the nozzle, not its middle)
+        waterPS->setPosition(tip + dir * 0.6f);
+        f32 speedMag = distance * jetSpeedScale;
+        if (speedMag < 0.020f) speedMag = 0.020f;
+        if (speedMag > 0.075f) speedMag = 0.075f;
+        waterEmitter->setDirection(dir * speedMag);
+        waterEmitter->setMinParticlesPerSecond(baseMinPPS);
+        waterEmitter->setMaxParticlesPerSecond(baseMaxPPS);
+        if (mistPS && mistEmitter) {
+            mistPS->setPosition(aimPoint);
+            mistEmitter->setMinParticlesPerSecond(260);
+            mistEmitter->setMaxParticlesPerSecond(380);
+        }
+    }
+    else if (firing) {
         core::vector3df base = getNozzleWorldPos();                 // pedestal foot, rides the boat
         core::vector3df swivel = base + core::vector3df(0, pedestalH, 0);
         core::vector3df dir = aimPoint - swivel;

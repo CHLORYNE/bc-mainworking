@@ -45,6 +45,9 @@ namespace bridge { class BridgeSkin; class CommandBar; }
 struct GUIData {
     irr::f32 radarOffsetX, radarOffsetY;
     std::wstring distressTimer;
+    std::wstring distressVessel, distressPosition; //the casualty's MAYDAY, for the VHF / DSC panel
+    irr::f32 distressElapsed = 0, distressDeadline = 0; //seconds since the fire broke out, and until she sinks
+    irr::s32 commsStep = 0;                          //the next radio action (Ctrl+A)
     irr::f32 lat;
     irr::f32 longitude;
     irr::f32 cursorLat;   //kyara: latitude du curseur radar
@@ -352,6 +355,17 @@ public:
         GUI_ID_SEDIT_SAVE,
         GUI_ID_SEDIT_REVERT,
         GUI_ID_SEDIT_CLOSE,
+        GUI_ID_NOZZLE_EDIT_BUTTON,      //fire monitor nozzle tool (Taille tab)
+        GUI_ID_NEDIT_FORE,
+        GUI_ID_NEDIT_AFT,
+        GUI_ID_NEDIT_PORT,
+        GUI_ID_NEDIT_STBD,
+        GUI_ID_NEDIT_UP,
+        GUI_ID_NEDIT_DOWN,
+        GUI_ID_NEDIT_TEST,
+        GUI_ID_NEDIT_SAVE,
+        GUI_ID_NEDIT_REVERT,
+        GUI_ID_NEDIT_CLOSE,
         //The "Écrans éclairés" window
         GUI_ID_INSTR_EDIT_BUTTON,
         GUI_ID_IEDIT_LIST,
@@ -520,6 +534,13 @@ public:
     void closeSizeEditor();
     void refreshSizeEditor();
     void setSizeEditorStatus(const std::wstring& text, bool isError);
+    //The fire monitor nozzle window: where the own ship's water comes out
+    void openNozzleEditor();
+    void closeNozzleEditor();
+    void refreshNozzleEditor();
+    void setNozzleEditorStatus(const std::wstring& text, bool isError);
+    void nozzleEditorClick(const irr::core::line3df& worldRay);
+    bool isNozzleTestOn() const;
     bool getSizeEditorValue(int boxId, irr::f32& out) const; //false if the box holds no number
     irr::s32 adjustMagnification(irr::s32 delta); //Returns the new raw scrollbar position
     void toggleShow2dInterface();
@@ -966,6 +987,10 @@ private:
     bool guiDistressActive = false;                // Inc 3 (comms)
     std::vector<std::wstring> guiMaydayLines;      // Inc 3 (comms)
     std::vector<std::wstring> guiCommsLog;         // Inc 3 (comms)
+    std::wstring guiDistressVessel, guiDistressPosition;
+    irr::f32 guiDistressElapsed = 0, guiDistressDeadline = 0;
+    irr::s32 guiCommsStep = 0;
+    irr::gui::IGUIFont* commsFont(irr::s32 size);  //B612 lettering for the VHF / DSC panel, in pixels
     irr::gui::IGUIButton* commsMinButton = 0;      // Inc 3 (comms): minimise/restore toggle (push button, polled)
     void drawLightningFlash();    //KYARA
     irr::f32 guiPrevLightningFlash = 0.0f;                        // KYARA: rising-edge detect
@@ -1055,6 +1080,10 @@ private:
     irr::gui::IGUIEditBox* sizeEditDraughtBox = 0;
     irr::gui::IGUIStaticText* sizeEditStatus = 0;
     int sizeEditShownRevision = -1;
+    irr::gui::IGUIWindow* nozzleEditWindow = 0;
+    irr::gui::IGUIStaticText* nozzleEditReadout = 0;
+    irr::gui::IGUIStaticText* nozzleEditStatus = 0;
+    irr::gui::IGUIButton* nozzleEditTestKey = 0;
 
     //Different locations for heading indicator depending on GUI visibility
     irr::core::rect<irr::s32> stdHdgIndicatorPos;

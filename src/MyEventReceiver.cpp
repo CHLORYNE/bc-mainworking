@@ -165,6 +165,16 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                     gui->lightEditorClick(model->getMooringRay(pressX, pressY, gui->getCompact3dView()));
                 }
             }
+            //Nozzle editor: a click on the own ship (not a drag to turn round her) puts the nozzle there
+            if (model->isNozzleEditing() &&
+                abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
+            {
+                irr::gui::IGUIElement* rootGUIElement = device->getGUIEnvironment()->getRootGUIElement();
+                if (rootGUIElement->getElementFromPoint(irr::core::position2d<irr::s32>(pressX, pressY)) == rootGUIElement)
+                {
+                    gui->nozzleEditorClick(model->getMooringRay(pressX, pressY, gui->getCompact3dView()));
+                }
+            }
             //Instrument editor: a click in the view (not a drag to look round) lights what is under it
             if (model->isInstrumentEditing() &&
                 abs(event.MouseInput.X - pressX) <= 4 && abs(event.MouseInput.Y - pressY) <= 4)
@@ -230,7 +240,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             {
                 irr::s32 deltaX = event.MouseInput.X - mouseClickX;
                 irr::s32 deltaY = event.MouseInput.Y - mouseClickY;
-                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
+                if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isNozzleEditing() || model->isSpectator()) {
                     //KYARA FEUX EDIT: dragging in the view turns the camera round the lamp (or the ship, in free view)
                     model->lightEditOrbit(0.4f * (irr::f32)deltaX, 0.4f * (irr::f32)deltaY, 1.0f);
                 }
@@ -253,7 +263,7 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 return true;
             }
             //KYARA FEUX EDIT: while placing lamps the wheel moves the camera in and out
-            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isSpectator()) {
+            if (model->isLightEditing() || model->isFreeView() || model->isSizeEditing() || model->isNozzleEditing() || model->isSpectator()) {
                 model->lightEditOrbit(0.0f, 0.0f, (event.MouseInput.Wheel > 0) ? 0.85f : 1.18f);
                 return true;
             }
@@ -797,6 +807,50 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
                 default: break;
                 }
                 device->getGUIEnvironment()->setFocus(0); //keys go back to sizing the ship
+                return true;
+            }
+
+            //Fire monitor nozzle tool
+            if (id == GUIMain::GUI_ID_NOZZLE_EDIT_BUTTON)
+            {
+                std::wstring msg;
+                if (model->beginNozzleEdit(msg)) {
+                    gui->openNozzleEditor();
+                }
+                else {
+                    device->getGUIEnvironment()->addMessageBox(L"Lance incendie", msg.c_str());
+                }
+                device->getGUIEnvironment()->setFocus(0);
+                return true;
+            }
+            if (model->isNozzleEditing() && id >= GUIMain::GUI_ID_NEDIT_FORE && id <= GUIMain::GUI_ID_NEDIT_CLOSE)
+            {
+                switch (id) {
+                case GUIMain::GUI_ID_NEDIT_FORE: model->nozzleEditStep(0.05f, 0.0f, 0.0f); break;
+                case GUIMain::GUI_ID_NEDIT_AFT:  model->nozzleEditStep(-0.05f, 0.0f, 0.0f); break;
+                case GUIMain::GUI_ID_NEDIT_PORT: model->nozzleEditStep(0.0f, -0.05f, 0.0f); break;
+                case GUIMain::GUI_ID_NEDIT_STBD: model->nozzleEditStep(0.0f, 0.05f, 0.0f); break;
+                case GUIMain::GUI_ID_NEDIT_UP:   model->nozzleEditStep(0.0f, 0.0f, 0.05f); break;
+                case GUIMain::GUI_ID_NEDIT_DOWN: model->nozzleEditStep(0.0f, 0.0f, -0.05f); break;
+                case GUIMain::GUI_ID_NEDIT_TEST: model->nozzleEditTest(gui->isNozzleTestOn()); break;
+                case GUIMain::GUI_ID_NEDIT_SAVE: {
+                    std::wstring msg;
+                    const bool ok = model->nozzleEditSave(msg);
+                    if (ok) { msg += L"\nLa lance du mod\u00E8le est utilis\u00E9e d\u00E8s maintenant et aux prochains lancements."; }
+                    gui->setNozzleEditorStatus(msg, !ok);
+                    break;
+                }
+                case GUIMain::GUI_ID_NEDIT_REVERT:
+                    model->nozzleEditRevert();
+                    gui->setNozzleEditorStatus(L"Point de l'ouverture r\u00E9tabli (rien n'est enregistr\u00E9).", false);
+                    break;
+                case GUIMain::GUI_ID_NEDIT_CLOSE:
+                    model->endNozzleEdit();
+                    gui->closeNozzleEditor();
+                    break;
+                default: break;
+                }
+                device->getGUIEnvironment()->setFocus(0); //keys go back to moving the nozzle
                 return true;
             }
 
@@ -1472,6 +1526,38 @@ bool MyEventReceiver::OnEvent(const irr::SEvent& event)
             else if (k == irr::KEY_KEY_V) { model->setSpectatorView(model->getSpectatorView() + 1); }
         }
         return true;
+    }
+
+    //Nozzle editor: arrows and Page keys move the nozzle in the ship's frame, A/D W/S Q/E turn and zoom
+    if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isNozzleEditing() &&
+        !(sizeFocus && sizeFocus->getType() == irr::gui::EGUIET_EDIT_BOX))
+    {
+        const irr::EKEY_CODE k = event.KeyInput.Key;
+        const bool ours = (k == irr::KEY_UP || k == irr::KEY_DOWN || k == irr::KEY_LEFT || k == irr::KEY_RIGHT ||
+            k == irr::KEY_PRIOR || k == irr::KEY_NEXT ||
+            k == irr::KEY_KEY_A || k == irr::KEY_KEY_D || k == irr::KEY_KEY_W || k == irr::KEY_KEY_S ||
+            k == irr::KEY_KEY_Q || k == irr::KEY_KEY_E);
+        if (ours) {
+            if (event.KeyInput.PressedDown) {
+                const irr::f32 step = event.KeyInput.Shift ? 0.01f : (event.KeyInput.Control ? 0.25f : 0.05f);
+                switch (k) {
+                case irr::KEY_UP:    model->nozzleEditStep(step, 0.0f, 0.0f); break;
+                case irr::KEY_DOWN:  model->nozzleEditStep(-step, 0.0f, 0.0f); break;
+                case irr::KEY_LEFT:  model->nozzleEditStep(0.0f, -step, 0.0f); break;
+                case irr::KEY_RIGHT: model->nozzleEditStep(0.0f, step, 0.0f); break;
+                case irr::KEY_PRIOR: model->nozzleEditStep(0.0f, 0.0f, step); break;
+                case irr::KEY_NEXT:  model->nozzleEditStep(0.0f, 0.0f, -step); break;
+                case irr::KEY_KEY_A: model->lightEditOrbit(-5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_D: model->lightEditOrbit(5.0f, 0.0f, 1.0f); break;
+                case irr::KEY_KEY_W: model->lightEditOrbit(0.0f, 5.0f, 1.0f); break;
+                case irr::KEY_KEY_S: model->lightEditOrbit(0.0f, -5.0f, 1.0f); break;
+                case irr::KEY_KEY_Q: model->lightEditOrbit(0.0f, 0.0f, 0.9f); break;
+                case irr::KEY_KEY_E: model->lightEditOrbit(0.0f, 0.0f, 1.1f); break;
+                default: break;
+                }
+            }
+            return true; //the key-up too, so nothing downstream sees half a key press
+        }
     }
 
     if (event.EventType == irr::EET_KEY_INPUT_EVENT && model->isSizeEditing() &&

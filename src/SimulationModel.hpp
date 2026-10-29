@@ -341,6 +341,19 @@ public:
     bool beginSizeEdit(int vessel);
     void endSizeEdit();
     bool isSizeEditing() const;
+    //Fire monitor nozzle editor (own ship, firefighting vessels): where her water comes out, on her
+    //own monitor - picked on the model, nudged in metres, written to boat.ini as NozzleX/Y/Z.
+    bool beginNozzleEdit(std::wstring& message);
+    void endNozzleEdit();
+    bool isNozzleEditing() const;
+    bool nozzleEditPick(const irr::core::line3df& worldRay);  //false: missed her
+    void nozzleEditStep(irr::f32 foreMetres, irr::f32 stbdMetres, irr::f32 upMetres);
+    void nozzleEditRevert();
+    bool nozzleEditSave(std::wstring& message);
+    void nozzleEditTest(bool on);                              //the jet on or off, to see it
+    //Where the nozzle is, metres from the model's origin: forward, to starboard, up. false: none yet.
+    bool getNozzleEdit(irr::core::vector3df& foreStbdUp) const;
+    int getNozzleEditRevision() const { return nozzleEditRevision; }
     int getSizeEditVessel() const;
     bool getVesselSize(int vessel, VesselSize& out);
     void sizeEditSetLength(irr::f32 metres);
@@ -808,6 +821,12 @@ private:
     Camera camera;
     int lightEditVessel = -2; //KYARA FEUX EDIT: -2 = not editing
     int sizeEditVessel = -2;  //size and waterline editor: -2 = not editing
+    bool nozzleEditOpen = false;              //fire monitor nozzle editor
+    bool nozzleEditPlaced = false;            //a nozzle point chosen (else the built monitor's foot)
+    bool nozzleEditOrigSet = false;
+    irr::core::vector3df nozzleEditOrig;
+    int nozzleEditRevision = 0;
+    void nozzleAxes(irr::core::vector3df& bow, irr::core::vector3df& stbd) const; //in the ship node
     irr::f32 sizeEditOrigScale = 1.0f;
     irr::f32 sizeEditOrigYCorrection = 0.0f;
     int sizeEditRevision = 0;
@@ -977,6 +996,7 @@ private:
     int  commsStep = 0;
     std::string casualtyName;
     std::vector<std::wstring> maydayLines;   // the received distress message, one entry per line
+    std::wstring distressPosition;           // her position in the MAYDAY
     std::vector<std::wstring> commsLog;      // timestamped actions performed by the trainee
     void beginDistressComms(int shipIndex);
     void endDistressComms();

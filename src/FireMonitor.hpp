@@ -24,6 +24,14 @@ public:
     irr::core::vector3df getAimPoint() const;
     bool isMounted() const;
 
+    //The boat's own monitor (boat.ini NozzleX/Y/Z, model units, in the boat node): the water leaves
+    //from that point, and the monitor built here is not drawn.
+    void setNozzle(bool set, irr::core::vector3df offset);
+    bool hasNozzle() const;
+    irr::core::vector3df getNozzleOffset() const;   //the nozzle, or the foot of the built monitor
+    //While placing the nozzle: a marker on the point, seen through the model
+    void showMarker(bool on);
+
 private:
     irr::scene::IParticleSystemSceneNode* waterPS;
     irr::scene::IParticleEmitter* waterEmitter;
@@ -36,6 +44,9 @@ private:
     irr::scene::ISceneNode* monitorBase;   // vertical pedestal (cylinder)
     irr::scene::ISceneNode* monitorSwivel; // swivel ball (sphere)
     irr::scene::ISceneNode* barrelPivot;   // holds barrel + nozzle, rotates to aim
+    irr::scene::ISceneNode* tipNode;       // the boat's own nozzle (boat.ini NozzleX/Y/Z)
+    irr::scene::ISceneNode* marker;        // shows the nozzle while it is being placed
+    bool tipSet;
     irr::f32 barrelLen;
     irr::f32 pedestalH;
     bool firing, mounted;

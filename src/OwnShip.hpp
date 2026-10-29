@@ -145,6 +145,8 @@ public:
     // units (same convention as WheelX/Y/Z - used as a child-of-ship offset, so auto-scaled).
     bool getFireMonitorOffsetSet() const;
     irr::core::vector3df getFireMonitorOffset() const;
+    bool getFireNozzleOffsetSet() const;             //boat.ini NozzleX/Y/Z: the model's own monitor
+    irr::core::vector3df getFireNozzleOffset() const;
     irr::core::vector3df getPortEngineControlPosition() const;
     irr::core::vector3df getStbdEngineControlPosition() const;
     irr::core::vector3df getWheelControlPosition() const;
@@ -434,6 +436,8 @@ private:
     irr::core::vector3df screenDisplayPosition;
     irr::core::vector3df fireMonitorOffset;   // Kyara FIRE: raw-model-unit mount point (boat.ini MonitorX/Y/Z)
     bool fireMonitorOffsetSet;                // Kyara FIRE: true if boat.ini specified a monitor position
+    irr::core::vector3df fireNozzleOffset;    // the nozzle of the model's own monitor (boat.ini NozzleX/Y/Z, model units)
+    bool fireNozzleOffsetSet = false;
     irr::f32 screenDisplaySize;
     irr::f32 screenDisplayTilt;
 
