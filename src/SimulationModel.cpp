@@ -3660,8 +3660,21 @@ irr::scene::ISceneNode* SimulationModel::spawnModelNode(const std::string& folde
         if (device) { device->getLogger()->log("SAR spawn: failed to load model:"); device->getLogger()->log(fullPath.c_str()); }
         return 0;
     }
-    irr::scene::ISceneNode* node = smgr->addAnimatedMeshSceneNode(mesh, 0, -1);
+    //A model without animation as a plain mesh: an animated-mesh node works out its frame again for
+    //every view it is drawn in (three columns and their reflections on the triple screen)
+    irr::u32 triangles = 0;
+    {
+        irr::scene::IMesh* frame = mesh->getMesh(0);
+        for (irr::u32 b = 0; frame && b < frame->getMeshBufferCount(); b++) { triangles += frame->getMeshBuffer(b)->getIndexCount() / 3; }
+    }
+    const bool animated = mesh->getFrameCount() > 1;
+    irr::scene::ISceneNode* node = animated ? (irr::scene::ISceneNode*)smgr->addAnimatedMeshSceneNode(mesh, 0, -1)
+                                            : (irr::scene::ISceneNode*)smgr->addMeshSceneNode(mesh->getMesh(0), 0, -1);
     if (!node) { return 0; }
+    if (device) {
+        device->getLogger()->log(("SAR spawn: " + fullPath + ", " + std::to_string(triangles) + " triangles, " +
+            std::to_string(mesh->getFrameCount()) + (animated ? " frames (animated)" : " frame (static)")).c_str());
+    }
     node->setPosition(worldPos);
     irr::f32 s = scaleFactor * extraScale;
     node->setScale(irr::core::vector3df(s, s, s));
