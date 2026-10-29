@@ -352,6 +352,9 @@ std::vector<ScreenInfo> listScreens()
     return screens;
 }
 
+std::string currentBc5Ini();
+std::string readIniNow(const std::string& path, const std::string& key);
+
 class ScreenPicker : public LauncherOverlay
 {
 public:
@@ -373,6 +376,7 @@ public:
     void openForRepeater(const std::vector<ScreenInfo>& list, int lastScreen)
     {
         repeaterMode = true;
+        spanBridge = false;
         screens = list;
         const int n = (int)screens.size();
         selected = (lastScreen >= 1 && lastScreen <= n) ? lastScreen - 1 : firstOffLauncher();
@@ -395,6 +399,8 @@ public:
     {
         repeaterMode = false;
         screens = list;
+        //bc5.ini span_screens=1 (borderless): the bridge view also covers the screens beside its own.
+        spanBridge = readIniNow(currentBc5Ini(), "span_screens") == "1" && readIniNow(currentBc5Ini(), "graphics_mode") == "3";
         const int n = (int)screens.size();
         selected = (lastBridge >= 1 && lastBridge <= n) ? lastBridge - 1 : firstOffLauncher();
         consoleScreen = (lastConsole >= 1 && lastConsole <= n) ? lastConsole - 1 : -1;
@@ -429,7 +435,7 @@ public:
         //Screens: bridge view in blue, instruments in teal.
         for (size_t i = 0; i < screens.size(); i++) {
             const irr::core::rect<irr::f32>& r = screenRects[i];
-            const bool bridge = ((int)i == selected);
+            const bool bridge = ((int)i == selected) || spannedBy((int)i);
             const bool instruments = ((int)i == consoleScreen);
             const bool radar = ((int)i == radarScreen);
             const bool sonar = ((int)i == sonarScreen);
@@ -543,7 +549,7 @@ public:
 
         for (size_t i = 0; i < screens.size(); i++) {
             const irr::core::rect<irr::f32>& r = screenRects[i];
-            const bool bridge = ((int)i == selected);
+            const bool bridge = ((int)i == selected) || spannedBy((int)i);
             const bool instruments = ((int)i == consoleScreen);
             const bool radar = ((int)i == radarScreen);
             const bool sonar = ((int)i == sonarScreen);
@@ -773,6 +779,38 @@ private:
         irr::core::rect<irr::f32> area;
     };
 
+    //With span_screens, screen i is beside the bridge view's screen, the same height: part of the bridge view.
+    bool spannedBy(int i) const
+    {
+        if (!spanBridge || i < 0 || i == selected || i >= (int)screens.size() || selected < 0 || selected >= (int)screens.size()) { return false; }
+        const irr::core::rect<irr::s32>& a = screens[i].area;
+        const irr::core::rect<irr::s32>& m = screens[selected].area;
+        return a.UpperLeftCorner.Y == m.UpperLeftCorner.Y && a.LowerRightCorner.Y == m.LowerRightCorner.Y
+            && (a.LowerRightCorner.X == m.UpperLeftCorner.X || a.UpperLeftCorner.X == m.LowerRightCorner.X);
+    }
+
+    //A screen the instruments, radar, sonar or instructor screen can go on.
+    bool usable(int i) const { return i != selected && !spannedBy(i); }
+
+    //A row of chips from x to limit: "Screen N" if they all fit, else the numbers alone (a desk with
+    //many screens), and only then cut short.
+    void fitChips(std::vector<Chip>& row, irr::f32 x, irr::f32 top, irr::f32 bottom, irr::f32 limit)
+    {
+        irr::f32 total = 0;
+        for (size_t c = 0; c < row.size(); c++) { total += textWidth(textFont, row[c].label) + 34 + (c > 0 ? 8 : 0); }
+        if (x + total > limit) {
+            for (size_t c = 0; c < row.size(); c++) {
+                if (row[c].screen >= 0) { row[c].label = std::to_wstring(row[c].screen + 1); }
+            }
+        }
+        for (size_t c = 0; c < row.size(); c++) {
+            const irr::f32 w = textWidth(textFont, row[c].label) + 34;
+            if (c > 0 && x + w > limit) { row.resize(c); break; } //no room for more
+            row[c].area = irr::core::rect<irr::f32>(x, top, x + w, bottom);
+            x += w + 8;
+        }
+    }
+
     //The bridge view goes on screen i; if the instruments were there, they take the bridge view's old screen.
     void selectBridge(int i)
     {
@@ -820,6 +858,11 @@ private:
 
     void layout()
     {
+        //Nothing else on the screens the bridge view spans
+        if (spannedBy(consoleScreen)) { consoleScreen = -1; }
+        if (spannedBy(radarScreen)) { radarScreen = -1; }
+        if (spannedBy(sonarScreen)) { sonarScreen = -1; }
+        if (spannedBy(stationScreen)) { stationScreen = -1; }
         const irr::f32 W = (irr::f32)AbsoluteRect.getWidth(), H = (irr::f32)AbsoluteRect.getHeight();
         const irr::f32 pw = irr::core::min_(860.0f, W - 64), ph = irr::core::min_(repeaterMode ? 624.0f : 712.0f, H - 48);
         panel = irr::core::rect<irr::f32>((W - pw) * 0.5f, (H - ph) * 0.5f, (W + pw) * 0.5f, (H + ph) * 0.5f);
@@ -840,19 +883,13 @@ private:
             inView.label = french ? L"Dans la vue passerelle" : L"In the bridge view";
             chips.push_back(inView);
             for (size_t i = 0; i < screens.size(); i++) {
-                if ((int)i == selected) { continue; }
+                if (!usable((int)i)) { continue; }
                 Chip c;
                 c.screen = (int)i;
                 c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
                 chips.push_back(c);
             }
-            irr::f32 cx = instrumentsLabel.LowerRightCorner.X + 6;
-            for (size_t c = 0; c < chips.size(); c++) {
-                const irr::f32 w = textWidth(textFont, chips[c].label) + 34;
-                if (c > 0 && cx + w > right) { chips.resize(c); break; } //no room for more
-                chips[c].area = irr::core::rect<irr::f32>(cx, chipTop, cx + w, chipBottom);
-                cx += w + 8;
-            }
+            fitChips(chips, instrumentsLabel.LowerRightCorner.X + 6, chipTop, chipBottom, right);
         }
 
         //Radar row (simulator only), over the instruments row: none, or one of the other screens.
@@ -865,19 +902,13 @@ private:
             none.label = french ? L"Aucun" : L"None";
             radarChips.push_back(none);
             for (size_t i = 0; i < screens.size(); i++) {
-                if ((int)i == selected) { continue; }
+                if (!usable((int)i)) { continue; }
                 Chip c;
                 c.screen = (int)i;
                 c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
                 radarChips.push_back(c);
             }
-            irr::f32 cx = radarLabel.LowerRightCorner.X + 6;
-            for (size_t c = 0; c < radarChips.size(); c++) {
-                const irr::f32 w = textWidth(textFont, radarChips[c].label) + 34;
-                if (c > 0 && cx + w > right) { radarChips.resize(c); break; }
-                radarChips[c].area = irr::core::rect<irr::f32>(cx, radarTop, cx + w, radarBottom);
-                cx += w + 8;
-            }
+            fitChips(radarChips, radarLabel.LowerRightCorner.X + 6, radarTop, radarBottom, right);
         }
 
         //Sonar row (simulator only), over the radar row: none, or one of the other screens.
@@ -890,19 +921,13 @@ private:
             none.label = french ? L"Aucun" : L"None";
             sonarChips.push_back(none);
             for (size_t i = 0; i < screens.size(); i++) {
-                if ((int)i == selected) { continue; }
+                if (!usable((int)i)) { continue; }
                 Chip c;
                 c.screen = (int)i;
                 c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
                 sonarChips.push_back(c);
             }
-            irr::f32 cx = sonarLabel.LowerRightCorner.X + 6;
-            for (size_t c = 0; c < sonarChips.size(); c++) {
-                const irr::f32 w = textWidth(textFont, sonarChips[c].label) + 34;
-                if (c > 0 && cx + w > right) { sonarChips.resize(c); break; }
-                sonarChips[c].area = irr::core::rect<irr::f32>(cx, sonarRowTop, cx + w, sonarRowBottom);
-                cx += w + 8;
-            }
+            fitChips(sonarChips, sonarLabel.LowerRightCorner.X + 6, sonarRowTop, sonarRowBottom, right);
         }
 
         //Instructor screen row (simulator only), over the sonar row: none, or one of the other screens,
@@ -925,19 +950,13 @@ private:
             none.label = french ? L"Aucun" : L"None";
             stationChips.push_back(none);
             for (size_t i = 0; i < screens.size(); i++) {
-                if ((int)i == selected) { continue; }
+                if (!usable((int)i)) { continue; }
                 Chip c;
                 c.screen = (int)i;
                 c.label = (french ? L"\u00C9cran " : L"Screen ") + std::to_wstring(i + 1);
                 stationChips.push_back(c);
             }
-            irr::f32 cx = stationLabel.LowerRightCorner.X + 6;
-            for (size_t c = 0; c < stationChips.size(); c++) {
-                const irr::f32 w = textWidth(textFont, stationChips[c].label) + 34;
-                if (c > 0 && cx + w > chipsRight) { stationChips.resize(c); break; }
-                stationChips[c].area = irr::core::rect<irr::f32>(cx, stationRowTop, cx + w, stationRowBottom);
-                cx += w + 8;
-            }
+            fitChips(stationChips, stationLabel.LowerRightCorner.X + 6, stationRowTop, stationRowBottom, chipsRight);
         }
 
         //Desk drawn to scale in the space between the title and the instructor row (or the note below).
@@ -978,6 +997,7 @@ private:
     RepeaterFn launchRepeater;
     bool repeaterMode;     //choosing the gyro repeater's screen, not the simulator's
     std::vector<ScreenInfo> screens;
+    bool spanBridge = false; //bc5.ini span_screens: the bridge view covers the screens beside its own
     std::vector<irr::core::rect<irr::f32> > screenRects;
     std::vector<Chip> chips;
     std::vector<Chip> radarChips;
