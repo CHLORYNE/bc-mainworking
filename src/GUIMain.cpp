@@ -4735,7 +4735,7 @@ void GUIMain::drawCommsOverlay()
     irr::gui::IGUIFont* fBanner = commsFont((irr::s32)(F * 1.3f + 0.5f));
     irr::gui::IGUIFont* fLog = commsFont((irr::s32)(F * 0.8f + 0.5f));
     if (!fValue || !fLabel || !fBanner || !fLog) { return; }
-    auto lineH = [](irr::gui::IGUIFont* f) { return (irr::s32)f->getDimension(L"Ég").Height; };
+    auto lineH = [](irr::gui::IGUIFont* f) { return (irr::s32)f->getDimension(L"\u00C9g").Height; };
     auto textW = [](irr::gui::IGUIFont* f, const std::wstring& t) { return (irr::s32)f->getDimension(t.c_str()).Width; };
     const irr::s32 hValue = lineH(fValue), hLabel = lineH(fLabel), hBanner = lineH(fBanner), hLog = lineH(fLog);
     const irr::s32 pad = F / 2 + 2;
@@ -4774,7 +4774,7 @@ void GUIMain::drawCommsOverlay()
     const irr::s32 btnSize = headerH - 6;
     const irr::core::rect<irr::s32> btnRect(panelR - 3 - btnSize, panelT + 3, panelR - 3, panelT + 3 + btnSize);
     if (!commsMinButton) {
-        commsMinButton = guienv->addButton(btnRect, 0, GUI_ID_COMMS_MINIMISE_BUTTON, L"–");
+        commsMinButton = guienv->addButton(btnRect, 0, GUI_ID_COMMS_MINIMISE_BUTTON, L"\u2013");
         commsMinButton->setIsPushButton(true);
     }
     else {
@@ -4782,7 +4782,7 @@ void GUIMain::drawCommsOverlay()
     }
     commsMinButton->setVisible(true);
     const bool minimised = commsMinButton->isPressed();
-    commsMinButton->setText(minimised ? L"+" : L"–");
+    commsMinButton->setText(minimised ? L"+" : L"\u2013");
 
     const std::wstring channel = L"CH 16";
     const irr::s32 chW = textW(fLabel, channel) + pad;
@@ -4792,7 +4792,7 @@ void GUIMain::drawCommsOverlay()
     if (minimised) {
         box(panelL, panelT, panelR, panelT + headerH, bannerColour);
         driver->draw2DRectangleOutline(irr::core::rect<irr::s32>(panelL, panelT, panelR, panelT + headerH), casingEdge);
-        text(fLabel, L"MAYDAY  ·  " + guiDistressVessel + L"  ·  T+" + mmss(guiDistressElapsed),
+        text(fLabel, L"MAYDAY  \u00B7  " + guiDistressVessel + L"  \u00B7  T+" + mmss(guiDistressElapsed),
             x0, panelT, chR, headerH, white);
         return; //the key itself is drawn by guienv->drawAll()
     }
@@ -4802,8 +4802,8 @@ void GUIMain::drawCommsOverlay()
     std::vector<Field> fields;
     fields.push_back({ L"NAVIRE", guiDistressVessel, white });
     fields.push_back({ L"POSITION", guiDistressPosition, white });
-    fields.push_back({ L"NATURE", L"INCENDIE À BORD", fireText });
-    fields.push_back({ L"ASSISTANCE", L"IMMÉDIATE  ·  POB INCONNU", white });
+    fields.push_back({ L"NATURE", L"INCENDIE \u00C0 BORD", fireText });
+    fields.push_back({ L"ASSISTANCE", L"IMM\u00C9DIATE  \u00B7  POB INCONNU", white });
     fields.push_back({ L"VEILLE", L"VHF CANAL 16", white });
     irr::s32 labelCol = 0;
     for (size_t i = 0; i < fields.size(); i++) { labelCol = irr::core::max_(labelCol, textW(fLabel, fields[i].name)); }
@@ -4864,7 +4864,7 @@ void GUIMain::drawCommsOverlay()
     box(panelL + 3, panelT + headerH, panelR - 3, panelB - 3, screen);
 
     //Header: name of the set, channel 16 in a box
-    text(fLabel, L"VHF  ·  ASN / DSC", x0, panelT, chR - chW - pad, headerH, label);
+    text(fLabel, L"VHF  \u00B7  ASN / DSC", x0, panelT, chR - chW - pad, headerH, label);
     const irr::core::rect<irr::s32> chBox(chR - chW, panelT + 4, chR, panelT + headerH - 4);
     driver->draw2DRectangleOutline(chBox, white);
     text(fLabel, channel, chBox.UpperLeftCorner.X, chBox.UpperLeftCorner.Y, chBox.LowerRightCorner.X, chBox.getHeight(), white, true);
@@ -4873,7 +4873,7 @@ void GUIMain::drawCommsOverlay()
     //Alert banner
     box(panelL + 3, y, panelR - 3, y + bannerH, bannerColour);
     {
-        std::wstring alert = L"ALERTE DE DÉTRESSE  ·  MAYDAY";
+        std::wstring alert = L"ALERTE DE D\u00C9TRESSE  \u00B7  MAYDAY";
         if (textW(fBanner, alert) > x1 - x0) { alert = L"MAYDAY"; }
         text(fBanner, alert, x0, y, x1, bannerH, white, true);
     }
@@ -4899,7 +4899,7 @@ void GUIMain::drawCommsOverlay()
             const std::wstring value = mmss(left);
             const irr::s32 vw = textW(fValue, value);
             text(fValue, value, x1 - vw, y, x1, hValue, white);
-            const std::wstring name = L"ÉCHÉANCE";
+            const std::wstring name = L"\u00C9CH\u00C9ANCE";
             text(fLabel, name, x1 - vw - pad / 2 - textW(fLabel, name), y, x1 - vw - pad / 2, hValue, label);
         }
         y += hValue + pad / 2;
@@ -4930,7 +4930,7 @@ void GUIMain::drawCommsOverlay()
     //Next action: the key, then what it does
     {
         static const wchar_t* actions[5] = {
-            L"ACCUSER RÉCEPTION DU MAYDAY",
+            L"ACCUSER R\u00C9CEPTION DU MAYDAY",
             L"MAYDAY RELAY AU CROSS / MRCC",
             L"COORDINATION SUR ZONE (OSC)",
             L"COMPTE-RENDU AU MRCC",
