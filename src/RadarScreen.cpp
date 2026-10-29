@@ -15,6 +15,7 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 #include "RadarScreen.hpp"
+#include <string>
 #include <iostream>
 
 #ifdef WITH_PROFILING
@@ -70,7 +71,6 @@ void RadarScreen::update(irr::video::IImage* radarImage)
 
     irr::core::matrix4 m;
     irr::core::vector3df offsetTransformed;
-    irr::video::ITexture* oldTexture = 0;
 
     radarScreen->setVisible(true);
 
@@ -90,17 +90,28 @@ void RadarScreen::update(irr::video::IImage* radarImage)
         radarScreen->setRotation(parent->getRotation() + irr::core::vector3df(-90 + tilt, 0, 0));
 
     } {
-        IPROF("Get old texture");
-
-        //Get old texture if it exists
-
-        if (radarScreen->getMaterialCount() > 0) {
-            oldTexture = radarScreen->getMaterial(0).getTexture(0);
+        IPROF("Radar picture to texture");
+        //One texture, refilled with each new picture. (It used to be a new texture every frame, with
+        //its mipmaps worked out on the processor, and the old one thrown away: about 10 ms a frame
+        //for pictures that are shown at 1:1 and never need mipmaps.)
+        const irr::core::dimension2du size = radarImage->getDimension();
+        void* pixels = 0;
+        if (radarTexture && radarTexture->getOriginalSize() == size && radarTexture->getSize() == size) {
+            pixels = radarTexture->lock(irr::video::ETLM_WRITE_ONLY);
         }
-    } {
-        IPROF("Make texture from image");
-        //make texture from image and apply to the screen
-        radarScreen->setMaterialTexture(0, driver->addTexture("RadarImage", radarImage));
+        if (pixels) {
+            radarImage->copyToScaling(pixels, size.Width, size.Height, radarTexture->getColorFormat(), radarTexture->getPitch());
+            radarTexture->unlock();
+        }
+        else {
+            if (radarTexture) { driver->removeTexture(radarTexture); }
+            static irr::u32 serial = 0;
+            const bool mipMaps = driver->getTextureCreationFlag(irr::video::ETCF_CREATE_MIP_MAPS);
+            driver->setTextureCreationFlag(irr::video::ETCF_CREATE_MIP_MAPS, false);
+            radarTexture = driver->addTexture(("RadarImage" + std::to_string(serial++)).c_str(), radarImage);
+            driver->setTextureCreationFlag(irr::video::ETCF_CREATE_MIP_MAPS, mipMaps);
+        }
+        if (radarScreen->getMaterial(0).getTexture(0) != radarTexture) { radarScreen->setMaterialTexture(0, radarTexture); }
     } {
         IPROF("Scale texture");
         //Scale the texture to get 1:1 image to screen pixel mapping
@@ -128,12 +139,6 @@ void RadarScreen::update(irr::video::IImage* radarImage)
         radarScreen->getMaterial(0).TextureLayer[0].TextureWrapV = irr::video::ETC_CLAMP_TO_EDGE;
 
 
-    } {
-        IPROF("Remove old texture");
-        //Remove old texture if it exists
-        if (oldTexture != 0) {
-            driver->removeTexture(oldTexture);
-        }
     }
 
 }

@@ -25,7 +25,7 @@
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
 #else
-#define IPROF(a) //intentionally empty placeholder
+#include "FrameTiming.hpp" //IPROF blocks timed when bc5.ini frame_timing=1
 #endif
 // SCENARIO INCENDIE: the fire timings (abandon, spread, sinking, permanent list, survivor drop
 // interval) now come from the scenario's incident.ini, written by the fire scenario editor.

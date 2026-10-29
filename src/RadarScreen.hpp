@@ -53,6 +53,7 @@ private:
     irr::u32 radarRadiusPx;
     irr::f32 tilt;
     irr::f32 displayOffsetX = 0, displayOffsetY = 0;
+    irr::video::ITexture* radarTexture = 0; //the picture on the screen, refilled each frame
 };
 
 #endif

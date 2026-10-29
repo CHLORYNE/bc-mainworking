@@ -1,7 +1,7 @@
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
 #else
-#define IPROF(a) //intentionally empty placeholder
+#include "FrameTiming.hpp" //IPROF blocks timed when bc5.ini frame_timing=1
 #endif
 
 // Include the Irrlicht header
@@ -812,6 +812,9 @@ int main(int argc, char** argv)
     if (frictionCoefficient < 0) { frictionCoefficient = 0; }
     if (frictionCoefficient > 1) { frictionCoefficient = 1; }
     irr::f32 stoppingTime = IniFile::iniFileTof32(iniFilename, "stopping_time", 0); //seconds, 0 = off
+#ifndef WITH_PROFILING
+    FrameTiming::enabled() = (IniFile::iniFileTou32(iniFilename, "frame_timing") == 1); //where the frames go, in the log
+#endif
     if (stoppingTime < 0) { stoppingTime = 0; }
     if (tanhFrictionFactor < 0) { tanhFrictionFactor = 0; }
 
@@ -1925,13 +1928,13 @@ int main(int argc, char** argv)
             //       renderFinishProfile.toc();
         }
         //Instrument console in its own window (if detached): its input, then its frame.
-        guiMain.renderDetachedConsole();
+        { IPROF("Console window"); guiMain.renderDetachedConsole(); }
         //Large radar in its own window (if detached): its input, then its frame.
-        guiMain.renderDetachedRadar();
+        { IPROF("Radar window"); guiMain.renderDetachedRadar(); }
         //Sonar station in its own window (if open)
-        guiMain.renderSonar();
+        { IPROF("Sonar window"); guiMain.renderSonar(); }
         //Instructor screen in its own window (if open)
-        guiMain.renderStation();
+        { IPROF("Instructor window"); guiMain.renderStation(); }
 
         //KYARA FRAME PACING --------------------------------------------------------------------
       //Removing the 10ms enet block gave the frames back, but that block was also accidentally
@@ -1944,6 +1947,7 @@ int main(int argc, char** argv)
         {
             //const long long TARGET_FRAME_US = 16667;
             const long long TARGET_FRAME_US = 16667; //KYARA: vsync handles pacing on the 60Hz TVs
+            IPROF("Frame limiter (waiting)");
             if (TARGET_FRAME_US > 0) {
                 static std::chrono::steady_clock::time_point nextFrame = std::chrono::steady_clock::now();
                 nextFrame += std::chrono::microseconds(TARGET_FRAME_US);
@@ -1957,6 +1961,9 @@ int main(int argc, char** argv)
                 }
             }
         }
+#ifndef WITH_PROFILING
+        FrameTiming::endFrame();
+#endif
 
     }
 

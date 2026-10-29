@@ -20,6 +20,7 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 #include "MovingWater.hpp"
+#include "FrameTiming.hpp"
 //#include "Utilities.hpp"
 
 #include <iostream>
@@ -641,7 +642,10 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
             irr::core::plane3d<irr::f32> reflectionClipPlane(0, RelativeTranslation.Y - CLIP_PLANE_OFFSET_Y, 0, 0, 1, 0);
             driver->setClipPlane(0, reflectionClipPlane, true);
 
-            SceneManager->drawAll(); //draw the scene
+            {
+                IPROF("  of which water reflections");
+                SceneManager->drawAll(); //draw the scene
+            }
 
             //disable clip plane
             driver->enableClipPlane(0, false);
