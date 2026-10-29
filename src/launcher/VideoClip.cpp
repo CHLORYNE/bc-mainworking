@@ -42,9 +42,13 @@ double secondsBetween(Clock::time_point a, Clock::time_point b)
     return std::chrono::duration<double>(b - a).count();
 }
 
-const size_t kMaxFrames = 4;         //decoded pictures waiting to be shown
+const size_t kMinFrames = 4;         //decoded pictures waiting to be shown: at least, at most, and the
+const size_t kMaxFrames = 30;        //memory they may take. A 1080p clip gets about 0.4 s of pictures,
+const size_t kFrameMemory = 192u << 20; //and as much sound, before it starts and while it plays.
 const double kMaxAudioAhead = 1.0;   //seconds of sound queued ahead of what is heard
 const double kStartTimeout = 6.0;    //seconds to get the first picture before giving up
+const double kPrerollTimeout = 1.5;  //seconds to fill the queue before starting with what there is
+const double kPrerollSound = 0.3;    //seconds of sound queued before a sound-only clip starts
 
 struct Frame {
     std::vector<irr::u32> pixels;
@@ -204,13 +208,20 @@ struct VideoClip::Impl
         texture = 0;
     }
 
+    //How many decoded pictures may wait, for pictures of this size (under lock).
+    size_t queueLength() const
+    {
+        const size_t bytes = (size_t)std::max(1, width) * (size_t)std::max(1, height) * 4;
+        return std::max(kMinFrames, std::min(kMaxFrames, kFrameMemory / bytes));
+    }
+
     //Decoding thread: a picture buffer to fill (waits while enough are queued). 0 when stopping.
     Frame* takeFrame(size_t pixels)
     {
         std::unique_lock<std::mutex> guard(lock);
-        while (!stop && frames.size() >= kMaxFrames) {
+        while (!stop && frames.size() >= queueLength()) {
             wake.wait_for(guard, std::chrono::milliseconds(20));
-            if (frames.size() >= kMaxFrames) {
+            if (frames.size() >= queueLength()) {
                 guard.unlock();
                 reapAudio();
                 guard.lock();
@@ -858,7 +869,18 @@ irr::video::ITexture* VideoClip::update(irr::video::IVideoDriver* driver)
         std::lock_guard<std::mutex> guard(impl->lock);
         if (impl->failed) { return impl->texture; }
         if (!impl->started) {
-            const bool due = impl->picture ? !impl->frames.empty() : impl->ready;
+            //Started only once the queue is full (or the clip is all decoded), so that the sound and
+            //the picture have something in hand while the decoder and the PC settle down; a decoder
+            //too slow to fill it starts with what there is.
+            const double waited = secondsBetween(impl->opened, Clock::now());
+            bool due = impl->picture ? !impl->frames.empty() && (impl->frames.size() >= impl->queueLength() || impl->ended || waited > kPrerollTimeout)
+                : impl->ready;
+#ifdef _WIN32
+            if (due && !impl->picture && !impl->ended && waited <= kPrerollTimeout) {
+                std::lock_guard<std::mutex> audioGuard(impl->audioLock);
+                due = impl->audioWritten >= kPrerollSound;
+            }
+#endif
             if (!due) {
                 if (secondsBetween(impl->opened, Clock::now()) > kStartTimeout) {
                     impl->failed = true;
