@@ -22,6 +22,11 @@ public:
     //Audio files: base + .mp3 .m4a .wma .wav .aac.
     static std::string findAudio(const std::string& base);
 
+    //Windows: the film played by Media Foundation's own player, the one the Windows film app uses
+    //(decoded on the graphics card, paced by Windows), in a window over parentWindow (an HWND), until
+    //it ends or a key or a click skips it. false if it could not be played at all: then use open().
+    static bool playOver(const std::string& path, void* parentWindow, bool sound);
+
     //Starts decoding (returns at once; failed() says later if the file could not be played).
     //picture: show the video track. sound: play the audio track. loop: start again at the end.
     bool open(const std::string& path, bool picture, bool sound, bool loop);

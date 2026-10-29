@@ -2301,7 +2301,18 @@ int main(int argc, char** argv)
     centre::MouseShift mouseShift(env, &receiver);
     device->setEventReceiver(&mouseShift);
     const std::string introFile = VideoClip::find("media/intro");
-    receiver.intro = options.introVideo && !noIntro && !introFile.empty() && intro.open(introFile, true, true, false);
+    bool introPlayed = false;
+#ifdef _WIN32
+    //On Windows the film is played by Windows' own player (as in its film app, which plays it
+    //smoothly), over the launcher's window; the launcher's player is the fallback.
+    if (options.introVideo && !noIntro && !introFile.empty()) {
+        driver->beginScene(irr::video::ECBF_COLOR, irr::video::SColor(255, 0, 0, 0));
+        driver->endScene();
+        introPlayed = VideoClip::playOver(introFile, driver->getExposedVideoData().OpenGLWin32.HWnd, true);
+        if (!introPlayed) { logLine("Intro film " + introFile + ": Windows' player could not play it, the launcher plays it"); }
+    }
+#endif
+    receiver.intro = options.introVideo && !noIntro && !introPlayed && !introFile.empty() && intro.open(introFile, true, true, false);
 
     auto showMenu = [&]() {
         receiver.intro = false;

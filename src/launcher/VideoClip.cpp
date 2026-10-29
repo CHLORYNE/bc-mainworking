@@ -16,6 +16,7 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#include <mfplay.h>
 #endif
 
 #include "VideoClip.hpp"
@@ -819,6 +820,178 @@ struct VideoClip::Impl
 VideoClip::VideoClip() : impl(0)
 {
 }
+
+#ifdef _WIN32
+namespace {
+
+const GUID kIIDUnknown = { 0x00000000, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } };
+const GUID kIIDPlayerCallback = { 0x766c8ffb, 0x5fdb, 0x4fea, { 0xa2, 0x8d, 0xb9, 0x12, 0x99, 0x6f, 0x51, 0xbd } };
+
+struct OverPlay {
+    IMFPMediaPlayer* player;
+    bool started, ended, failed, skip;
+};
+
+//The player's news (it comes through this thread's messages)
+class OverPlayCallback : public IMFPMediaPlayerCallback
+{
+public:
+    explicit OverPlayCallback(OverPlay* s) : ref(1), state(s) {}
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv)
+    {
+        if (!ppv) { return E_POINTER; }
+        if (IsEqualGUID(riid, kIIDUnknown) || IsEqualGUID(riid, kIIDPlayerCallback)) {
+            *ppv = static_cast<IMFPMediaPlayerCallback*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = 0;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() { return (ULONG)InterlockedIncrement(&ref); }
+    STDMETHODIMP_(ULONG) Release()
+    {
+        const LONG r = InterlockedDecrement(&ref);
+        if (r == 0) { delete this; }
+        return (ULONG)r;
+    }
+    void STDMETHODCALLTYPE OnMediaPlayerEvent(MFP_EVENT_HEADER* e)
+    {
+        if (!e || !state) { return; }
+        if (FAILED(e->hrEvent) || e->eEventType == MFP_EVENT_TYPE_ERROR) { state->failed = true; }
+        if (e->eEventType == MFP_EVENT_TYPE_PLAY && SUCCEEDED(e->hrEvent)) { state->started = true; }
+        if (e->eEventType == MFP_EVENT_TYPE_PLAYBACK_ENDED) { state->ended = true; }
+    }
+    void detach() { state = 0; }
+private:
+    LONG ref;
+    OverPlay* state;
+};
+
+LRESULT CALLBACK overPlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    OverPlay* s = (OverPlay*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    switch (msg) {
+    case WM_KEYDOWN: case WM_SYSKEYDOWN: case WM_LBUTTONDOWN: case WM_RBUTTONDOWN:
+        if (s) { s->skip = true; }
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        if (s && s->player && s->started) { s->player->UpdateVideo(); }
+        else { FillRect(dc, &ps.rcPaint, (HBRUSH)GetStockObject(BLACK_BRUSH)); }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_SIZE:
+        if (s && s->player) { s->player->UpdateVideo(); }
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+}
+
+bool VideoClip::playOver(const std::string& path, void* parentWindow, bool sound)
+{
+    HWND parent = (HWND)parentWindow;
+    if (path.empty() || !Utilities::pathExists(path) || !parent) { return false; }
+    typedef HRESULT(WINAPI* CreatePlayerFn)(LPCWSTR, BOOL, MFP_CREATION_OPTIONS, IMFPMediaPlayerCallback*, HWND, IMFPMediaPlayer**);
+    static HMODULE mfplay = LoadLibraryA("mfplay.dll");
+    CreatePlayerFn createPlayer = mfplay ? (CreatePlayerFn)(void*)GetProcAddress(mfplay, "MFPCreateMediaPlayer") : 0;
+    if (!createPlayer) { return false; }
+
+    const HRESULT comResult = CoInitializeEx(0, COINIT_APARTMENTTHREADED);
+    const bool com = SUCCEEDED(comResult);
+    MediaFoundation& mf = mediaFoundation();
+    const bool mfStarted = mf.ok && SUCCEEDED(mf.startup(kMFVersion, MFSTARTUP_NOSOCKET));
+
+    //A black window over the launcher's, the film fitted in it (bars where the shapes differ)
+    HINSTANCE instance = GetModuleHandleW(0);
+    const wchar_t* className = L"NautitechIntroFilm";
+    WNDCLASSEXW wc;
+    ZeroMemory(&wc, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    if (!GetClassInfoExW(instance, className, &wc)) {
+        ZeroMemory(&wc, sizeof(wc));
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = overPlayProc;
+        wc.hInstance = instance;
+        wc.hCursor = LoadCursor(0, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        wc.lpszClassName = className;
+        RegisterClassExW(&wc);
+    }
+    RECT area;
+    GetClientRect(parent, &area);
+    SetWindowLongPtrW(parent, GWL_STYLE, GetWindowLongPtrW(parent, GWL_STYLE) | WS_CLIPCHILDREN);
+    HWND window = CreateWindowExW(0, className, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        0, 0, area.right - area.left, area.bottom - area.top, parent, 0, instance, 0);
+    if (!window) {
+        if (mfStarted) { mf.shutdown(); }
+        if (com) { CoUninitialize(); }
+        return false;
+    }
+    OverPlay state = { 0, false, false, false, false };
+    SetWindowLongPtrW(window, GWLP_USERDATA, (LONG_PTR)&state);
+    SetFocus(window);
+
+    wchar_t full[MAX_PATH * 2];
+    std::wstring wide(path.size() + 1, L'\0');
+    const int n = MultiByteToWideChar(CP_ACP, 0, path.c_str(), -1, &wide[0], (int)wide.size());
+    wide.resize(n > 0 ? n - 1 : 0);
+    const DWORD fullLength = GetFullPathNameW(wide.c_str(), MAX_PATH * 2, full, 0);
+    const std::wstring url = (fullLength > 0 && fullLength < MAX_PATH * 2) ? std::wstring(full) : wide;
+
+    OverPlayCallback* callback = new OverPlayCallback(&state);
+    IMFPMediaPlayer* player = 0;
+    const HRESULT created = createPlayer(url.c_str(), FALSE, MFP_OPTION_NONE, callback, window, &player);
+    if (SUCCEEDED(created) && player) {
+        state.player = player;
+        player->SetBorderColor(RGB(0, 0, 0));
+        player->SetMute(sound ? FALSE : TRUE);
+        player->Play();
+        //Until it ends, is skipped, or fails; a film that never starts is given up after 6 s
+        const DWORD began = GetTickCount();
+        while (!state.ended && !state.failed && !state.skip) {
+            MSG msg;
+            while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE)) {
+                if (msg.message == WM_QUIT) {
+                    state.skip = true;
+                    PostQuitMessage((int)msg.wParam); //for the launcher's own loop
+                    break;
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            if (!state.started && GetTickCount() - began > 6000) { state.failed = true; }
+            if (GetTickCount() - began > 10 * 60 * 1000) { break; }
+            MsgWaitForMultipleObjects(0, 0, FALSE, 10, QS_ALLINPUT);
+        }
+        player->Shutdown();
+        player->Release();
+        state.player = 0;
+    }
+    else {
+        state.failed = true;
+    }
+    callback->detach();
+    callback->Release();
+    SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+    DestroyWindow(window);
+    SetFocus(parent);
+    if (mfStarted) { mf.shutdown(); }
+    if (com) { CoUninitialize(); }
+    //Played (or skipped once playing): done. Never started: the launcher plays it itself.
+    return state.started || state.ended;
+}
+#else
+bool VideoClip::playOver(const std::string&, void*, bool) { return false; }
+#endif
 
 VideoClip::~VideoClip()
 {
