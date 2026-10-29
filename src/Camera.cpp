@@ -325,6 +325,16 @@ void Camera::setHFOV(irr::f32 hFOV)
     camera->setFOV(vFOV);
 }
 
+irr::core::aabbox3df Camera::getViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction)
+{
+    camera->updateAbsolutePosition();
+    camera->updateMatrices();
+    eye = camera->getAbsolutePosition();
+    direction = camera->getTarget() - eye;
+    direction.normalize();
+    return camera->getViewFrustum()->getBoundingBox();
+}
+
 void Camera::updateViewport(irr::f32 aspect)
 {
     camera->setAspectRatio(aspect);

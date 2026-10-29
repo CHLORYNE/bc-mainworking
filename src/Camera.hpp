@@ -34,6 +34,9 @@ class Camera
         irr::core::matrix4 getBaseRotation() const;
         void setHFOV(irr::f32 hFOV);
         void updateViewport(irr::f32 aspect);
+        //The box holding what the camera sees as it is set now (its matrices brought up to date),
+        //its eye and its direction (normalised)
+        irr::core::aabbox3df getViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction);
         void renderColumn(irr::f32 columnAspect, irr::f32 columnHFOVrad, irr::f32 yawOffsetDeg, irr::f32 shiftY = 0.0f); //NAUTITECH triple-screen: render one angled column (shiftY: horizon raised, in screen heights x2)
         irr::core::line3df getPickRay(irr::f32 ndcX, irr::f32 ndcY, irr::f32 columnHFOVrad, irr::f32 columnAspect, irr::f32 yawOffsetDeg); //NAUTITECH: pick ray without needing a render
         void setActive();

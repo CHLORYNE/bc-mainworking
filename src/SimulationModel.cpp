@@ -3137,6 +3137,11 @@ void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFO
     camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg, shiftY);
     water.setColumn(yawOffsetDeg < 0 ? 0 : (yawOffsetDeg > 0 ? 2 : 1));
 }
+irr::core::aabbox3df SimulationModel::getMainViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction)
+{
+    return camera.getViewBox(eye, direction);
+}
+
 void SimulationModel::setTripleScreen(bool on, irr::f32 perScreenFOVdeg, irr::f32 bezelYawDeg)
 {
     triScreenMooring = on;

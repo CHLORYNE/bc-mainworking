@@ -20,7 +20,11 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 #include "MovingWater.hpp"
+#ifdef WITH_PROFILING
+#include "iprof.hpp"
+#else
 #include "FrameTiming.hpp"
+#endif
 //#include "Utilities.hpp"
 
 #include <iostream>
@@ -847,10 +851,34 @@ void MovingWaterSceneNode::render()
 
             irr::core::vector3df basicPosition = AbsoluteTransformation.getTranslation();
 
+            //Only the tiles the camera can see. All 441 were drawn for every view - and each draw
+            //sends the shader all its settings again - so most of the sea's cost went on tiles behind
+            //the camera or off to the side (more so with three narrow views on the triple screen).
+            const scene::ICameraSceneNode* viewer = SceneManager->getActiveCamera();
+            const scene::SViewFrustum* frustum = viewer ? viewer->getViewFrustum() : 0;
+            core::aabbox3df tile = mb->getBoundingBox();
+            tile.MinEdge -= core::vector3df(10.0f, 20.0f, 10.0f); //room for the waves' height and their sideways lean
+            tile.MaxEdge += core::vector3df(10.0f, 20.0f, 10.0f);
+            core::vector3df corners[8];
+
             //Draw multiple copies of tileable water
             for (int j = -10; j<=10; j++) {
                 for (int k = -10; k<=10; k++) {
                     AbsoluteTransformation.setTranslation(basicPosition + irr::core::vector3df(j*tileWidth,0,k*tileWidth));
+                    if (frustum) {
+                        core::aabbox3df box = tile;
+                        AbsoluteTransformation.transformBoxEx(box);
+                        box.getEdges(corners);
+                        bool outside = false;
+                        for (u32 p = 0; p < scene::SViewFrustum::VF_PLANE_COUNT && !outside; ++p) {
+                            bool anyInside = false;
+                            for (u32 c = 0; c < 8; ++c) {
+                                if (frustum->planes[p].classifyPointRelation(corners[c]) != core::ISREL3D_FRONT) { anyInside = true; break; }
+                            }
+                            outside = !anyInside;
+                        }
+                        if (outside) { continue; }
+                    }
                     driver->setTransform(video::ETS_WORLD, AbsoluteTransformation);
                     driver->drawMeshBuffer(mb);
                 }

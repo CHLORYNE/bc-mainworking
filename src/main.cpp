@@ -13,6 +13,7 @@
 #include "GUIMain.hpp"
 #include "ScenarioDataStructure.hpp"
 #include "SimulationModel.hpp"
+#include "BCTerrainSceneNode.h" //shared view of the terrain for the passes of a frame
 #include "ScenarioChoice.hpp"
 #include "CentreScreen.hpp"
 #include "MyEventReceiver.hpp"
@@ -1857,16 +1858,31 @@ int main(int argc, char** argv)
                     irr::s32 colW = baseW / 3;
                     irr::f32 colAspect = (irr::f32)colW / (irr::f32)baseH;
                     irr::f32 yaw[3] = { -bezelYaw, 0.0f, bezelYaw }; // left(port), centre, right(stbd)
+                    irr::s32 colH[3];
+                    irr::f32 colAspectOf[3], shiftY[3];
                     for (int c = 0; c < 3; ++c) {
                         //With the console on the middle screen only, the side screens show the view to the
                         //bottom: same scale, horizon raised to where the middle screen has it.
                         const bool fullSide = (c != 1) && guiMain.getCompact3dView() && guiMain.getSideScreensFree();
-                        const irr::s32 colH = fullSide ? (irr::s32)graphicsHeight : baseH;
-                        driver->setViewPort(irr::core::rect<irr::s32>(c * colW, 0, (c + 1) * colW, colH));
-                        const irr::f32 shiftY = fullSide ? (irr::f32)(colH - baseH) / (irr::f32)colH : 0.0f;
-                        model.renderMainColumn(fullSide ? (irr::f32)colW / (irr::f32)colH : colAspect, perScreenFOV, yaw[c], shiftY);
+                        colH[c] = fullSide ? (irr::s32)graphicsHeight : baseH;
+                        shiftY[c] = fullSide ? (irr::f32)(colH[c] - baseH) / (irr::f32)colH[c] : 0.0f;
+                        colAspectOf[c] = fullSide ? (irr::f32)colW / (irr::f32)colH[c] : colAspect;
+                    }
+                    //The terrain works out its patches once, for all three views (and their reflections)
+                    irr::core::aabbox3df viewBox;
+                    irr::core::vector3df eye, direction;
+                    for (int c = 2; c >= 0; --c) { //(the middle one last: its eye and direction)
+                        model.renderMainColumn(colAspectOf[c], perScreenFOV, yaw[c], shiftY[c]);
+                        const irr::core::aabbox3df box = model.getMainViewBox(eye, direction);
+                        if (c == 2) { viewBox = box; } else { viewBox.addInternalBox(box); }
+                    }
+                    irr::scene::BCTerrainSceneNode::beginSharedView(viewBox, eye, direction);
+                    for (int c = 0; c < 3; ++c) {
+                        driver->setViewPort(irr::core::rect<irr::s32>(c * colW, 0, (c + 1) * colW, colH[c]));
+                        model.renderMainColumn(colAspectOf[c], perScreenFOV, yaw[c], shiftY[c]);
                         smgr->drawAll();
                     }
+                    irr::scene::BCTerrainSceneNode::endSharedView();
                     //Restore the full-surface viewport so the GUI/overlays draw across all screens
                     driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight));
                 }
@@ -1880,9 +1896,12 @@ int main(int argc, char** argv)
                         model.updateViewport(aspect);
                     }
 
-                    //if (guiMain.getShow3d()) {
+                    //The terrain works out its patches once for the view and its reflection
+                    irr::core::vector3df eye, direction;
+                    const irr::core::aabbox3df viewBox = model.getMainViewBox(eye, direction);
+                    irr::scene::BCTerrainSceneNode::beginSharedView(viewBox, eye, direction);
                     smgr->drawAll();
-                    //}
+                    irr::scene::BCTerrainSceneNode::endSharedView();
                 }
             }
 

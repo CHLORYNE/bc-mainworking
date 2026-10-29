@@ -649,6 +649,8 @@ public:
     irr::core::line3df getMooringRay(irr::s32 mouseX, irr::s32 mouseY, bool showInterface); //NAUTITECH: column-aware pick ray
     void setRadarCameraActive();
     void updateViewport(irr::f32 aspect);
+    //The box holding what the main camera sees as it is now, its eye and direction (for the terrain's shared view)
+    irr::core::aabbox3df getMainViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction);
     void renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY = 0.0f); //NAUTITECH triple-screen
     void setMouseDown(bool isMouseDown);
     void setZoom(bool zoomOn);
