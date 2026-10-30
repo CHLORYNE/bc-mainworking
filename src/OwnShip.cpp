@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <cfloat> //FLT_MAX
 
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
@@ -40,6 +41,68 @@
 #endif
 
 // using namespace irr;
+
+namespace {
+
+//Collision rays against the scene, the scene walked once per frame instead of once per ray.
+//Irrlicht's getSceneNodeAndCollisionPointFromRay goes through every node of the scene for each ray,
+//and the hull casts one ray per contact point (several hundred) every frame: about 13 ms of a frame
+//on a laptop, most of the simulation's time. The nodes a ray can hit are those whose box touches the
+//box around all the rays; they are gathered once, then each ray is tested against them only, with
+//Irrlicht's own tests in Irrlicht's order: the same node, point and triangle as before.
+struct RayCandidate {
+    irr::scene::ISceneNode* node;
+    irr::core::matrix4 worldToObject;
+};
+
+void gatherRayCandidates(irr::scene::ISceneNode* root, const irr::core::aabbox3df& rays, irr::s32 bits, std::vector<RayCandidate>& out)
+{
+    const irr::core::list<irr::scene::ISceneNode*>& children = root->getChildren();
+    for (irr::core::list<irr::scene::ISceneNode*>::ConstIterator it = children.begin(); it != children.end(); ++it) {
+        irr::scene::ISceneNode* current = *it;
+        if (current->getTriangleSelector() && current->isVisible() && (bits == 0 || (current->getID() & bits))) {
+            RayCandidate candidate;
+            candidate.node = current;
+            if (current->getAbsoluteTransformation().getInverse(candidate.worldToObject) &&
+                current->getTransformedBoundingBox().intersectsWithBox(rays)) {
+                out.push_back(candidate);
+            }
+        }
+        gatherRayCandidates(current, rays, bits, out);
+    }
+}
+
+//As ISceneCollisionManager::getSceneNodeAndCollisionPointFromRay, over the gathered nodes only
+irr::scene::ISceneNode* castRay(irr::scene::ISceneCollisionManager* collisionManager, const std::vector<RayCandidate>& candidates,
+    const irr::core::line3df& ray, irr::core::vector3df& outCollisionPoint, irr::core::triangle3df& outTriangle)
+{
+    irr::scene::SCollisionHit best;
+    irr::f32 bestDistanceSquared = FLT_MAX;
+    irr::core::line3df rayRest(ray);
+    for (size_t i = 0; i < candidates.size(); i++) {
+        irr::core::line3df line(rayRest);
+        candidates[i].worldToObject.transformVect(line.start);
+        candidates[i].worldToObject.transformVect(line.end);
+        irr::scene::SCollisionHit hit;
+        if (candidates[i].node->getBoundingBox().intersectsWithLine(line) &&
+            collisionManager->getCollisionPoint(hit, rayRest, candidates[i].node->getTriangleSelector())) {
+            const irr::f32 distanceSquared = (hit.Intersection - rayRest.start).getLengthSQ();
+            if (distanceSquared < bestDistanceSquared) {
+                bestDistanceSquared = distanceSquared;
+                best = hit;
+                const irr::core::vector3df rayVector = rayRest.getVector().normalize();
+                rayRest.end = rayRest.start + (rayVector * sqrtf(distanceSquared));
+            }
+        }
+    }
+    if (best.Node) {
+        outCollisionPoint = best.Intersection;
+        outTriangle = best.Triangle;
+    }
+    return best.Node;
+}
+
+} // namespace
 
 void OwnShip::load(OwnShipData ownShipData, irr::core::vector3di numberOfContactPoints, irr::f32 minContactPointSpacing, irr::f32 contactStiffnessFactor, irr::f32 contactDampingFactor, irr::f32 frictionCoefficient, irr::f32 tanhFrictionFactor, irr::scene::ISceneManager* smgr, SimulationModel* model, Terrain* terrain, irr::IrrlichtDevice* dev)
 {
@@ -2784,20 +2847,65 @@ void OwnShip::collisionDetectAndRespond(irr::f32& reaction, irr::f32& lateralRea
         rot.setRotationDegrees(ship->getRotation());
         irr::core::vector3df shipAbsolutePosition = ship->getAbsolutePosition();
 
+        // IMPORTANT: cast the collision ray at the hull's STILL-WATER height, i.e. with the
+        // cosmetic wave heave removed. Own ship and each other ship heave by different
+        // amounts (different wave phase at their positions), so if the rays used the
+        // wave-displaced Y the two hulls would sit at mismatched heights and the rays
+        // would miss - which is why ship-vs-ship collision (and the speed-zero on impact)
+        // stopped firing once the water started moving the hulls.
+        //
+        // We also extend the ray vertically (Y axis only) by COLLISION_VERTICAL_REACH so
+        // that even though the *target* ship's mesh is still heaving (we only de-heave our
+        // own ray origin), a target lifted a metre or two on a crest is still within reach.
+        // IMPORTANT: this must only add slack in Y. The previous version lengthened the ray
+        // along the point->internalPoint direction, which for side/bow/stern contact points
+        // is mostly horizontal - that pushed the detection ray several metres outward from
+        // the hull in the horizontal plane, triggering "collision" well before the hulls
+        // actually touched, and decoupling detection from the real penetration depth used
+        // for the stopping force.
+        const irr::f32 COLLISION_VERTICAL_REACH = 8.0f; // metres each way; covers wave heave (KYARA HOULE: 4 -> 8, swell heave is larger)
+
+        //Each contact point's ray (from inside the hull out to the point), and the box around them all
+        std::vector<irr::core::line3df> rays(contactPoints.size());
+        irr::core::aabbox3df raysBox;
+        for (size_t i = 0; i < contactPoints.size(); i++)
+        {
+            irr::core::vector3df rayStart = contactPoints.at(i).internalPosition;
+            irr::core::vector3df rayEnd = contactPoints.at(i).position;
+            rot.transformVect(rayStart);
+            rot.transformVect(rayEnd);
+            rayStart += shipAbsolutePosition;
+            rayEnd += shipAbsolutePosition;
+            rayStart.Y -= waveVerticalDisplacement;
+            rayEnd.Y -= waveVerticalDisplacement;
+            // Extend only vertically, not along the hull-normal/internal direction.
+            rayStart.Y -= COLLISION_VERTICAL_REACH;
+            rayEnd.Y += COLLISION_VERTICAL_REACH;
+            rays[i] = irr::core::line3df(rayStart, rayEnd);
+            if (i == 0) { raysBox.reset(rayStart); }
+            raysBox.addInternalPoint(rayStart);
+            raysBox.addInternalPoint(rayEnd);
+        }
+        //The pickable nodes those rays could touch: none at all at sea, away from ships and land objects
+        std::vector<RayCandidate> rayCandidates;
+        irr::scene::ISceneCollisionManager* collisionManager = device->getSceneManager()->getSceneCollisionManager();
+        if (!contactPoints.empty()) {
+            raysBox.MinEdge -= irr::core::vector3df(0.01f, 0.01f, 0.01f);
+            raysBox.MaxEdge += irr::core::vector3df(0.01f, 0.01f, 0.01f);
+            gatherRayCandidates(device->getSceneManager()->getRootSceneNode(), raysBox, IDFlag_IsPickable, rayCandidates);
+        }
+
         for (int i = 0; i < contactPoints.size(); i++)
         {
             irr::core::vector3df pointPosition = contactPoints.at(i).position;
             irr::core::vector3df pointPositionForNormal = pointPosition + contactPoints.at(i).normal;
-            irr::core::vector3df internalPointPosition = contactPoints.at(i).internalPosition;
 
             // Rotate with own ship
             rot.transformVect(pointPosition);
             rot.transformVect(pointPositionForNormal);
-            rot.transformVect(internalPointPosition);
 
             pointPosition += shipAbsolutePosition;
             pointPositionForNormal += shipAbsolutePosition;
-            internalPointPosition += shipAbsolutePosition;
 
             irr::f32 localIntersection = 0; // Ready to use
 
@@ -2822,41 +2930,14 @@ void OwnShip::collisionDetectAndRespond(irr::f32& reaction, irr::f32& lateralRea
             irr::f32 remotePointAxialSpeed = 0;
             irr::f32 remotePointLateralSpeed = 0;
 
-            // Also check contact with pickable scenery elements here (or other ships?)
-            // IMPORTANT: cast the collision ray at the hull's STILL-WATER height, i.e. with the
-            // cosmetic wave heave removed. Own ship and each other ship heave by different
-            // amounts (different wave phase at their positions), so if the rays used the
-            // wave-displaced Y the two hulls would sit at mismatched heights and the rays
-            // would miss - which is why ship-vs-ship collision (and the speed-zero on impact)
-            // stopped firing once the water started moving the hulls.
-            //
-            // We also extend the ray vertically (Y axis only) by COLLISION_VERTICAL_REACH so
-            // that even though the *target* ship's mesh is still heaving (we only de-heave our
-            // own ray origin), a target lifted a metre or two on a crest is still within reach.
-            // IMPORTANT: this must only add slack in Y. The previous version lengthened the ray
-            // along the point->internalPoint direction, which for side/bow/stern contact points
-            // is mostly horizontal - that pushed the detection ray several metres outward from
-            // the hull in the horizontal plane, triggering "collision" well before the hulls
-            // actually touched, and decoupling detection from the real penetration depth used
-            // for the stopping force.
-            const irr::f32 COLLISION_VERTICAL_REACH = 8.0f; // metres each way; covers wave heave (KYARA HOULE: 4 -> 8, swell heave is larger)
-            irr::core::vector3df rayStart = internalPointPosition;
-            irr::core::vector3df rayEnd = pointPosition;
-            rayStart.Y -= waveVerticalDisplacement;
-            rayEnd.Y -= waveVerticalDisplacement;
-            // Extend only vertically, not along the hull-normal/internal direction.
-            rayStart.Y -= COLLISION_VERTICAL_REACH;
-            rayEnd.Y += COLLISION_VERTICAL_REACH;
-            irr::core::line3d<irr::f32> ray(rayStart, rayEnd);
+            // Also check contact with pickable scenery elements here (or other ships?), along the
+            // point's ray worked out above, against the nodes it can reach
             irr::core::vector3df intersection;
             irr::core::triangle3df hitTriangle;
-            irr::scene::ISceneNode* selectedSceneNode =
-                device->getSceneManager()->getSceneCollisionManager()->getSceneNodeAndCollisionPointFromRay(
-                    ray,
+            irr::scene::ISceneNode* selectedSceneNode = rayCandidates.empty() ? 0 :
+                castRay(collisionManager, rayCandidates, rays[i],
                     intersection,      // This will be the position of the collision
-                    hitTriangle,       // This will be the triangle hit in the collision
-                    IDFlag_IsPickable, // (bitmask)
-                    0);                // Check all nodes
+                    hitTriangle);      // This will be the triangle hit in the collision
 
             // Check normal directions of contact triangle  - if they are pointing in the same direction, then we are on the 'free' side of the contact, and can ignore it
             if (selectedSceneNode)
