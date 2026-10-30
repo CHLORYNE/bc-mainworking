@@ -97,6 +97,37 @@ struct cMonitorsVec
         RECT w, overlap;
         return i < rcMonitors.size() && GetWindowRect(window, &w) && IntersectRect(&overlap, &w, &rcMonitors[i]);
     }
+
+    //The graphics card a screen is plugged into ("AMD Radeon RX 6800"), empty if Windows does not say
+    static std::string cardOf(HMONITOR monitor)
+    {
+        MONITORINFOEXA info;
+        info.cbSize = sizeof(info);
+        if (!monitor || !GetMonitorInfoA(monitor, &info)) { return std::string(); }
+        for (DWORD n = 0; ; n++) {
+            DISPLAY_DEVICEA device;
+            ZeroMemory(&device, sizeof(device));
+            device.cb = sizeof(device);
+            if (!EnumDisplayDevicesA(NULL, n, &device, 0)) { break; }
+            if (strcmp(device.DeviceName, info.szDevice) == 0) { return device.DeviceString; }
+        }
+        return std::string();
+    }
+
+    //Logs which card screen i is plugged into. A window on a screen of another card than the bridge
+    //view's is drawn on the bridge view's card, and Windows copies every picture across to the other.
+    void logCard(size_t i, HWND mainWindow, const char* what) const
+    {
+        if (i >= hMonitors.size()) { return; }
+        const std::string card = cardOf(hMonitors[i]);
+        const std::string viewCard = cardOf(MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST));
+        std::cout << "    " << what << " screen " << i + 1 << " is on: " << (card.empty() ? "?" : card) << std::endl;
+        if (!card.empty() && !viewCard.empty() && card != viewCard) {
+            std::cerr << "    " << what << ": this screen is on another graphics card (" << card << ") than the bridge view ("
+                << viewCard << "). Every picture is drawn on the " << viewCard << " and copied across by the graphics driver."
+                << " If the simulator stops unexpectedly in the graphics driver, plug this screen into the " << viewCard << "." << std::endl;
+        }
+    }
 };
 
 //Unexpected stop: what happened and where (module and offset, then the calls that led there) goes to
@@ -105,6 +136,9 @@ struct cMonitorsVec
 namespace CrashReport {
     std::string logPath;  //where stderr goes, if redirected
     std::string dumpPath;
+    volatile const char* step = "loading";  //what the main loop was doing, for the report
+    volatile unsigned long frame = 0;        //frames shown so far
+    DWORD mainThread = GetCurrentThreadId();  //set at start-up, on the main thread
 
     void describeAddress(const void* address, char* out, size_t size)
     {
@@ -199,6 +233,8 @@ namespace CrashReport {
             fprintf(stderr, "    %s address 0x%llx\n", kind == 0 ? "reading" : (kind == 1 ? "writing" : "executing"),
                 (unsigned long long)record->ExceptionInformation[1]);
         }
+        fprintf(stderr, "    Simulator was: %s (frame %lu)%s\n", (const char*)step, (unsigned long)frame,
+            GetCurrentThreadId() == mainThread ? "" : ", the stop came from another thread");
         fflush(stderr);
 
         bool dumped = false;
@@ -233,6 +269,11 @@ namespace CrashReport {
         return EXCEPTION_EXECUTE_HANDLER;
     }
 }
+#define CRASH_STEP(text) (CrashReport::step = (text))
+#define CRASH_FRAME() (CrashReport::frame = CrashReport::frame + 1)
+#else
+#define CRASH_STEP(text) ((void)0)
+#define CRASH_FRAME() ((void)0)
 #endif // _WIN32
 
 
@@ -715,6 +756,7 @@ int main(int argc, char** argv)
         }
     }
     CrashReport::dumpPath = userFolder + ((instanceNumber == 1) ? std::string("crash.dmp") : "crash-" + std::to_string(instanceNumber) + ".dmp");
+    CrashReport::mainThread = GetCurrentThreadId();
     SetUnhandledExceptionFilter(CrashReport::onCrash);
     std::cout << "Simulator copy " << instanceNumber << " on this PC" << std::endl;
 #endif
@@ -1276,6 +1318,22 @@ int main(int argc, char** argv)
     irr::f32 aspect3d = (irr::f32)graphicsWidth3d / (irr::f32)graphicsHeight3d;
 
     std::cout << "graphicsWidth: " << graphicsWidth << " graphicsHeight: " << graphicsHeight << std::endl;
+#ifdef _WIN32
+    //Which graphics card draws the 3D view, with which driver: the first thing to know about a stop in the driver
+    if (driver->getDriverType() == irr::video::EDT_OPENGL) {
+        typedef const unsigned char* (WINAPI* GetStringFn)(unsigned int);
+        HMODULE gl = GetModuleHandleA("opengl32.dll");
+        GetStringFn getString = gl ? (GetStringFn)(void*)GetProcAddress(gl, "glGetString") : 0;
+        if (getString) {
+            const unsigned char* renderer = getString(0x1F01); //GL_RENDERER
+            const unsigned char* version = getString(0x1F02);  //GL_VERSION (ends with the driver's version)
+            std::cout << "3D drawn by: " << (renderer ? (const char*)renderer : "?") << ", OpenGL " << (version ? (const char*)version : "?") << std::endl;
+        }
+        const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
+        const std::string viewCard = cMonitorsVec::cardOf(MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST));
+        std::cout << "Bridge view screen is on: " << (viewCard.empty() ? "?" : viewCard) << std::endl;
+    }
+#endif
 
     std::string fontName = IniFile::iniFileToString(iniFilename, "font");
     std::string fontPath = "media/fonts/" + fontName + "/" + fontName + "-" + std::to_string(fontSize) + ".xml";
@@ -1406,6 +1464,7 @@ int main(int argc, char** argv)
                 const RECT& r = monitors.rcMonitors[consoleMonitor];
                 guiMain.setConsoleScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Instrument console on screen " << consoleMonitor + 1 << std::endl;
+                monitors.logCard(consoleMonitor, mainWindow, "Console");
             }
             else {
                 std::cerr << "Instrument console: screen " << consoleMonitor + 1 << " is not connected, or shows the bridge view. Console kept in the bridge view." << std::endl;
@@ -1427,6 +1486,7 @@ int main(int argc, char** argv)
                 const RECT& r = monitors.rcMonitors[radarMonitor];
                 guiMain.setRadarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Radar on screen " << radarMonitor + 1 << std::endl;
+                monitors.logCard(radarMonitor, mainWindow, "Radar");
             }
             else {
                 std::cerr << "Radar: screen " << radarMonitor + 1 << " is not connected, or shows the bridge view or the console. Radar kept in the bridge view." << std::endl;
@@ -1449,6 +1509,7 @@ int main(int argc, char** argv)
                 const RECT& r = monitors.rcMonitors[sonarMonitor];
                 guiMain.setSonarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Sonar on screen " << sonarMonitor + 1 << std::endl;
+                monitors.logCard(sonarMonitor, mainWindow, "Sonar");
             }
             else {
                 std::cerr << "Sonar: screen " << sonarMonitor + 1 << " is not connected, or shows the bridge view, the console or the radar." << std::endl;
@@ -1471,6 +1532,7 @@ int main(int argc, char** argv)
                 const RECT& r = monitors.rcMonitors[stationMonitor];
                 guiMain.setStationScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
                 std::cout << "Instructor screen on screen " << stationMonitor + 1 << std::endl;
+                monitors.logCard(stationMonitor, mainWindow, "Instructor");
             }
             else {
                 std::cerr << "Instructor screen: screen " << stationMonitor + 1 << " is not connected, or shows the bridge view, the console, the radar or the sonar." << std::endl;
@@ -1848,6 +1910,7 @@ int main(int argc, char** argv)
 
         {
             IPROF("Network");
+            CRASH_STEP("receiving network data");
             //        networkProfile.tic();
             network->update();
             if (extraNetwork) {
@@ -1882,6 +1945,7 @@ int main(int argc, char** argv)
             //        modelProfile.tic();
         } {
             IPROF("Render setup");
+            CRASH_STEP("starting the frame");
 
             driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight)); //Full screen before beginScene
             //KYARA Changes color 
@@ -1894,6 +1958,7 @@ int main(int argc, char** argv)
         bool fullScreenRadar = guiMain.getLargeRadar();
         {
             IPROF("Render radar");
+            CRASH_STEP("drawing the radar view");
             if (model.isRadarOn()) {
                 //radar view portion
                 //KYARA: with the instrument console there is no small radar to render - that saves a full
@@ -1917,6 +1982,7 @@ int main(int argc, char** argv)
             //       renderProfile.tic();
         } {
             IPROF("Render");
+            CRASH_STEP("drawing the 3D view");
             //The radar's next picture is worked out on its own thread while the 3D view is drawn. (Not
             //on the full-screen radar: no 3D view to draw meanwhile, so it is worked out as before.)
             if (!fullScreenRadar) { model.startRadarJob(); }
@@ -2012,6 +2078,7 @@ int main(int argc, char** argv)
             //       guiProfile.tic();
         } {
             IPROF("Model");
+            CRASH_STEP("updating the ships and the world");
             model.update();
             //        modelProfile.toc();
 
@@ -2021,6 +2088,7 @@ int main(int argc, char** argv)
             //        renderSetupProfile.tic();
         } {
             IPROF("GUI");
+            CRASH_STEP("drawing the instruments");
             //gui
             driver->setViewPort(irr::core::rect<irr::s32>(0, 0, 10, 10));//Set to a dummy value first to force the next call to make the change
             driver->setViewPort(irr::core::rect<irr::s32>(0, 0, graphicsWidth, graphicsHeight)); //Full screen for gui
@@ -2029,18 +2097,19 @@ int main(int argc, char** argv)
             //       guiProfile.toc();
         } {
             IPROF("End scene");
+            CRASH_STEP("showing the bridge view (end of frame)");
             //       renderFinishProfile.tic();
             driver->endScene();
             //       renderFinishProfile.toc();
         }
         //Instrument console in its own window (if detached): its input, then its frame.
-        { IPROF("Console window"); guiMain.renderDetachedConsole(); }
+        { IPROF("Console window"); CRASH_STEP("showing the instrument console window"); guiMain.renderDetachedConsole(); }
         //Large radar in its own window (if detached): its input, then its frame.
-        { IPROF("Radar window"); guiMain.renderDetachedRadar(); }
+        { IPROF("Radar window"); CRASH_STEP("showing the radar window"); guiMain.renderDetachedRadar(); }
         //Sonar station in its own window (if open)
-        { IPROF("Sonar window"); guiMain.renderSonar(); }
+        { IPROF("Sonar window"); CRASH_STEP("showing the sonar window"); guiMain.renderSonar(); }
         //Instructor screen in its own window (if open)
-        { IPROF("Instructor window"); guiMain.renderStation(); }
+        { IPROF("Instructor window"); CRASH_STEP("showing the instructor window"); guiMain.renderStation(); }
 
         //KYARA FRAME PACING --------------------------------------------------------------------
       //Removing the 10ms enet block gave the frames back, but that block was also accidentally
@@ -2054,6 +2123,8 @@ int main(int argc, char** argv)
             //const long long TARGET_FRAME_US = 16667;
             const long long TARGET_FRAME_US = 16667; //KYARA: vsync handles pacing on the 60Hz TVs
             IPROF("Frame limiter (waiting)");
+            CRASH_STEP("waiting for the next frame");
+            CRASH_FRAME();
             if (TARGET_FRAME_US > 0) {
                 static std::chrono::steady_clock::time_point nextFrame = std::chrono::steady_clock::now();
                 nextFrame += std::chrono::microseconds(TARGET_FRAME_US);
