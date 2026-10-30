@@ -13,6 +13,7 @@
 #include "GUIMain.hpp"
 #include "ScenarioDataStructure.hpp"
 #include "SimulationModel.hpp"
+#include "RenderBenchmark.hpp"
 #include "ScenarioChoice.hpp"
 #include "CentreScreen.hpp"
 #include "MyEventReceiver.hpp"
@@ -1825,6 +1826,11 @@ int main(int argc, char** argv)
     }
 
     //main loop
+    //bc5.ini render_benchmark=1: what each part of the scene costs the 3D view, measured once in the log
+    const bool renderBenchmarkOn = (IniFile::iniFileTou32(iniFilename, "render_benchmark") == 1);
+    RenderBenchmark renderBenchmark;
+    const std::chrono::steady_clock::time_point benchmarkClockStart = std::chrono::steady_clock::now();
+
     while (device->run())
     {
 
@@ -1899,6 +1905,10 @@ int main(int argc, char** argv)
             //       renderProfile.tic();
         } {
             IPROF("Render");
+            const std::chrono::steady_clock::time_point renderStart = std::chrono::steady_clock::now();
+            if (renderBenchmarkOn) {
+                renderBenchmark.beforeRender(smgr, std::chrono::duration<double>(renderStart - benchmarkClockStart).count());
+            }
 
             //3d view portion
             model.setMainCameraActive(); //Note that the NavLights expect the main camera to be active, so they know where they're being viewed from
@@ -1954,6 +1964,10 @@ int main(int argc, char** argv)
                 if (runtimeEventSuccess == 0) {
                     vrInterface.update();
                 }
+            }
+
+            if (renderBenchmarkOn) {
+                renderBenchmark.afterRender(1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - renderStart).count());
             }
 
             //       renderProfile.toc();
