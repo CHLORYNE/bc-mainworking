@@ -566,6 +566,15 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
 
 SimulationModel::~SimulationModel()
 {
+    //The radar worker first: it draws into the radar images
+    if (radarWorker.joinable()) {
+        {
+            std::lock_guard<std::mutex> guard(radarMutex);
+            radarWorkerStop = true;
+        }
+        radarWake.notify_all();
+        radarWorker.join();
+    }
     radarImage->drop(); //We created this with 'create', so drop it when we're finished
     radarImageOverlaid->drop(); //We created this with 'create', so drop it when we're finished
     radarImageLarge->drop(); //We created this with 'create', so drop it when we're finished
@@ -3147,6 +3156,47 @@ void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFO
 irr::core::aabbox3df SimulationModel::getMainViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction)
 {
     return camera.getViewBox(eye, direction);
+}
+
+//Radar worker -------------------------------------------------------------------------------------
+void SimulationModel::computeRadarJob()
+{
+    radarCalculation.compute(radarJob.image, radarJob.overlaid, radarJob.offsetPosition, terrain, radarJob.own, radarJob.contacts,
+        radarJob.weather, radarJob.rain, radarJob.tideHeight, radarJob.deltaTime, radarJob.absoluteTime, radarJob.mouseRelPosition, radarJob.isMouseDown);
+}
+
+void SimulationModel::radarWorkerLoop()
+{
+    std::unique_lock<std::mutex> lock(radarMutex);
+    while (true) {
+        radarWake.wait(lock, [this]() { return radarWorkerStop || radarJobRunning; });
+        if (radarWorkerStop) { return; }
+        lock.unlock();
+        computeRadarJob();
+        lock.lock();
+        radarJobRunning = false;
+        radarJobDone = true;
+        radarWake.notify_all();
+    }
+}
+
+void SimulationModel::startRadarJob()
+{
+    if (!modelParameters.radarThread || !radarJobReady) { return; }
+    if (!radarWorker.joinable()) { radarWorker = std::thread(&SimulationModel::radarWorkerLoop, this); }
+    {
+        std::lock_guard<std::mutex> guard(radarMutex);
+        radarJobReady = false;
+        radarJobRunning = true;
+    }
+    radarWake.notify_all();
+}
+
+void SimulationModel::finishRadarJob()
+{
+    if (!radarWorker.joinable()) { return; }
+    std::unique_lock<std::mutex> lock(radarMutex);
+    radarWake.wait(lock, [this]() { return !radarJobRunning; });
 }
 
 void SimulationModel::setTripleScreen(bool on, irr::f32 perScreenFOVdeg, irr::f32 bezelYawDeg)
@@ -6028,11 +6078,44 @@ void SimulationModel::update()
                 radarImageChosen = radarImage;
                 radarImageOverlaidChosen = radarImageOverlaid;
             }
-            radarCalculation.update(radarImageChosen, radarImageOverlaidChosen, offsetPosition, terrain, ownShip, buoys, otherShips, weather, rainIntensity, tideHeight, deltaTime, absoluteTime, cursorPositionRadar, isMouseDown);
+            if (!modelParameters.radarThread) {
+                radarCalculation.update(radarImageChosen, radarImageOverlaidChosen, offsetPosition, terrain, ownShip, buoys, otherShips, weather, rainIntensity, tideHeight, deltaTime, absoluteTime, cursorPositionRadar, isMouseDown);
+            }
+            else {
+                //The picture worked out by the worker during the 3D view, from the copy made at the last
+                //frame. (Worked out here if the main loop did not start it.)
+                finishRadarJob();
+                if (radarJobReady) {
+                    radarJobReady = false;
+                    computeRadarJob();
+                    radarJobDone = true;
+                }
+            }
         } {
             IPROF("Update radar screen");
             radarScreen.setDisplayOffset(radarCalculation.getOffsetXFraction(), radarCalculation.getOffsetYFraction()); //kyara
-            radarScreen.update(radarImageOverlaidChosen);
+            if (!modelParameters.radarThread) {
+                radarScreen.update(radarImageOverlaidChosen);
+            }
+            else {
+                if (radarJobDone && radarJob.overlaid) {
+                    radarScreen.update(radarJob.overlaid);
+                    radarJobDone = false;
+                }
+                //What the worker needs for the next picture, copied now (the scene is not read off this thread)
+                radarJob.image = radarImageChosen;
+                radarJob.overlaid = radarImageOverlaidChosen;
+                radarJob.offsetPosition = offsetPosition;
+                RadarCalculation::gather(ownShip, buoys, otherShips, radarJob.own, radarJob.contacts);
+                radarJob.weather = weather;
+                radarJob.rain = rainIntensity;
+                radarJob.tideHeight = tideHeight;
+                radarJob.deltaTime = deltaTime;
+                radarJob.absoluteTime = absoluteTime;
+                radarJob.mouseRelPosition = cursorPositionRadar;
+                radarJob.isMouseDown = isMouseDown;
+                radarJobReady = true;
+            }
         } {
             IPROF("Update radar camera");
             radarCamera.update();
@@ -6040,6 +6123,9 @@ void SimulationModel::update()
     }
     else {
         radarScreen.getSceneNode()->setVisible(false);
+        finishRadarJob();
+        radarJobReady = false;
+        radarJobDone = false;
     }
     {
         IPROF("Check if paused ");

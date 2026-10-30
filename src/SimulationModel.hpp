@@ -60,6 +60,10 @@ const irr::f32 SIM_MAX_WEATHER = 6.0f;
 #include "IncidentConfig.hpp" // SCENARIO INCENDIE: per-scenario fire / SAR settings (incident.ini)
 #include "Camera.hpp"
 #include "RadarCalculation.hpp"
+#include "RadarData.hpp"
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include "RadarScreen.hpp"
 #include "ControlVisualiser.hpp"
 #include "Lines.hpp"
@@ -88,6 +92,7 @@ public:
         irr::f32 lineStiffnessFactor;
         irr::f32 lineDampingFactor;
         irr::f32 frictionCoefficient;
+        bool radarThread = true;   //bc5.ini radar_thread: the radar worked out on a thread of its own
         irr::f32 stoppingTime = 0; //bc5.ini stopping_time: seconds for any own ship to lose her way, 0 = boat.ini alone
         irr::f32 tanhFrictionFactor;
         irr::u32 limitTerrainResolution;
@@ -651,6 +656,10 @@ public:
     void updateViewport(irr::f32 aspect);
     //The box holding what the main camera sees as it is now, its eye and direction (for the terrain's shared view)
     irr::core::aabbox3df getMainViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction);
+    //The radar on its own thread (radar_thread=1): its picture for the next frame is worked out between
+    //these two calls, which the main loop makes round the 3D view (nothing else uses the radar then)
+    void startRadarJob();
+    void finishRadarJob();
     void renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY = 0.0f); //NAUTITECH triple-screen
     void setMouseDown(bool isMouseDown);
     void setZoom(bool zoomOn);
@@ -853,6 +862,25 @@ private:
     Lines lines;
     irr::f32 anchorDepth = 0;   //water under the hawse when the anchor went down (m)
     RadarCalculation radarCalculation;
+    //Radar worker. radarJobReady: inputs copied, not yet worked out; radarJobRunning: being worked out;
+    //radarJobDone: worked out, picture not yet on the screen
+    struct RadarJob {
+        irr::video::IImage* image = 0;
+        irr::video::IImage* overlaid = 0;
+        irr::core::vector3d<int64_t> offsetPosition;
+        RadarOwnShip own;
+        std::vector<RadarData> contacts;
+        irr::f32 weather = 0, rain = 0, tideHeight = 0, deltaTime = 0;
+        uint64_t absoluteTime = 0;
+        irr::core::vector2di mouseRelPosition;
+        bool isMouseDown = false;
+    } radarJob;
+    std::thread radarWorker;
+    std::mutex radarMutex;
+    std::condition_variable radarWake;
+    bool radarJobReady = false, radarJobRunning = false, radarJobDone = false, radarWorkerStop = false;
+    void radarWorkerLoop();
+    void computeRadarJob();
     RadarScreen radarScreen;
     ControlVisualiser portEngineVisual;
     ControlVisualiser stbdEngineVisual;

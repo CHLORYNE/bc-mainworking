@@ -24,6 +24,12 @@ namespace NumberToImage
 
     irr::video::IImage* getImage(irr::u32 number, irr::IrrlichtDevice* dev);
 
+    //The digits (media/Char0.png ... Char9.png) loaded once, from the main thread; then draw() writes
+    //a number into an image from them, without the file system or the video driver - so it may be
+    //used from another thread (the radar worker), and it does not read ten files a frame.
+    void preload(irr::IrrlichtDevice* dev);
+    void draw(irr::u32 number, irr::video::IImage* target, irr::core::position2d<irr::s32> topLeft);
+
 }
 
 #endif // __NUMBERTOIMAGE_HPP_INCLUDED__
