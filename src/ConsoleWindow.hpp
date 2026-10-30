@@ -62,11 +62,17 @@ public:
     void beginMove(irr::s32 clientX, irr::s32 clientY);
     bool isFullScreen() const { return fullScreen; }
 
-    //Whether the simulator can draw into the window now: not while it is on a screen plugged into
-    //another graphics card than the simulator window's (AMD's OpenGL driver stops the simulator when
-    //a picture has to be copied across cards). The window then says so, until it is moved back.
+    //Whether the simulator can draw into the window now: not while the bridge view is drawn by a
+    //processor's built-in graphics and this window is on a screen of another card (AMD's OpenGL driver
+    //stops the simulator on the first picture copied that way; the other way round, a graphics card
+    //drawing for a screen on the motherboard, works). The window then says so, until it is moved back.
     //Call before each beginScene() into it. Always true off Windows.
     bool canDraw();
+    //Whether a card is a processor's built-in graphics ("AMD Radeon(TM) RX Vega 11 Graphics",
+    //"Intel(R) UHD Graphics 630"), from its name
+    static bool isBuiltInGraphics(const std::string& card);
+    //Whether a window on a screen of 'card' can be drawn by the card of the bridge view's screen
+    static bool canDrawAcross(const std::string& viewCard, const std::string& card);
     //bc5.ini other_card_windows=1: draw on screens of another card anyway
     static void setAllowOtherCard(bool allow) { allowOtherCard = allow; }
     //The graphics card a screen (an HMONITOR) is plugged into ("AMD Radeon RX 580"), empty if unknown

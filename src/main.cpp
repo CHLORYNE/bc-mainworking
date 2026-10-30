@@ -104,9 +104,12 @@ struct cMonitorsVec
 
     //Whether a window of the simulator can go on screen i, as far as graphics cards go: logs which card
     //the screen is plugged into. All the simulator's windows are drawn by the card of the bridge view's
-    //screen; a window on a screen of another card has each picture copied across by the graphics driver,
-    //and AMD's OpenGL driver stops the simulator on the first one (atio6axx.dll, reading 0x20c). Such a
-    //screen is refused, unless bc5.ini other_card_windows=1. A refused window is added to 'refused'.
+    //screen, and a window on a screen of another card has each picture copied across by the driver.
+    //A graphics card drawing for a screen on the motherboard works (the passerelle: RX 6800 for the
+    //radar and sonar on the Vega 11's screens); the processor's built-in graphics drawing for a screen
+    //of a graphics card stops AMD's OpenGL driver on the first picture (atio6axx.dll, reading 0x20c:
+    //the students' PCs, bridge view on the Vega 11, radar on the RX 580). That is refused, unless
+    //bc5.ini other_card_windows=1. A refused window is added to 'refused'.
     bool cardAllows(size_t i, HWND mainWindow, const char* what, const wchar_t* name, bool allowOtherCard, std::wstring& refused) const
     {
         if (i >= hMonitors.size()) { return false; }
@@ -114,15 +117,15 @@ struct cMonitorsVec
         const std::string viewCard = cardOf(MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST));
         std::cout << "    " << what << " screen " << i + 1 << " is on: " << (card.empty() ? "?" : card) << std::endl;
         if (card.empty() || viewCard.empty() || card == viewCard) { return true; }
-        if (allowOtherCard) {
-            std::cerr << "    " << what << ": this screen is on another graphics card (" << card << ") than the bridge view ("
-                << viewCard << "), allowed by other_card_windows=1. If the simulator stops unexpectedly in the graphics driver,"
-                << " plug all the simulator's screens into the same card." << std::endl;
+        if (ConsoleWindow::canDrawAcross(viewCard, card)) {
+            std::cout << "    " << what << ": drawn on the " << viewCard << " and copied across to the " << card << " by the driver"
+                << (allowOtherCard ? " (other_card_windows=1)" : "") << "." << std::endl;
             return true;
         }
         std::cerr << "    " << what << ": not opened on screen " << i + 1 << ", which is on another graphics card (" << card
-            << ") than the bridge view (" << viewCard << "). Kept in the bridge view. Plug all the simulator's screens into"
-            << " the same card (bc5.ini other_card_windows=1 to open it there anyway)." << std::endl;
+            << ") than the bridge view (" << viewCard << ", built-in graphics, whose pictures AMD's driver cannot copy"
+            << " across). Kept in the bridge view. Put the bridge view on a screen of the graphics card"
+            << " (bc5.ini other_card_windows=1 to open it there anyway)." << std::endl;
         refused += L"\u2022 " + std::wstring(name) + L" : \u00E9cran " + std::to_wstring(i + 1) + L", branch\u00E9 sur " +
             std::wstring(card.begin(), card.end()) + L"\n";
         return false;
@@ -1551,9 +1554,9 @@ int main(int argc, char** argv)
             const std::wstring message =
                 L"Ces fen\u00EAtres ne peuvent pas s'ouvrir sur leur \u00E9cran, branch\u00E9 sur une autre carte graphique que la vue passerelle :\n\n" +
                 otherCardRefused +
-                L"\nVue passerelle : " + std::wstring(viewCard.begin(), viewCard.end()) +
-                L"\n\nElles restent dans la vue passerelle. Branchez tous les \u00E9crans du simulateur sur la m\u00EAme carte graphique"
-                L" (la carte d\u00E9di\u00E9e, pas les prises vid\u00E9o de la carte m\u00E8re).";
+                L"\nVue passerelle : " + std::wstring(viewCard.begin(), viewCard.end()) + L" (graphique int\u00E9gr\u00E9 au processeur)" +
+                L"\n\nElles restent dans la vue passerelle. Dans le lanceur, mettez la vue passerelle sur un \u00E9cran de la carte graphique"
+                L" d\u00E9di\u00E9e, ou branchez cet \u00E9cran sur la carte graphique d\u00E9di\u00E9e.";
             MessageBoxW(mainWindow, message.c_str(), L"NAUTITECH - Simulateur", MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
         }
     }

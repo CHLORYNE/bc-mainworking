@@ -51,6 +51,19 @@ irr::core::dimension2du ConsoleWindow::getClientSize() const
 
 bool ConsoleWindow::allowOtherCard = false;
 
+bool ConsoleWindow::isBuiltInGraphics(const std::string& card)
+{
+    //AMD and Intel name their processors' graphics "... Graphics"; their graphics cards are named by
+    //model (AMD Radeon RX 580, NVIDIA GeForce ...), except Intel's Arc cards.
+    return card.find("Graphics") != std::string::npos && card.find("Arc") == std::string::npos;
+}
+
+bool ConsoleWindow::canDrawAcross(const std::string& viewCard, const std::string& card)
+{
+    if (allowOtherCard || card.empty() || viewCard.empty() || card == viewCard) { return true; }
+    return !isBuiltInGraphics(viewCard);
+}
+
 //=================================================================================================
 #ifdef _WIN32
 
@@ -409,12 +422,12 @@ bool ConsoleWindow::canDraw()
         lastMainMonitor = mainMonitor;
         cardName = graphicsCardOf(monitor);
         mainCardName = graphicsCardOf(mainMonitor);
-        const bool other = !allowOtherCard && !cardName.empty() && !mainCardName.empty() && cardName != mainCardName;
+        const bool other = !canDrawAcross(mainCardName, cardName);
         if (other != otherCard) {
             otherCard = other;
             if (other) {
                 std::cerr << "A window of the simulator is on a screen of another graphics card (" << cardName << ") than the bridge view ("
-                    << mainCardName << "): not drawn until it is back on a screen of the " << mainCardName << "." << std::endl;
+                    << mainCardName << ", built-in graphics): not drawn until it is back on a screen of the " << mainCardName << "." << std::endl;
             }
             InvalidateRect((HWND)hwnd, NULL, FALSE);
         }
@@ -434,8 +447,8 @@ void ConsoleWindow::paintOtherCardNotice(void* dc)
     const std::wstring mainCard(mainCardName.begin(), mainCardName.end());
     const std::wstring text =
         L"Cette fen\u00EAtre est sur un \u00E9cran branch\u00E9 sur une autre carte graphique (" + card +
-        L") que la vue passerelle (" + mainCard + L").\n\nRamenez-la sur un \u00E9cran de la carte " + mainCard +
-        L", ou branchez tous les \u00E9crans du simulateur sur la m\u00EAme carte graphique.";
+        L") que la vue passerelle (" + mainCard + L", graphique int\u00E9gr\u00E9 au processeur).\n\nRamenez-la sur un \u00E9cran de la carte " + mainCard +
+        L", ou mettez la vue passerelle sur un \u00E9cran de la carte graphique d\u00E9di\u00E9e.";
     InflateRect(&r, -24, -24);
     SetBkMode((HDC)dc, TRANSPARENT);
     SetTextColor((HDC)dc, RGB(235, 200, 90));
