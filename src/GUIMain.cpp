@@ -558,7 +558,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //  classic_panel=1          old layout back, no rebuild needed
     //  instrument_extra=wind    optional dials: rpm | wind | both | none
     //  instrument_speed_max=20  top of the speed log, knots
-    //  instrument_rudder=1      put the BARRE dial back in the console (hidden by default)
+    //  instrument_rudder=0      take the ANGLE DE BARRE dial out of the console (shown by default)
     //  instrument_rot_max=60    rate-of-turn full scale each side, deg/min
     //Which dials appear follows the ship: no rudder dial on azimuth drives, rate of turn only if
     //the ship has one, GPS lines only with GPS, depth only with a sounder.
@@ -568,8 +568,8 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
             (irr::s32)(0.09 * su + azimuthGUIOffsetL), (irr::s32)(0.608 * sh),
             (irr::s32)(0.995 * su + azimuthGUIOffsetR), (irr::s32)(0.910 * sh));
         instrumentPanel = new irr::gui::GUIInstrumentPanel(guienv, guienv->getRootGUIElement(), -1, panelPos);
-        //The rudder angle is read on the bridge itself, so the BARRE dial is off unless asked for.
-        const bool rudderDial = !azimuthDrive && IniFile::iniFileTou32(iniFilename, "instrument_rudder") == 1;
+        //The rudder angle indicator, unless bc5.ini says instrument_rudder=0 (none on azimuth drives)
+        const bool rudderDial = !azimuthDrive && IniFile::iniFileToString(iniFilename, "instrument_rudder") != "0";
         instrumentPanel->setFit(rudderDial, hasRateOfTurnIndicator, hasGPS, hasDepthSounder, maxSounderDepth, showTideHeight);
 
         //Shaft tachometer and true wind dial, in the space beside the other gauges.

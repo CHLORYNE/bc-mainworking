@@ -24,7 +24,7 @@ namespace irr
         {
             //---------------------------------------------------------------------------------------------
             //KYARA: every label the console shows, in one place. Change the wording here only.
-            const wchar_t* TXT_RUDDER = L"BARRE";
+            const wchar_t* TXT_RUDDER = L"ANGLE DE BARRE";
             const wchar_t* TXT_COMPASS = L"CAP";
             const wchar_t* TXT_ROT = L"GIRATION";
             const wchar_t* TXT_LOG = L"LOCH";
@@ -1006,7 +1006,9 @@ namespace irr
             }
             else if (pass == 2) {
                 drawScaleLabels(font, c, rf, vMin, vMax, a0, a1, major, true);
-                text(font, TXT_RUDDER, c.X, c.Y + rf * 0.245f, TEXT_TITLE);
+                //(the short name on a dial too small for the full one)
+                const wchar_t* rudderTitle = (font && font->getDimension(TXT_RUDDER).Width > rf * 1.3f) ? L"BARRE" : TXT_RUDDER;
+                text(font, rudderTitle, c.X, c.Y + rf * 0.245f, TEXT_TITLE);
                 text(font, L"\u00B0", c.X + dw * 0.5f - unitW + dh * 0.12f, wy + dh * 0.55f, TEXT_DIM, false, true);
                 //Side labels on the upper face, as printed on a real rudder indicator
                 const core::vector2df pl = panelPolar(c, rf * 0.40f, -48.0f), pr = panelPolar(c, rf * 0.40f, 48.0f);
