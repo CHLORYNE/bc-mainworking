@@ -437,7 +437,14 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     irr::u32 largeRadarTextureSize = driver->getScreenSize().Height; // Optimised for the large radar screen
     //Find next power of 2 size
     radarTextureSize = std::pow(2, std::ceil(std::log2(radarTextureSize)));
-    largeRadarTextureSize = std::pow(2, std::ceil(std::log2(largeRadarTextureSize)));
+    //The large one: as tall as the screen, or a 1200-line radar screen, in steps of 64 - not the next
+    //power of 2 (2048 x 2048, 16 MB, for a 1080-line screen), as it is copied and sent to the
+    //graphics card whole every frame
+    if (largeRadarTextureSize < 1200) { largeRadarTextureSize = 1200; }
+    largeRadarTextureSize = (largeRadarTextureSize + 63) / 64 * 64;
+    if (!driver->queryFeature(irr::video::EVDF_TEXTURE_NPOT)) {
+        largeRadarTextureSize = std::pow(2, std::ceil(std::log2(largeRadarTextureSize)));
+    }
 
     //In simulationModel, keep track of the used size, and pass this to gui etc.
     radarImage = driver->createImage(irr::video::ECF_A8R8G8B8, irr::core::dimension2d<irr::u32>(radarTextureSize, radarTextureSize)); //Create image for radar calculation to work on
@@ -3660,6 +3667,7 @@ irr::scene::ISceneNode* SimulationModel::spawnModelNode(const std::string& folde
         if (device) { device->getLogger()->log("SAR spawn: failed to load model:"); device->getLogger()->log(fullPath.c_str()); }
         return 0;
     }
+    mesh->setHardwareMappingHint(irr::scene::EHM_STATIC); //on the graphics card, as the ships are
     //A model without animation as a plain mesh: an animated-mesh node works out its frame again for
     //every view it is drawn in (three columns and their reflections on the triple screen)
     irr::u32 triangles = 0;
@@ -5351,6 +5359,16 @@ void SimulationModel::update()
         // SAR HELICOPTER FEATURE: helos called on OSC ack; fly them in, then keep them tracking the casualty.
         updateHeloCall(deltaTime);
         updateSarHelicopters();
+        //Their searchlights light the scene only in the dark, as their beams show: a dynamic light
+        //makes every lit object dearer to draw, in every view, and in daylight it shows nothing
+        {
+            const bool dark = light.getLightLevel() < 160;
+            for (size_t k = 0; k < sarLights.size(); k++) {
+                if (!sarLights[k]) { continue; }
+                const bool on = dark && k < sarNodes.size() && sarNodes[k] && sarNodes[k]->isVisible();
+                if (sarLights[k]->isVisible() != on) { sarLights[k]->setVisible(on); }
+            }
+        }
 
         // SAR SEQUENCERS: drive abandon-ship and helicopter rescue animations every frame.
         updateAbandonSpawn(deltaTime);

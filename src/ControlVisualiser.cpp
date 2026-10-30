@@ -58,6 +58,7 @@ void ControlVisualiser::load(irr::scene::ISceneManager* smgr, irr::scene::IScene
 
         if (controlMesh != 0) 
         {
+            controlMesh->setHardwareMappingHint(irr::scene::EHM_STATIC); //on the graphics card
             controlNode = smgr->addMeshSceneNode(controlMesh, parent, -1, offset, irr::core::vector3df(0.0, 0.0, 0.0), irr::core::vector3df(scale,scale,scale));
         
             // Set material parameters

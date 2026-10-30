@@ -133,6 +133,12 @@ namespace scene
         std::cerr << "Could not load flat sea mesh from media/flatsea.x" << std::endl;
         exit(EXIT_FAILURE);
     }
+    //On the graphics card: the sea tile's points once a frame (they move with the waves), its
+    //triangles and the flat sea once for all. Left in memory, every tile drawn (up to 441 a view)
+    //sent all its points and triangles through the driver again.
+    mesh->setHardwareMappingHint(irr::scene::EHM_STREAM, irr::scene::EBT_VERTEX);
+    mesh->setHardwareMappingHint(irr::scene::EHM_STATIC, irr::scene::EBT_INDEX);
+    flatMesh->setHardwareMappingHint(irr::scene::EHM_STATIC);
 
 
     //For testing, make wireframe
