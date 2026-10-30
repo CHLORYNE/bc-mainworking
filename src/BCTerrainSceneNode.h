@@ -33,14 +33,6 @@ namespace scene
 	{
 	public:
 
-		//Several views drawn in one frame (the triple screen's three columns, the water's reflection of
-		//each): one set of patches for all of them, worked out for the box that holds everything they
-		//see, instead of again for every view - each time was a pass over the whole terrain and a new
-		//index buffer for the graphics card. Between the two calls every terrain uses it, worked out
-		//again only when the eye moves or the view turns. direction: the middle view's, normalised.
-		static void beginSharedView(const core::aabbox3df& viewBox, const core::vector3df& eye, const core::vector3df& direction);
-		static void endSharedView();
-
 		//! constructor
 		//! \param device: The irrlicht device (for logging etc).
 		//! \param parent: The node which this node is a child of.  Making this node a child of another node, or
@@ -287,7 +279,6 @@ namespace scene
 
 		void preRenderCalculationsIfNeeded();
 		void preRenderLODCalculations();
-		void lodForView(const core::aabbox3df& viewBox, const core::vector3df& eye);
 		void preRenderIndicesCalculations();
 
 		//! get indices when generating index data for patches at varying levels of detail.
@@ -329,13 +320,6 @@ namespace scene
 		bool OverrideDistanceThreshold;
 		bool UseDefaultRotationPivot;
 		bool ForceRecalculation;
-		//Shared view (see beginSharedView): the patches worked out for it, and for what
-		bool IndicesShared = false;
-		core::aabbox3df SharedBoxUsed;
-		core::vector3df SharedEyeUsed, SharedDirUsed;
-		static bool SharedActive;
-		static core::aabbox3df SharedBox;
-		static core::vector3df SharedEye, SharedDir;
 		s32 FixedBorderLOD;
 
 		core::vector3df	OldCameraPosition;

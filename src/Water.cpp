@@ -145,11 +145,6 @@ irr::core::vector3df Water::getPosition() const
     return waterNode->getPosition();
 }
 
-void Water::setColumn(irr::s32 c)
-{
-    waterNode->setColumn(c);
-}
-
 void Water::setVisible(bool visible)
 {
     waterNode->setVisible(visible);

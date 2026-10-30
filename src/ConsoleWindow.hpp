@@ -62,24 +62,6 @@ public:
     void beginMove(irr::s32 clientX, irr::s32 clientY);
     bool isFullScreen() const { return fullScreen; }
 
-    //Whether the simulator can draw into the window now: not while the bridge view is drawn by a
-    //processor's built-in graphics and this window is on a screen of another card (AMD's OpenGL driver
-    //stops the simulator on the first picture copied that way; the other way round, a graphics card
-    //drawing for a screen on the motherboard, works). The window then says so, until it is moved back.
-    //Call before each beginScene() into it. Always true off Windows.
-    bool canDraw();
-    //Whether a card is a processor's built-in graphics ("AMD Radeon(TM) RX Vega 11 Graphics",
-    //"Intel(R) UHD Graphics 630"), from its name
-    static bool isBuiltInGraphics(const std::string& card);
-    //Whether a window on a screen of 'card' can be drawn by the card of the bridge view's screen
-    static bool canDrawAcross(const std::string& viewCard, const std::string& card);
-    //bc5.ini other_card_windows=1: draw on screens of another card anyway
-    static void setAllowOtherCard(bool allow) { allowOtherCard = allow; }
-    //The graphics card a screen (an HMONITOR) is plugged into ("AMD Radeon RX 580"), empty if unknown
-    static std::string graphicsCardOf(void* monitor);
-    //Internal: the message shown instead of the picture (called from the window procedure).
-    void paintOtherCardNotice(void* dc);
-
     //Pass to driver->beginScene() to draw into this window.
     const irr::video::SExposedVideoData& videoData() const { return windowData; }
     //Pass to driver->beginScene() to draw into the simulator window again. (Needed on X11, where
@@ -102,11 +84,6 @@ private:
     bool fullScreen = false;
     irr::s32 windowedX = 0, windowedY = 0;   //placement before going full screen
     irr::u32 windowedW = 0, windowedH = 0;
-    static bool allowOtherCard;
-    void* lastMonitor = 0;          //screens of this window and of the simulator window at the last check
-    void* lastMainMonitor = 0;
-    bool otherCard = false;         //on a screen of another card: not drawn
-    std::string cardName, mainCardName;
 
 #ifdef _WIN32
     void* hwnd;

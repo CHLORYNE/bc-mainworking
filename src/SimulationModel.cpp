@@ -25,7 +25,7 @@
 #ifdef WITH_PROFILING
 #include "iprof.hpp"
 #else
-#include "FrameTiming.hpp" //IPROF blocks timed when bc5.ini frame_timing=1
+#define IPROF(a) //intentionally empty placeholder
 #endif
 // SCENARIO INCENDIE: the fire timings (abandon, spread, sinking, permanent list, survivor drop
 // interval) now come from the scenario's incident.ini, written by the fire scenario editor.
@@ -437,14 +437,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     irr::u32 largeRadarTextureSize = driver->getScreenSize().Height; // Optimised for the large radar screen
     //Find next power of 2 size
     radarTextureSize = std::pow(2, std::ceil(std::log2(radarTextureSize)));
-    //The large one: as tall as the screen, or a 1200-line radar screen, in steps of 64 - not the next
-    //power of 2 (2048 x 2048, 16 MB, for a 1080-line screen), as it is copied and sent to the
-    //graphics card whole every frame
-    if (largeRadarTextureSize < 1200) { largeRadarTextureSize = 1200; }
-    largeRadarTextureSize = (largeRadarTextureSize + 63) / 64 * 64;
-    if (!driver->queryFeature(irr::video::EVDF_TEXTURE_NPOT)) {
-        largeRadarTextureSize = std::pow(2, std::ceil(std::log2(largeRadarTextureSize)));
-    }
+    largeRadarTextureSize = std::pow(2, std::ceil(std::log2(largeRadarTextureSize)));
 
     //In simulationModel, keep track of the used size, and pass this to gui etc.
     radarImage = driver->createImage(irr::video::ECF_A8R8G8B8, irr::core::dimension2d<irr::u32>(radarTextureSize, radarTextureSize)); //Create image for radar calculation to work on
@@ -566,15 +559,6 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
 
 SimulationModel::~SimulationModel()
 {
-    //The radar worker first: it draws into the radar images
-    if (radarWorker.joinable()) {
-        {
-            std::lock_guard<std::mutex> guard(radarMutex);
-            radarWorkerStop = true;
-        }
-        radarWake.notify_all();
-        radarWorker.join();
-    }
     radarImage->drop(); //We created this with 'create', so drop it when we're finished
     radarImageOverlaid->drop(); //We created this with 'create', so drop it when we're finished
     radarImageLarge->drop(); //We created this with 'create', so drop it when we're finished
@@ -3151,54 +3135,7 @@ void SimulationModel::updateViewport(irr::f32 aspect)
 void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY)
 {
     camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg, shiftY);
-    water.setColumn(yawOffsetDeg < 0 ? 0 : (yawOffsetDeg > 0 ? 2 : 1));
 }
-irr::core::aabbox3df SimulationModel::getMainViewBox(irr::core::vector3df& eye, irr::core::vector3df& direction)
-{
-    return camera.getViewBox(eye, direction);
-}
-
-//Radar worker -------------------------------------------------------------------------------------
-void SimulationModel::computeRadarJob()
-{
-    radarCalculation.compute(radarJob.image, radarJob.overlaid, radarJob.offsetPosition, terrain, radarJob.own, radarJob.contacts,
-        radarJob.weather, radarJob.rain, radarJob.tideHeight, radarJob.deltaTime, radarJob.absoluteTime, radarJob.mouseRelPosition, radarJob.isMouseDown);
-}
-
-void SimulationModel::radarWorkerLoop()
-{
-    std::unique_lock<std::mutex> lock(radarMutex);
-    while (true) {
-        radarWake.wait(lock, [this]() { return radarWorkerStop || radarJobRunning; });
-        if (radarWorkerStop) { return; }
-        lock.unlock();
-        computeRadarJob();
-        lock.lock();
-        radarJobRunning = false;
-        radarJobDone = true;
-        radarWake.notify_all();
-    }
-}
-
-void SimulationModel::startRadarJob()
-{
-    if (!modelParameters.radarThread || !radarJobReady) { return; }
-    if (!radarWorker.joinable()) { radarWorker = std::thread(&SimulationModel::radarWorkerLoop, this); }
-    {
-        std::lock_guard<std::mutex> guard(radarMutex);
-        radarJobReady = false;
-        radarJobRunning = true;
-    }
-    radarWake.notify_all();
-}
-
-void SimulationModel::finishRadarJob()
-{
-    if (!radarWorker.joinable()) { return; }
-    std::unique_lock<std::mutex> lock(radarMutex);
-    radarWake.wait(lock, [this]() { return !radarJobRunning; });
-}
-
 void SimulationModel::setTripleScreen(bool on, irr::f32 perScreenFOVdeg, irr::f32 bezelYawDeg)
 {
     triScreenMooring = on;
@@ -3717,22 +3654,8 @@ irr::scene::ISceneNode* SimulationModel::spawnModelNode(const std::string& folde
         if (device) { device->getLogger()->log("SAR spawn: failed to load model:"); device->getLogger()->log(fullPath.c_str()); }
         return 0;
     }
-    mesh->setHardwareMappingHint(irr::scene::EHM_STATIC); //on the graphics card, as the ships are
-    //A model without animation as a plain mesh: an animated-mesh node works out its frame again for
-    //every view it is drawn in (three columns and their reflections on the triple screen)
-    irr::u32 triangles = 0;
-    {
-        irr::scene::IMesh* frame = mesh->getMesh(0);
-        for (irr::u32 b = 0; frame && b < frame->getMeshBufferCount(); b++) { triangles += frame->getMeshBuffer(b)->getIndexCount() / 3; }
-    }
-    const bool animated = mesh->getFrameCount() > 1;
-    irr::scene::ISceneNode* node = animated ? (irr::scene::ISceneNode*)smgr->addAnimatedMeshSceneNode(mesh, 0, -1)
-                                            : (irr::scene::ISceneNode*)smgr->addMeshSceneNode(mesh->getMesh(0), 0, -1);
+    irr::scene::ISceneNode* node = smgr->addAnimatedMeshSceneNode(mesh, 0, -1);
     if (!node) { return 0; }
-    if (device) {
-        device->getLogger()->log(("SAR spawn: " + fullPath + ", " + std::to_string(triangles) + " triangles, " +
-            std::to_string(mesh->getFrameCount()) + (animated ? " frames (animated)" : " frame (static)")).c_str());
-    }
     node->setPosition(worldPos);
     irr::f32 s = scaleFactor * extraScale;
     node->setScale(irr::core::vector3df(s, s, s));
@@ -5409,16 +5332,6 @@ void SimulationModel::update()
         // SAR HELICOPTER FEATURE: helos called on OSC ack; fly them in, then keep them tracking the casualty.
         updateHeloCall(deltaTime);
         updateSarHelicopters();
-        //Their searchlights light the scene only in the dark, as their beams show: a dynamic light
-        //makes every lit object dearer to draw, in every view, and in daylight it shows nothing
-        {
-            const bool dark = light.getLightLevel() < 160;
-            for (size_t k = 0; k < sarLights.size(); k++) {
-                if (!sarLights[k]) { continue; }
-                const bool on = dark && k < sarNodes.size() && sarNodes[k] && sarNodes[k]->isVisible();
-                if (sarLights[k]->isVisible() != on) { sarLights[k]->setVisible(on); }
-            }
-        }
 
         // SAR SEQUENCERS: drive abandon-ship and helicopter rescue animations every frame.
         updateAbandonSpawn(deltaTime);
@@ -6078,44 +5991,11 @@ void SimulationModel::update()
                 radarImageChosen = radarImage;
                 radarImageOverlaidChosen = radarImageOverlaid;
             }
-            if (!modelParameters.radarThread) {
-                radarCalculation.update(radarImageChosen, radarImageOverlaidChosen, offsetPosition, terrain, ownShip, buoys, otherShips, weather, rainIntensity, tideHeight, deltaTime, absoluteTime, cursorPositionRadar, isMouseDown);
-            }
-            else {
-                //The picture worked out by the worker during the 3D view, from the copy made at the last
-                //frame. (Worked out here if the main loop did not start it.)
-                finishRadarJob();
-                if (radarJobReady) {
-                    radarJobReady = false;
-                    computeRadarJob();
-                    radarJobDone = true;
-                }
-            }
+            radarCalculation.update(radarImageChosen, radarImageOverlaidChosen, offsetPosition, terrain, ownShip, buoys, otherShips, weather, rainIntensity, tideHeight, deltaTime, absoluteTime, cursorPositionRadar, isMouseDown);
         } {
             IPROF("Update radar screen");
             radarScreen.setDisplayOffset(radarCalculation.getOffsetXFraction(), radarCalculation.getOffsetYFraction()); //kyara
-            if (!modelParameters.radarThread) {
-                radarScreen.update(radarImageOverlaidChosen);
-            }
-            else {
-                if (radarJobDone && radarJob.overlaid) {
-                    radarScreen.update(radarJob.overlaid);
-                    radarJobDone = false;
-                }
-                //What the worker needs for the next picture, copied now (the scene is not read off this thread)
-                radarJob.image = radarImageChosen;
-                radarJob.overlaid = radarImageOverlaidChosen;
-                radarJob.offsetPosition = offsetPosition;
-                RadarCalculation::gather(ownShip, buoys, otherShips, radarJob.own, radarJob.contacts);
-                radarJob.weather = weather;
-                radarJob.rain = rainIntensity;
-                radarJob.tideHeight = tideHeight;
-                radarJob.deltaTime = deltaTime;
-                radarJob.absoluteTime = absoluteTime;
-                radarJob.mouseRelPosition = cursorPositionRadar;
-                radarJob.isMouseDown = isMouseDown;
-                radarJobReady = true;
-            }
+            radarScreen.update(radarImageOverlaidChosen);
         } {
             IPROF("Update radar camera");
             radarCamera.update();
@@ -6123,9 +6003,6 @@ void SimulationModel::update()
     }
     else {
         radarScreen.getSceneNode()->setVisible(false);
-        finishRadarJob();
-        radarJobReady = false;
-        radarJobDone = false;
     }
     {
         IPROF("Check if paused ");

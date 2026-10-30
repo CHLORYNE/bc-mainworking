@@ -7,11 +7,6 @@
 // distributed under this licence. I only modified some parts. A lot of thanks
 // go to him.
 
-#ifdef WITH_PROFILING
-#include "iprof.hpp"
-#else
-#include "FrameTiming.hpp"
-#endif
 #include "IrrCompileConfig.h"
 
 #include "BCTerrainSceneNode.h"
@@ -37,24 +32,6 @@ namespace scene
 {
 
 	//! constructor
-	bool BCTerrainSceneNode::SharedActive = false;
-	core::aabbox3df BCTerrainSceneNode::SharedBox;
-	core::vector3df BCTerrainSceneNode::SharedEye;
-	core::vector3df BCTerrainSceneNode::SharedDir;
-
-	void BCTerrainSceneNode::beginSharedView(const core::aabbox3df& viewBox, const core::vector3df& eye, const core::vector3df& direction)
-	{
-		SharedActive = true;
-		SharedBox = viewBox;
-		SharedEye = eye;
-		SharedDir = direction;
-	}
-
-	void BCTerrainSceneNode::endSharedView()
-	{
-		SharedActive = false;
-	}
-
 	BCTerrainSceneNode::BCTerrainSceneNode(
 			IrrlichtDevice* device,
 			ISceneNode* parent, ISceneManager* mgr,
@@ -836,32 +813,8 @@ namespace scene
 		cameraUp.normalize();
 		const f32 CameraFOV = SceneManager->getActiveCamera()->getFOV();
 
-		if (SharedActive)
-		{
-			//Again only if the eye has moved, the view turned, or the box changed (zoom, look up)
-			if (IndicesShared && !ForceRecalculation &&
-				SharedEye.getDistanceFrom(SharedEyeUsed) < CameraMovementDelta &&
-				SharedDir.dotProduct(SharedDirUsed) > cos(core::DEGTORAD * CameraRotationDelta))
-			{
-				const f32 tolerance = CameraMovementDelta + 0.01f * SharedBox.getExtent().getLength();
-				if (SharedBox.MinEdge.getDistanceFrom(SharedBoxUsed.MinEdge) < tolerance &&
-					SharedBox.MaxEdge.getDistanceFrom(SharedBoxUsed.MaxEdge) < tolerance)
-				{
-					return;
-				}
-			}
-			IndicesShared = true;
-			SharedBoxUsed = SharedBox;
-			SharedEyeUsed = SharedEye;
-			SharedDirUsed = SharedDir;
-			IPROF("  of which terrain patches");
-			lodForView(SharedBox, SharedEye);
-			preRenderIndicesCalculations();
-			return;
-		}
-
 		// Only check on the Camera's Y Rotation
-		if (!ForceRecalculation && !IndicesShared) //(what is there was worked out for the shared view)
+		if (!ForceRecalculation)
 		{
 			if ((fabsf(cameraRotation.X - OldCameraRotation.X) < CameraRotationDelta) &&
 				(fabsf(cameraRotation.Y - OldCameraRotation.Y) < CameraRotationDelta))
@@ -885,9 +838,7 @@ namespace scene
 		OldCameraRotation = cameraRotation;
 		OldCameraUp = cameraUp;
 		OldCameraFOV = CameraFOV;
-		IndicesShared = false;
 
-		IPROF("  of which terrain patches");
 		preRenderLODCalculations();
 		preRenderIndicesCalculations();
 	}
@@ -899,16 +850,16 @@ namespace scene
 		if (!camera)
 			return;
 
-		lodForView(camera->getViewFrustum()->getBoundingBox(), camera->getAbsolutePosition());
-	}
+		const core::vector3df cameraPosition = camera->getAbsolutePosition();
 
-	//Each patch's LOD from its distance to the eye; -1 (not drawn) if it is outside the view's box
-	void BCTerrainSceneNode::lodForView(const core::aabbox3df& viewBox, const core::vector3df& cameraPosition)
-	{
+		const SViewFrustum* frustum = camera->getViewFrustum();
+
+		// Determine each patches LOD based on distance from camera (and whether or not they are in
+		// the view frustum).
 		const s32 count = TerrainData.PatchCount * TerrainData.PatchCount;
 		for (s32 j = 0; j < count; ++j)
 		{
-			if (viewBox.intersectsWithBox(TerrainData.Patches[j].BoundingBox))
+			if (frustum->getBoundingBox().intersectsWithBox(TerrainData.Patches[j].BoundingBox))
 			{
 				const f32 distance = cameraPosition.getDistanceFromSQ(TerrainData.Patches[j].Center);
 

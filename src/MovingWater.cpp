@@ -20,11 +20,6 @@
      51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 #include "MovingWater.hpp"
-#ifdef WITH_PROFILING
-#include "iprof.hpp"
-#else
-#include "FrameTiming.hpp"
-#endif
 //#include "Utilities.hpp"
 
 #include <iostream>
@@ -133,12 +128,6 @@ namespace scene
         std::cerr << "Could not load flat sea mesh from media/flatsea.x" << std::endl;
         exit(EXIT_FAILURE);
     }
-    //On the graphics card: the sea tile's points once a frame (they move with the waves), its
-    //triangles and the flat sea once for all. Left in memory, every tile drawn (up to 441 a view)
-    //sent all its points and triangles through the driver again.
-    mesh->setHardwareMappingHint(irr::scene::EHM_STREAM, irr::scene::EBT_VERTEX);
-    mesh->setHardwareMappingHint(irr::scene::EHM_STATIC, irr::scene::EBT_INDEX);
-    flatMesh->setHardwareMappingHint(irr::scene::EHM_STATIC);
 
 
     //For testing, make wireframe
@@ -156,11 +145,6 @@ namespace scene
     //Create local camera for reflections
     _camera = 0;
     _reflectionMap = 0;
-    columnMaps[0] = columnMaps[1] = columnMaps[2] = 0;
-    column = -1;
-    columnFrame = 0;
-    seaMoved = false;
-    seaMovedMs = 0;
     
 	if (!disableShaders) {
 		if (withReflection) {
@@ -170,7 +154,6 @@ namespace scene
             //huge fraction of the screen, so this saves real fill on every frame.
             _reflectionMap = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256));
 		}
-		columnMaps[0] = _reflectionMap;
 		
 		irr::video::ITexture* bumpTexture = driver->getTexture("media/waterbump.png");
 
@@ -306,7 +289,6 @@ void MovingWaterSceneNode::resetParameters(float A, vector2 w, float seaState)
 {
     ocean->resetParameters(A,w);
     this->seaState = seaState;
-    seaMoved = false; //a new sea: worked out again even while the clock stands still
 }
 
 void MovingWaterSceneNode::OnSetConstants(video::IMaterialRendererServices* services, irr::s32 userData)
@@ -440,12 +422,8 @@ void MovingWaterSceneNode::setVerticalScale(irr::f32 scale)
 void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
 {
 	//std::cout << "In OnAnimate()" << std::endl;
-	//Every drawAll() animates the scene, and the triple screen draws it once per column: the sea
-	//only needs moving on once for the same time.
-	if (mesh && IsVisible && (!seaMoved || timeMs != seaMovedMs))
+	if (mesh && IsVisible)
 	{
-        seaMoved = true;
-        seaMovedMs = timeMs;
         shaderTime = timeMs / 1000.f;   // NEW: expose time to the water shader
 
         // KYARA METEO: ease the storm look in and out over ~20 s (simulation time) instead of
@@ -593,9 +571,6 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
         const irr::u32 reflectionEveryNsafe = (reflectionEveryN < 1) ? 1 : reflectionEveryN;
         static irr::u32 reflectionFrameCounter = 0;
         bool updateReflectionThisFrame = ((reflectionFrameCounter++ % reflectionEveryNsafe) == 0);
-        //Triple screen: each column its own reflection, its turn staggered so that with 'half' the
-        //columns do not all fall on the same frame.
-        if (column >= 0) { updateReflectionThisFrame = ((columnFrame + (u32)column) % reflectionEveryNsafe) == 0; }
 
         if (withReflection && updateReflectionThisFrame) {
             //fixes glitches with incomplete refraction
@@ -652,10 +627,7 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
             irr::core::plane3d<irr::f32> reflectionClipPlane(0, RelativeTranslation.Y - CLIP_PLANE_OFFSET_Y, 0, 0, 1, 0);
             driver->setClipPlane(0, reflectionClipPlane, true);
 
-            {
-                IPROF("  of which water reflections");
-                SceneManager->drawAll(); //draw the scene
-            }
+            SceneManager->drawAll(); //draw the scene
 
             //disable clip plane
             driver->enableClipPlane(0, false);
@@ -812,25 +784,6 @@ void MovingWaterSceneNode::setMesh(IMesh* mesh)
 }
 
 
-void MovingWaterSceneNode::setColumn(s32 c)
-{
-    if (c < 0 || c > 2) { return; }
-    column = c;
-    if (c == 0) { columnFrame++; }
-    if (!withReflection || disableShaders || !_reflectionMap || !mesh) { return; }
-    if (!columnMaps[c]) {
-        columnMaps[c] = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256), ("water-reflection-" + std::to_string(c)).c_str());
-        if (!columnMaps[c]) { columnMaps[c] = columnMaps[0]; }
-    }
-    if (_reflectionMap != columnMaps[c]) {
-        _reflectionMap = columnMaps[c];
-        for (irr::u32 i = 0; i < mesh->getMeshBufferCount(); ++i) {
-            scene::IMeshBuffer* mb = mesh->getMeshBuffer(i);
-            if (mb) { mb->getMaterial().setTexture(1, _reflectionMap); }
-        }
-    }
-}
-
 void MovingWaterSceneNode::render()
 {
 
@@ -857,34 +810,10 @@ void MovingWaterSceneNode::render()
 
             irr::core::vector3df basicPosition = AbsoluteTransformation.getTranslation();
 
-            //Only the tiles the camera can see. All 441 were drawn for every view - and each draw
-            //sends the shader all its settings again - so most of the sea's cost went on tiles behind
-            //the camera or off to the side (more so with three narrow views on the triple screen).
-            const scene::ICameraSceneNode* viewer = SceneManager->getActiveCamera();
-            const scene::SViewFrustum* frustum = viewer ? viewer->getViewFrustum() : 0;
-            core::aabbox3df tile = mb->getBoundingBox();
-            tile.MinEdge -= core::vector3df(10.0f, 20.0f, 10.0f); //room for the waves' height and their sideways lean
-            tile.MaxEdge += core::vector3df(10.0f, 20.0f, 10.0f);
-            core::vector3df corners[8];
-
             //Draw multiple copies of tileable water
             for (int j = -10; j<=10; j++) {
                 for (int k = -10; k<=10; k++) {
                     AbsoluteTransformation.setTranslation(basicPosition + irr::core::vector3df(j*tileWidth,0,k*tileWidth));
-                    if (frustum) {
-                        core::aabbox3df box = tile;
-                        AbsoluteTransformation.transformBoxEx(box);
-                        box.getEdges(corners);
-                        bool outside = false;
-                        for (u32 p = 0; p < scene::SViewFrustum::VF_PLANE_COUNT && !outside; ++p) {
-                            bool anyInside = false;
-                            for (u32 c = 0; c < 8; ++c) {
-                                if (frustum->planes[p].classifyPointRelation(corners[c]) != core::ISREL3D_FRONT) { anyInside = true; break; }
-                            }
-                            outside = !anyInside;
-                        }
-                        if (outside) { continue; }
-                    }
                     driver->setTransform(video::ETS_WORLD, AbsoluteTransformation);
                     driver->drawMeshBuffer(mb);
                 }

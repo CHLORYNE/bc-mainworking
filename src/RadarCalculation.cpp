@@ -15,19 +15,12 @@
 #include <cmath>
 #include <cstdlib> //For rand()
 #include <algorithm> //For sort()
-#include <chrono>
 
-//No profiler scopes in here: the radar may be worked out on a thread of its own (bc5.ini
-//radar_thread), and the profiler (iprof, built for a single thread) may only be used from the main one.
-//The main thread times the radar as a whole (SimulationModel: "Update radar ...").
-#ifdef IPROF
-#undef IPROF
+#ifdef WITH_PROFILING
+#include "iprof.hpp"
+#else
+#define IPROF(a) //intentionally empty placeholder
 #endif
-#ifdef IPROF_FUNC
-#undef IPROF_FUNC
-#endif
-#define IPROF(a)
-#define IPROF_FUNC
 
 ////using namespace irr;
 
@@ -159,7 +152,6 @@ RadarCalculation::~RadarCalculation()
 void RadarCalculation::load(std::string radarConfigFile, irr::IrrlichtDevice* dev)
 {
     device = dev;
-    NumberToImage::preload(dev); //the target numbers' digits, now, on the main thread
 
     // radarConfigFile (the per-boat radar.ini) is intentionally ignored now.
     (void)radarConfigFile;
@@ -873,30 +865,6 @@ void RadarCalculation::changeRadarColourChoice()
 
 void RadarCalculation::update(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown)
 {
-    RadarOwnShip own;
-    std::vector<RadarData> contacts;
-    gather(ownShip, buoys, otherShips, own, contacts);
-    compute(radarImage, radarImageOverlaid, offsetPosition, terrain, own, contacts, weather, rain, tideHeight, deltaTime, absoluteTime, mouseRelPosition, isMouseDown);
-}
-
-void RadarCalculation::gather(const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, RadarOwnShip& own, std::vector<RadarData>& contacts)
-{
-    own.position = ownShip.getPosition();
-    own.heading = ownShip.getHeading();
-    own.cog = ownShip.getCOG();
-    own.sog = ownShip.getSOG();
-    contacts.clear();
-    //Other ships, then buoys: the order scan() always used (ARPA contact numbers follow it)
-    for (std::vector<RadarData>::size_type contactID = 1; contactID <= otherShips.getNumber(); contactID++) {
-        contacts.push_back(otherShips.getRadarData(contactID, own.position));
-    }
-    for (std::vector<RadarData>::size_type contactID = 1; contactID <= buoys.getNumber(); contactID++) {
-        contacts.push_back(buoys.getRadarData(contactID, own.position));
-    }
-}
-
-void RadarCalculation::compute(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, const std::vector<RadarData>& contacts, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown)
-{
 
 #ifdef WITH_PROFILING
     IPROF_FUNC;
@@ -964,7 +932,7 @@ void RadarCalculation::compute(irr::video::IImage* radarImage, irr::video::IImag
 
     } {
         IPROF("Scan");
-        scan(offsetPosition, terrain, ownShip, contacts, weather, rain, tideHeight, deltaTime, absoluteTime); // scan into scanArray
+        scan(offsetPosition, terrain, ownShip, buoys, otherShips, weather, rain, tideHeight, deltaTime, absoluteTime); // scan into scanArray
     } {
         IPROF("Update ARPA");
         updateARPA(offsetPosition, ownShip, absoluteTime); //From data in arpaContacts, updated in scan()
@@ -1014,7 +982,7 @@ void RadarCalculation::compute(irr::video::IImage* radarImage, irr::video::IImag
 
 }
 
-void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, const std::vector<RadarData>& radarData, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime)
+void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime)
 {
 
     //IPROF_FUNC;
@@ -1034,7 +1002,16 @@ void RadarCalculation::scan(irr::core::vector3d<int64_t> offsetPosition, const T
     //Convert range to cell size
     irr::f32 cellLength = M_IN_NM * radarRangeNm.at(radarRangeIndex) / rangeResolution; ; //Assume that radarRangeIndex is in bounds
 
-    //(radarData: the other ships, then the buoys, as gather() copied them)
+    //Load radar data for other contacts
+    std::vector<RadarData> radarData;
+    //For other ships
+    for (std::vector<RadarData>::size_type contactID = 1; contactID <= otherShips.getNumber(); contactID++) {
+        radarData.push_back(otherShips.getRadarData(contactID, position));
+    }
+    //For buoys
+    for (std::vector<RadarData>::size_type contactID = 1; contactID <= buoys.getNumber(); contactID++) {
+        radarData.push_back(buoys.getRadarData(contactID, position));
+    }
 
     const irr::f32 RADAR_RPM = 25; //Todo: Make a ship parameter
     const irr::f32 RPMtoDEGPERSECOND = 6;
@@ -1667,7 +1644,7 @@ void RadarCalculation::trackTargetFromCursor()
 
 }
 
-void RadarCalculation::updateARPA(irr::core::vector3d<int64_t> offsetPosition, const RadarOwnShip& ownShip, uint64_t absoluteTime)
+void RadarCalculation::updateARPA(irr::core::vector3d<int64_t> offsetPosition, const OwnShip& ownShip, uint64_t absoluteTime)
 {
 
     //IPROF_FUNC;
@@ -1685,7 +1662,7 @@ void RadarCalculation::updateARPA(irr::core::vector3d<int64_t> offsetPosition, c
     } //For loop through arpa contacts
 }
 
-void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int contactID, const RadarOwnShip& ownShip, irr::core::vector3d<int64_t> absolutePosition, uint64_t absoluteTime)
+void RadarCalculation::updateArpaEstimate(ARPAContact& thisArpaContact, int contactID, const OwnShip& ownShip, irr::core::vector3d<int64_t> absolutePosition, uint64_t absoluteTime)
 {
     thisArpaContact.estimate.isBuoy = thisArpaContact.isBuoy;
     thisArpaContact.estimate.mmsi = thisArpaContact.mmsi;
@@ -2124,7 +2101,12 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                     irr::s32 xTextPos = x_a + 15 * xDirection;
                     irr::s32 yTextPos = z_a + 15 * yDirection;
 
-                    NumberToImage::draw(i + 1, radarImageOverlaid, irr::core::position2d<irr::s32>(xTextPos, yTextPos));
+                    irr::video::IImage* idNumberImage = NumberToImage::getImage(i + 1, device);
+                    if (idNumberImage) {
+                        irr::core::rect<irr::s32> sourceRect = irr::core::rect<irr::s32>(0, 0, idNumberImage->getDimension().Width, idNumberImage->getDimension().Height);
+                        idNumberImage->copyToWithAlpha(radarImageOverlaid, irr::core::position2d<irr::s32>(xTextPos, yTextPos), sourceRect, irr::video::SColor(255, 255, 255, 255));
+                        idNumberImage->drop();
+                    }
                 }
             }
         }
@@ -2206,8 +2188,7 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
     }
 
     //Dangerous targets flash (half a second on, half off); the selected one gets a square
-    //(the system's clock, not the device's: this may run on the radar worker thread)
-    const bool flashOn = (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() / 500) % 2 == 0;
+    const bool flashOn = device && ((device->getTimer()->getRealTime() / 500) % 2 == 0);
     const int selectedContact = getARPAContactIDFromTrackIndex(arpaListSelection);
 
     //Draw ARPA stuff here from arpaContacts, into radarImage
@@ -2279,7 +2260,12 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
             }
 
             if (numberToDraw > 0) {
-                NumberToImage::draw(numberToDraw, radarImageOverlaid, irr::core::position2d<irr::s32>(deltaX - 10, deltaY - 10));
+                irr::video::IImage* idNumberImage = NumberToImage::getImage(numberToDraw, device);
+                if (idNumberImage) {
+                    irr::core::rect<irr::s32> sourceRect = irr::core::rect<irr::s32>(0, 0, idNumberImage->getDimension().Width, idNumberImage->getDimension().Height);
+                    idNumberImage->copyToWithAlpha(radarImageOverlaid, irr::core::position2d<irr::s32>(deltaX - 10, deltaY - 10), sourceRect, irr::video::SColor(255, 255, 255, 255));
+                    idNumberImage->drop();
+                }
             }
             //draw a vector
             // ONLY draw the heading vector for ships. Buoys do not get a forward-pointing speed vector.
@@ -3040,7 +3026,7 @@ void RadarCalculation::setCoastline(bool on)
 }
 bool RadarCalculation::getCoastline() const { return showCoastline; }
 
-void RadarCalculation::updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime)
+void RadarCalculation::updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime)
 {
     const irr::core::vector3df pos = ownShip.getPosition();
     const irr::f32 absX = (irr::f32)offsetPosition.X + pos.X;

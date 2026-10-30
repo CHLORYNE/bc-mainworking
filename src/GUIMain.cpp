@@ -5473,7 +5473,6 @@ void GUIMain::renderDetachedConsole()
     if (size != consoleLaidOutSize) {
         layoutDetachedConsole(size);
     }
-    if (!consoleWindow->canDraw()) { return; }   //on a screen of another graphics card
     consoleLastRenderMs = now;
     consoleRenderCount++;
 
@@ -5774,7 +5773,6 @@ void GUIMain::renderDetachedRadar()
     }
     if (now - radarLastRenderMs < radarFrameMs) { return; }
     if (size.Width < 64 || size.Height < 64) { return; }   //minimised
-    if (!radarWindow->canDraw()) { return; }   //on a screen of another graphics card
     radarLastRenderMs = now;
     radarRenderCount++;
 
@@ -6078,7 +6076,6 @@ void GUIMain::renderStation()
     if (size.Width < 64 || size.Height < 64) { return; }   //minimised
     const irr::core::dimension2di laid = stationHost->getRelativePosition().getSize();
     if ((irr::u32)laid.Width != size.Width || (irr::u32)laid.Height != size.Height) { stationHost->layoutFor(size); }
-    if (!stationWindow->canDraw()) { return; }   //on a screen of another graphics card
     stationLastRenderMs = now;
     stationRenderCount++;
 

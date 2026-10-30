@@ -59,10 +59,6 @@ namespace scene
 
 		void OnSetConstants(video::IMaterialRendererServices* services, s32 userData);
 
-		//Triple screen: the column (0 left, 1 middle, 2 right) about to be drawn. Each column keeps a
-		//reflection of its own, and the sea is moved on once per frame, not once per column.
-		void setColumn(s32 c);
-
 		//! Update mesh
 		//virtual void setMesh(IMesh* mesh);
 		void setMesh(IMesh* mesh);
@@ -130,11 +126,6 @@ namespace scene
 
         irr::scene::ICameraSceneNode* _camera; //Local camera for reflections
         irr::video::ITexture* _reflectionMap;
-        irr::video::ITexture* columnMaps[3];   //triple screen: each column's reflection (0: _reflectionMap)
-        s32 column;                            //column being drawn, -1 for a single view
-        u32 columnFrame;                       //frames drawn in columns
-        bool seaMoved;                         //the sea has been moved on to seaMovedMs
-        u32 seaMovedMs;
 
         irr::u32 segments;
 		irr::u32 reflectionEveryN;   // KYARA: reflection RTT update cadence

@@ -9,7 +9,6 @@
 
 #include <string>
 #include <cstring>
-#include <iostream>
 
 namespace {
 
@@ -47,21 +46,6 @@ bool ConsoleWindow::isOpen() const
 irr::core::dimension2du ConsoleWindow::getClientSize() const
 {
     return clientSize;
-}
-
-bool ConsoleWindow::allowOtherCard = false;
-
-bool ConsoleWindow::isBuiltInGraphics(const std::string& card)
-{
-    //AMD and Intel name their processors' graphics "... Graphics"; their graphics cards are named by
-    //model (AMD Radeon RX 580, NVIDIA GeForce ...), except Intel's Arc cards.
-    return card.find("Graphics") != std::string::npos && card.find("Arc") == std::string::npos;
-}
-
-bool ConsoleWindow::canDrawAcross(const std::string& viewCard, const std::string& card)
-{
-    if (allowOtherCard || card.empty() || viewCard.empty() || card == viewCard) { return true; }
-    return !isBuiltInGraphics(viewCard);
 }
 
 //=================================================================================================
@@ -106,8 +90,7 @@ LRESULT CALLBACK consoleWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         return 1;               //everything is drawn by OpenGL
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC dc = BeginPaint(hWnd, &ps);
-        self->paintOtherCardNotice(dc);
+        BeginPaint(hWnd, &ps);
         EndPaint(hWnd, &ps);
         return 0;
     }
@@ -396,66 +379,6 @@ void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
     keepOnScreen();
 }
 
-std::string ConsoleWindow::graphicsCardOf(void* monitor)
-{
-    MONITORINFOEXA info;
-    info.cbSize = sizeof(info);
-    if (!monitor || !GetMonitorInfoA((HMONITOR)monitor, &info)) { return std::string(); }
-    for (DWORD n = 0; ; n++) {
-        DISPLAY_DEVICEA device;
-        ZeroMemory(&device, sizeof(device));
-        device.cb = sizeof(device);
-        if (!EnumDisplayDevicesA(NULL, n, &device, 0)) { break; }
-        if (strcmp(device.DeviceName, info.szDevice) == 0) { return device.DeviceString; }
-    }
-    return std::string();
-}
-
-bool ConsoleWindow::canDraw()
-{
-    if (!opened) { return false; }
-    //Which screen each window is on is looked at every frame; the cards only when one of them changed
-    HMONITOR monitor = MonitorFromWindow((HWND)hwnd, MONITOR_DEFAULTTONEAREST);
-    HMONITOR mainMonitor = MonitorFromWindow((HWND)mainData.OpenGLWin32.HWnd, MONITOR_DEFAULTTONEAREST);
-    if (monitor != (HMONITOR)lastMonitor || mainMonitor != (HMONITOR)lastMainMonitor) {
-        lastMonitor = monitor;
-        lastMainMonitor = mainMonitor;
-        cardName = graphicsCardOf(monitor);
-        mainCardName = graphicsCardOf(mainMonitor);
-        const bool other = !canDrawAcross(mainCardName, cardName);
-        if (other != otherCard) {
-            otherCard = other;
-            if (other) {
-                std::cerr << "A window of the simulator is on a screen of another graphics card (" << cardName << ") than the bridge view ("
-                    << mainCardName << ", built-in graphics): not drawn until it is back on a screen of the " << mainCardName << "." << std::endl;
-            }
-            InvalidateRect((HWND)hwnd, NULL, FALSE);
-        }
-    }
-    return !otherCard;
-}
-
-void ConsoleWindow::paintOtherCardNotice(void* dc)
-{
-    if (!otherCard) { return; }
-    RECT r;
-    GetClientRect((HWND)hwnd, &r);
-    HBRUSH background = CreateSolidBrush(RGB(24, 27, 33));
-    FillRect((HDC)dc, &r, background);
-    DeleteObject(background);
-    const std::wstring card(cardName.begin(), cardName.end());
-    const std::wstring mainCard(mainCardName.begin(), mainCardName.end());
-    const std::wstring text =
-        L"Cette fen\u00EAtre est sur un \u00E9cran branch\u00E9 sur une autre carte graphique (" + card +
-        L") que la vue passerelle (" + mainCard + L", graphique int\u00E9gr\u00E9 au processeur).\n\nRamenez-la sur un \u00E9cran de la carte " + mainCard +
-        L", ou mettez la vue passerelle sur un \u00E9cran de la carte graphique d\u00E9di\u00E9e.";
-    InflateRect(&r, -24, -24);
-    SetBkMode((HDC)dc, TRANSPARENT);
-    SetTextColor((HDC)dc, RGB(235, 200, 90));
-    SelectObject((HDC)dc, GetStockObject(DEFAULT_GUI_FONT));
-    DrawTextW((HDC)dc, text.c_str(), -1, &r, DT_CENTER | DT_WORDBREAK);
-}
-
 //=================================================================================================
 #else // X11
 
@@ -740,9 +663,5 @@ void ConsoleWindow::openWithSystem(const std::string& path)
 {
     (void)path; //(test builds)
 }
-
-bool ConsoleWindow::canDraw() { return opened; }
-std::string ConsoleWindow::graphicsCardOf(void* monitor) { (void)monitor; return std::string(); }
-void ConsoleWindow::paintOtherCardNotice(void* dc) { (void)dc; }
 
 #endif

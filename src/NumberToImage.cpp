@@ -25,39 +25,6 @@ namespace NumberToImage
     const irr::u32 PADDING_PX = 1;
     const irr::video::SColor BG_COLOUR = irr::video::SColor(0,0,0,0);
 
-    namespace
-    {
-        irr::video::IImage* digits[10] = { 0 };
-    }
-
-    void preload(irr::IrrlichtDevice* dev)
-    {
-        if (!dev) { return; }
-        for (int d = 0; d < 10; d++) {
-            if (digits[d]) { continue; }
-            irr::io::path imagePath = "media/Char";
-            imagePath.append((char)('0' + d));
-            imagePath += ".png";
-            digits[d] = dev->getVideoDriver()->createImageFromFile(imagePath); //kept for the whole run
-        }
-    }
-
-    void draw(irr::u32 number, irr::video::IImage* target, irr::core::position2d<irr::s32> topLeft)
-    {
-        if (!target) { return; }
-        const irr::core::stringc numberString = irr::core::stringc(number);
-        irr::s32 x = topLeft.X;
-        for (irr::u32 c = 0; c < numberString.size(); c++) {
-            const int d = numberString.c_str()[c] - '0';
-            irr::video::IImage* digit = (d >= 0 && d <= 9) ? digits[d] : 0;
-            if (!digit) { continue; }
-            const irr::core::dimension2du size = digit->getDimension();
-            digit->copyToWithAlpha(target, irr::core::position2d<irr::s32>(x, topLeft.Y),
-                irr::core::rect<irr::s32>(0, 0, (irr::s32)size.Width, (irr::s32)size.Height), irr::video::SColor(255, 255, 255, 255));
-            x += (irr::s32)(size.Width + PADDING_PX);
-        }
-    }
-
     irr::video::IImage* getImage(irr::u32 number, irr::IrrlichtDevice* dev)
     {
 

@@ -51,7 +51,6 @@ ManOverboard::ManOverboard(const irr::core::vector3df& location, irr::scene::ISc
 
     //Load the mesh
     irr::scene::IMesh* mobMesh = smgr->getMesh(mobFullPath.c_str());
-    if (mobMesh) { mobMesh->setHardwareMappingHint(irr::scene::EHM_STATIC); }
 
 	//add to scene node
 	if (mobMesh==0) {
