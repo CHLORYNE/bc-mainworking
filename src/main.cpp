@@ -11,6 +11,7 @@
 #include "simple_license.h"
 #include "DefaultEventReceiver.hpp"
 #include "GUIMain.hpp"
+#include "ConsoleWindow.hpp"
 #include "ScenarioDataStructure.hpp"
 #include "SimulationModel.hpp"
 #include "BCTerrainSceneNode.h" //shared view of the terrain for the passes of a frame
@@ -99,34 +100,32 @@ struct cMonitorsVec
     }
 
     //The graphics card a screen is plugged into ("AMD Radeon RX 6800"), empty if Windows does not say
-    static std::string cardOf(HMONITOR monitor)
-    {
-        MONITORINFOEXA info;
-        info.cbSize = sizeof(info);
-        if (!monitor || !GetMonitorInfoA(monitor, &info)) { return std::string(); }
-        for (DWORD n = 0; ; n++) {
-            DISPLAY_DEVICEA device;
-            ZeroMemory(&device, sizeof(device));
-            device.cb = sizeof(device);
-            if (!EnumDisplayDevicesA(NULL, n, &device, 0)) { break; }
-            if (strcmp(device.DeviceName, info.szDevice) == 0) { return device.DeviceString; }
-        }
-        return std::string();
-    }
+    static std::string cardOf(HMONITOR monitor) { return ConsoleWindow::graphicsCardOf(monitor); }
 
-    //Logs which card screen i is plugged into. A window on a screen of another card than the bridge
-    //view's is drawn on the bridge view's card, and Windows copies every picture across to the other.
-    void logCard(size_t i, HWND mainWindow, const char* what) const
+    //Whether a window of the simulator can go on screen i, as far as graphics cards go: logs which card
+    //the screen is plugged into. All the simulator's windows are drawn by the card of the bridge view's
+    //screen; a window on a screen of another card has each picture copied across by the graphics driver,
+    //and AMD's OpenGL driver stops the simulator on the first one (atio6axx.dll, reading 0x20c). Such a
+    //screen is refused, unless bc5.ini other_card_windows=1. A refused window is added to 'refused'.
+    bool cardAllows(size_t i, HWND mainWindow, const char* what, const wchar_t* name, bool allowOtherCard, std::wstring& refused) const
     {
-        if (i >= hMonitors.size()) { return; }
+        if (i >= hMonitors.size()) { return false; }
         const std::string card = cardOf(hMonitors[i]);
         const std::string viewCard = cardOf(MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST));
         std::cout << "    " << what << " screen " << i + 1 << " is on: " << (card.empty() ? "?" : card) << std::endl;
-        if (!card.empty() && !viewCard.empty() && card != viewCard) {
+        if (card.empty() || viewCard.empty() || card == viewCard) { return true; }
+        if (allowOtherCard) {
             std::cerr << "    " << what << ": this screen is on another graphics card (" << card << ") than the bridge view ("
-                << viewCard << "). Every picture is drawn on the " << viewCard << " and copied across by the graphics driver."
-                << " If the simulator stops unexpectedly in the graphics driver, plug this screen into the " << viewCard << "." << std::endl;
+                << viewCard << "), allowed by other_card_windows=1. If the simulator stops unexpectedly in the graphics driver,"
+                << " plug all the simulator's screens into the same card." << std::endl;
+            return true;
         }
+        std::cerr << "    " << what << ": not opened on screen " << i + 1 << ", which is on another graphics card (" << card
+            << ") than the bridge view (" << viewCard << "). Kept in the bridge view. Plug all the simulator's screens into"
+            << " the same card (bc5.ini other_card_windows=1 to open it there anyway)." << std::endl;
+        refused += L"\u2022 " + std::wstring(name) + L" : \u00E9cran " + std::to_wstring(i + 1) + L", branch\u00E9 sur " +
+            std::wstring(card.begin(), card.end()) + L"\n";
+        return false;
     }
 };
 
@@ -1451,6 +1450,10 @@ int main(int argc, char** argv)
     //Instrument console on a screen of its own: launcher -console N (0: in the bridge view), else bc5.ini
     //console_monitor=N. Never on the bridge view's own screen.
     {
+        //Screens of another graphics card than the bridge view's: refused (see cMonitorsVec::cardAllows)
+        const bool otherCardWindows = (IniFile::iniFileTou32(iniFilename, "other_card_windows") == 1);
+        ConsoleWindow::setAllowOtherCard(otherCardWindows);   //(also for windows moved there by hand)
+        std::wstring otherCardRefused;
         int consoleMonitor = (int)IniFile::iniFileTou32(iniFilename, "console_monitor") - 1;
         for (int arg = 1; arg + 1 < argc; arg++) {
             if (strcmp(argv[arg], "-console") == 0) {
@@ -1461,10 +1464,11 @@ int main(int argc, char** argv)
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
             if (consoleMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(consoleMonitor, mainWindow)) {
-                const RECT& r = monitors.rcMonitors[consoleMonitor];
-                guiMain.setConsoleScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
-                std::cout << "Instrument console on screen " << consoleMonitor + 1 << std::endl;
-                monitors.logCard(consoleMonitor, mainWindow, "Console");
+                if (monitors.cardAllows(consoleMonitor, mainWindow, "Console", L"Console d'instruments", otherCardWindows, otherCardRefused)) {
+                    const RECT& r = monitors.rcMonitors[consoleMonitor];
+                    guiMain.setConsoleScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                    std::cout << "Instrument console on screen " << consoleMonitor + 1 << std::endl;
+                }
             }
             else {
                 std::cerr << "Instrument console: screen " << consoleMonitor + 1 << " is not connected, or shows the bridge view. Console kept in the bridge view." << std::endl;
@@ -1483,10 +1487,11 @@ int main(int argc, char** argv)
             cMonitorsVec monitors;
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
             if (radarMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(radarMonitor, mainWindow) && radarMonitor != consoleMonitor) {
-                const RECT& r = monitors.rcMonitors[radarMonitor];
-                guiMain.setRadarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
-                std::cout << "Radar on screen " << radarMonitor + 1 << std::endl;
-                monitors.logCard(radarMonitor, mainWindow, "Radar");
+                if (monitors.cardAllows(radarMonitor, mainWindow, "Radar", L"Radar", otherCardWindows, otherCardRefused)) {
+                    const RECT& r = monitors.rcMonitors[radarMonitor];
+                    guiMain.setRadarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                    std::cout << "Radar on screen " << radarMonitor + 1 << std::endl;
+                }
             }
             else {
                 std::cerr << "Radar: screen " << radarMonitor + 1 << " is not connected, or shows the bridge view or the console. Radar kept in the bridge view." << std::endl;
@@ -1506,10 +1511,11 @@ int main(int argc, char** argv)
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
             if (sonarMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(sonarMonitor, mainWindow) &&
                 sonarMonitor != consoleMonitor && sonarMonitor != radarMonitor) {
-                const RECT& r = monitors.rcMonitors[sonarMonitor];
-                guiMain.setSonarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
-                std::cout << "Sonar on screen " << sonarMonitor + 1 << std::endl;
-                monitors.logCard(sonarMonitor, mainWindow, "Sonar");
+                if (monitors.cardAllows(sonarMonitor, mainWindow, "Sonar", L"Sonar", otherCardWindows, otherCardRefused)) {
+                    const RECT& r = monitors.rcMonitors[sonarMonitor];
+                    guiMain.setSonarScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                    std::cout << "Sonar on screen " << sonarMonitor + 1 << std::endl;
+                }
             }
             else {
                 std::cerr << "Sonar: screen " << sonarMonitor + 1 << " is not connected, or shows the bridge view, the console or the radar." << std::endl;
@@ -1529,14 +1535,26 @@ int main(int argc, char** argv)
             const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
             if (stationMonitor < (int)monitors.hMonitors.size() && !monitors.showsWindow(stationMonitor, mainWindow) &&
                 stationMonitor != consoleMonitor && stationMonitor != radarMonitor && stationMonitor != sonarMonitor) {
-                const RECT& r = monitors.rcMonitors[stationMonitor];
-                guiMain.setStationScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
-                std::cout << "Instructor screen on screen " << stationMonitor + 1 << std::endl;
-                monitors.logCard(stationMonitor, mainWindow, "Instructor");
+                if (monitors.cardAllows(stationMonitor, mainWindow, "Instructor", L"Poste instructeur", otherCardWindows, otherCardRefused)) {
+                    const RECT& r = monitors.rcMonitors[stationMonitor];
+                    guiMain.setStationScreen(irr::core::rect<irr::s32>(r.left, r.top, r.right, r.bottom));
+                    std::cout << "Instructor screen on screen " << stationMonitor + 1 << std::endl;
+                }
             }
             else {
                 std::cerr << "Instructor screen: screen " << stationMonitor + 1 << " is not connected, or shows the bridge view, the console, the radar or the sonar." << std::endl;
             }
+        }
+        if (!otherCardRefused.empty()) {
+            const HWND mainWindow = (HWND)driver->getExposedVideoData().OpenGLWin32.HWnd;
+            const std::string viewCard = cMonitorsVec::cardOf(MonitorFromWindow(mainWindow, MONITOR_DEFAULTTONEAREST));
+            const std::wstring message =
+                L"Ces fen\u00EAtres ne peuvent pas s'ouvrir sur leur \u00E9cran, branch\u00E9 sur une autre carte graphique que la vue passerelle :\n\n" +
+                otherCardRefused +
+                L"\nVue passerelle : " + std::wstring(viewCard.begin(), viewCard.end()) +
+                L"\n\nElles restent dans la vue passerelle. Branchez tous les \u00E9crans du simulateur sur la m\u00EAme carte graphique"
+                L" (la carte d\u00E9di\u00E9e, pas les prises vid\u00E9o de la carte m\u00E8re).";
+            MessageBoxW(mainWindow, message.c_str(), L"NAUTITECH - Simulateur", MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
         }
     }
 #endif

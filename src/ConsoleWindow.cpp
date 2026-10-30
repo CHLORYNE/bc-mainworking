@@ -9,6 +9,7 @@
 
 #include <string>
 #include <cstring>
+#include <iostream>
 
 namespace {
 
@@ -47,6 +48,8 @@ irr::core::dimension2du ConsoleWindow::getClientSize() const
 {
     return clientSize;
 }
+
+bool ConsoleWindow::allowOtherCard = false;
 
 //=================================================================================================
 #ifdef _WIN32
@@ -90,7 +93,8 @@ LRESULT CALLBACK consoleWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         return 1;               //everything is drawn by OpenGL
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        BeginPaint(hWnd, &ps);
+        HDC dc = BeginPaint(hWnd, &ps);
+        self->paintOtherCardNotice(dc);
         EndPaint(hWnd, &ps);
         return 0;
     }
@@ -379,6 +383,66 @@ void ConsoleWindow::beginMove(irr::s32 clientX, irr::s32 clientY)
     keepOnScreen();
 }
 
+std::string ConsoleWindow::graphicsCardOf(void* monitor)
+{
+    MONITORINFOEXA info;
+    info.cbSize = sizeof(info);
+    if (!monitor || !GetMonitorInfoA((HMONITOR)monitor, &info)) { return std::string(); }
+    for (DWORD n = 0; ; n++) {
+        DISPLAY_DEVICEA device;
+        ZeroMemory(&device, sizeof(device));
+        device.cb = sizeof(device);
+        if (!EnumDisplayDevicesA(NULL, n, &device, 0)) { break; }
+        if (strcmp(device.DeviceName, info.szDevice) == 0) { return device.DeviceString; }
+    }
+    return std::string();
+}
+
+bool ConsoleWindow::canDraw()
+{
+    if (!opened) { return false; }
+    //Which screen each window is on is looked at every frame; the cards only when one of them changed
+    HMONITOR monitor = MonitorFromWindow((HWND)hwnd, MONITOR_DEFAULTTONEAREST);
+    HMONITOR mainMonitor = MonitorFromWindow((HWND)mainData.OpenGLWin32.HWnd, MONITOR_DEFAULTTONEAREST);
+    if (monitor != (HMONITOR)lastMonitor || mainMonitor != (HMONITOR)lastMainMonitor) {
+        lastMonitor = monitor;
+        lastMainMonitor = mainMonitor;
+        cardName = graphicsCardOf(monitor);
+        mainCardName = graphicsCardOf(mainMonitor);
+        const bool other = !allowOtherCard && !cardName.empty() && !mainCardName.empty() && cardName != mainCardName;
+        if (other != otherCard) {
+            otherCard = other;
+            if (other) {
+                std::cerr << "A window of the simulator is on a screen of another graphics card (" << cardName << ") than the bridge view ("
+                    << mainCardName << "): not drawn until it is back on a screen of the " << mainCardName << "." << std::endl;
+            }
+            InvalidateRect((HWND)hwnd, NULL, FALSE);
+        }
+    }
+    return !otherCard;
+}
+
+void ConsoleWindow::paintOtherCardNotice(void* dc)
+{
+    if (!otherCard) { return; }
+    RECT r;
+    GetClientRect((HWND)hwnd, &r);
+    HBRUSH background = CreateSolidBrush(RGB(24, 27, 33));
+    FillRect((HDC)dc, &r, background);
+    DeleteObject(background);
+    const std::wstring card(cardName.begin(), cardName.end());
+    const std::wstring mainCard(mainCardName.begin(), mainCardName.end());
+    const std::wstring text =
+        L"Cette fen\u00EAtre est sur un \u00E9cran branch\u00E9 sur une autre carte graphique (" + card +
+        L") que la vue passerelle (" + mainCard + L").\n\nRamenez-la sur un \u00E9cran de la carte " + mainCard +
+        L", ou branchez tous les \u00E9crans du simulateur sur la m\u00EAme carte graphique.";
+    InflateRect(&r, -24, -24);
+    SetBkMode((HDC)dc, TRANSPARENT);
+    SetTextColor((HDC)dc, RGB(235, 200, 90));
+    SelectObject((HDC)dc, GetStockObject(DEFAULT_GUI_FONT));
+    DrawTextW((HDC)dc, text.c_str(), -1, &r, DT_CENTER | DT_WORDBREAK);
+}
+
 //=================================================================================================
 #else // X11
 
@@ -663,5 +727,9 @@ void ConsoleWindow::openWithSystem(const std::string& path)
 {
     (void)path; //(test builds)
 }
+
+bool ConsoleWindow::canDraw() { return opened; }
+std::string ConsoleWindow::graphicsCardOf(void* monitor) { (void)monitor; return std::string(); }
+void ConsoleWindow::paintOtherCardNotice(void* dc) { (void)dc; }
 
 #endif

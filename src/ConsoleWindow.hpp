@@ -62,6 +62,18 @@ public:
     void beginMove(irr::s32 clientX, irr::s32 clientY);
     bool isFullScreen() const { return fullScreen; }
 
+    //Whether the simulator can draw into the window now: not while it is on a screen plugged into
+    //another graphics card than the simulator window's (AMD's OpenGL driver stops the simulator when
+    //a picture has to be copied across cards). The window then says so, until it is moved back.
+    //Call before each beginScene() into it. Always true off Windows.
+    bool canDraw();
+    //bc5.ini other_card_windows=1: draw on screens of another card anyway
+    static void setAllowOtherCard(bool allow) { allowOtherCard = allow; }
+    //The graphics card a screen (an HMONITOR) is plugged into ("AMD Radeon RX 580"), empty if unknown
+    static std::string graphicsCardOf(void* monitor);
+    //Internal: the message shown instead of the picture (called from the window procedure).
+    void paintOtherCardNotice(void* dc);
+
     //Pass to driver->beginScene() to draw into this window.
     const irr::video::SExposedVideoData& videoData() const { return windowData; }
     //Pass to driver->beginScene() to draw into the simulator window again. (Needed on X11, where
@@ -84,6 +96,11 @@ private:
     bool fullScreen = false;
     irr::s32 windowedX = 0, windowedY = 0;   //placement before going full screen
     irr::u32 windowedW = 0, windowedH = 0;
+    static bool allowOtherCard;
+    void* lastMonitor = 0;          //screens of this window and of the simulator window at the last check
+    void* lastMainMonitor = 0;
+    bool otherCard = false;         //on a screen of another card: not drawn
+    std::string cardName, mainCardName;
 
 #ifdef _WIN32
     void* hwnd;

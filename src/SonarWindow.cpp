@@ -302,6 +302,7 @@ void SonarWindow::render()
     }
     if (now - lastRenderMs < frameMs) { return; }
     if (size.Width < 64 || size.Height < 64) { return; }   //minimised
+    if (!window->canDraw()) { return; }   //on a screen of another graphics card
     lastRenderMs = now;
     renderCount++;
 
