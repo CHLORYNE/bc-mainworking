@@ -1631,6 +1631,7 @@ int main(int argc, char** argv)
     modelParameters.contactDampingFactor = contactDampingFactor;
     modelParameters.frictionCoefficient = frictionCoefficient;
     modelParameters.stoppingTime = stoppingTime;
+    modelParameters.collisionHull = (IniFile::iniFileToString(iniFilename, "collision_hull") != "0");
     modelParameters.tanhFrictionFactor = tanhFrictionFactor;
     modelParameters.lineStiffnessFactor = lineStiffnessFactor;
     modelParameters.lineDampingFactor = lineDampingFactor;

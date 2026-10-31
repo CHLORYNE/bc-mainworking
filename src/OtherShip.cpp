@@ -28,6 +28,109 @@
 #include <iostream>
 #include <algorithm>
 #include <fstream>
+#include <cmath>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace {
+
+//A simplified copy of a ship model for collisions, as games collide with simple shapes and not with
+//the model they draw: the model's corners are gathered on a grid of 'cell' (model units), each one
+//moved to the mean of the corners in its cell, and the triangles left with three different corners
+//kept (vertex clustering). The shape stays within about one cell of the model's; small parts (nets,
+//rigging, fittings) fold away. 0 if the model cannot be read.
+irr::scene::SMesh* makeCollisionHull(const irr::scene::IMesh* mesh, irr::f32 cell, irr::u32& trianglesIn, irr::u32& trianglesOut)
+{
+    trianglesIn = 0;
+    trianglesOut = 0;
+    if (!mesh || cell <= 0) { return 0; }
+
+    //Every triangle's corners, as the triangle selector reads them
+    std::vector<irr::core::vector3df> corners;
+    for (irr::u32 b = 0; b < mesh->getMeshBufferCount(); b++) {
+        const irr::scene::IMeshBuffer* buffer = mesh->getMeshBuffer(b);
+        if (!buffer) { continue; }
+        const irr::u32 count = buffer->getIndexCount();
+        const irr::u32 vertices = buffer->getVertexCount();
+        const bool wide = (buffer->getIndexType() == irr::video::EIT_32BIT);
+        const irr::u16* indices16 = buffer->getIndices();
+        const irr::u32* indices32 = reinterpret_cast<const irr::u32*>(buffer->getIndices());
+        for (irr::u32 i = 0; i + 2 < count; i += 3) {
+            irr::u32 v[3];
+            for (int k = 0; k < 3; k++) { v[k] = wide ? indices32[i + k] : indices16[i + k]; }
+            if (v[0] >= vertices || v[1] >= vertices || v[2] >= vertices) { continue; }
+            for (int k = 0; k < 3; k++) { corners.push_back(buffer->getPosition(v[k])); }
+        }
+    }
+    trianglesIn = (irr::u32)(corners.size() / 3);
+    if (trianglesIn == 0) { return 0; }
+
+    //Corners by grid cell: each cell's corners become their mean
+    struct Cell { irr::core::vector3df sum; irr::u32 count; };
+    std::unordered_map<long long, irr::u32> cellIndex;
+    std::vector<Cell> cells;
+    std::vector<irr::u32> cornerCell(corners.size());
+    for (size_t i = 0; i < corners.size(); i++) {
+        const long long x = (long long)floor(corners[i].X / cell) & 0x1FFFFF;
+        const long long y = (long long)floor(corners[i].Y / cell) & 0x1FFFFF;
+        const long long z = (long long)floor(corners[i].Z / cell) & 0x1FFFFF;
+        const long long key = (x << 42) | (y << 21) | z;
+        std::unordered_map<long long, irr::u32>::iterator found = cellIndex.find(key);
+        irr::u32 index;
+        if (found == cellIndex.end()) {
+            index = (irr::u32)cells.size();
+            cellIndex[key] = index;
+            Cell fresh = { irr::core::vector3df(0, 0, 0), 0 };
+            cells.push_back(fresh);
+        }
+        else {
+            index = found->second;
+        }
+        cells[index].sum += corners[i];
+        cells[index].count++;
+        cornerCell[i] = index;
+    }
+
+    //The triangles that still have three corners, each once (the same corners in the same turning order)
+    std::unordered_set<unsigned long long> kept;
+    std::vector<irr::u32> triangles;
+    for (size_t t = 0; t + 2 < cornerCell.size(); t += 3) {
+        irr::u32 a = cornerCell[t], b = cornerCell[t + 1], c = cornerCell[t + 2];
+        if (a == b || b == c || a == c) { continue; }
+        while (a > b || a > c) { const irr::u32 first = a; a = b; b = c; c = first; } //lowest first, turning order kept
+        const unsigned long long key = ((unsigned long long)a * 2654435761ULL) ^ ((unsigned long long)b << 21) ^ ((unsigned long long)c << 42);
+        if (!kept.insert(key).second) { continue; }
+        triangles.push_back(a);
+        triangles.push_back(b);
+        triangles.push_back(c);
+    }
+    trianglesOut = (irr::u32)(triangles.size() / 3);
+    if (trianglesOut == 0) { return 0; }
+
+    //As a mesh, in buffers of up to 21 000 triangles (16-bit indices)
+    irr::scene::SMesh* hull = new irr::scene::SMesh();
+    const irr::u32 perBuffer = 21000;
+    for (irr::u32 first = 0; first < trianglesOut; first += perBuffer) {
+        irr::scene::SMeshBuffer* buffer = new irr::scene::SMeshBuffer();
+        const irr::u32 last = std::min(trianglesOut, first + perBuffer);
+        for (irr::u32 t = first; t < last; t++) {
+            for (int k = 0; k < 3; k++) {
+                const Cell& corner = cells[triangles[t * 3 + k]];
+                buffer->Vertices.push_back(irr::video::S3DVertex(corner.sum / (irr::f32)corner.count,
+                    irr::core::vector3df(0, 1, 0), irr::video::SColor(255, 255, 255, 255), irr::core::vector2df(0, 0)));
+                buffer->Indices.push_back((irr::u16)(buffer->Vertices.size() - 1));
+            }
+        }
+        buffer->recalculateBoundingBox();
+        hull->addMeshBuffer(buffer);
+        buffer->drop();
+    }
+    hull->recalculateBoundingBox();
+    return hull;
+}
+
+} // namespace
 
 //using namespace irr;
 
@@ -158,12 +261,25 @@ OtherShip::OtherShip(const std::string& name, const std::string& internalName, c
 
     //Add triangle selector and make pickable
     ship->setID(IDFlag_IsPickable);
-    //An octree selector, as for the land objects: a ray (the own ship's collision check casts one per
-    //hull point, every frame, when the ships are close) is tested against the triangles near it only.
-    //A plain selector transformed and tested every triangle of the model for each ray: 60 000 to
-    //200 000 a ship, about 12 ms of a frame alongside. Same hits, as each triangle sits in an octree
-    //box that contains it.
-    selector = smgr->createOctreeTriangleSelector(shipMesh, ship, 128); // 128 = min polys per node
+    //The own ship's collision check casts a ray per hull point, every frame, when the ships are close.
+    //A plain selector of the drawn model transformed and tested its every triangle for each ray (60 000
+    //to 200 000 a ship: about 12 ms of a frame alongside). So the selector is an octree, as for the land
+    //objects (a ray meets the triangles near it only), of a simplified copy of the model (far fewer
+    //triangles to meet): cells of 0.5 m on a ship of 75 m or less, length / 150 on a longer one.
+    //bc5.ini collision_hull=0: the octree of the drawn model itself.
+    irr::scene::SMesh* collisionHull = 0;
+    if (model && model->getModelParameters().collisionHull && scaleFactor > 0) {
+        const irr::f32 cellMetres = std::max(0.5f, length / 150.0f);
+        irr::u32 trianglesIn = 0, trianglesOut = 0;
+        collisionHull = makeCollisionHull(shipMesh, cellMetres / scaleFactor, trianglesIn, trianglesOut);
+        if (collisionHull && trianglesOut >= trianglesIn) { collisionHull->drop(); collisionHull = 0; } //nothing gained
+        if (collisionHull) {
+            dev->getLogger()->log(("Collision hull of '" + shipFileName + "': " + std::to_string(trianglesIn) + " -> " + std::to_string(trianglesOut)
+                + " triangles (" + std::to_string(cellMetres).substr(0, 4) + " m cells)").c_str());
+        }
+    }
+    selector = smgr->createOctreeTriangleSelector(collisionHull ? (irr::scene::IMesh*)collisionHull : (irr::scene::IMesh*)shipMesh, ship, 128); // 128 = min polys per node
+    if (collisionHull) { collisionHull->drop(); } //the selector keeps its own copy of the triangles
     //This is applied depending on distance to own ship, for speed
     triangleSelectorEnabled = false;
 
