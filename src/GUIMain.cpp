@@ -557,7 +557,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
     //bc5.ini keys (all optional, read near the top of this function):
     //  classic_panel=1          old layout back, no rebuild needed
     //  instrument_extra=wind    optional dials: rpm | wind | both | none
-    //  instrument_speed_max=20  top of the speed log, knots
+    //  instrument_speed_max=35  top of the speed log, knots
     //  instrument_rudder=0      take the ANGLE DE BARRE dial out of the console (shown by default)
     //  instrument_rot_max=60    rate-of-turn full scale each side, deg/min
     //Which dials appear follows the ship: no rudder dial on azimuth drives, rate of turn only if
@@ -589,7 +589,7 @@ void GUIMain::load(irr::IrrlichtDevice* device, Lang* language, std::vector<std:
 
         const irr::f32 iniSpeedMax = IniFile::iniFileTof32(iniFilename, "instrument_speed_max");
         const irr::f32 iniRotMax = IniFile::iniFileTof32(iniFilename, "instrument_rot_max");
-        instrumentPanel->setScales(iniSpeedMax > 0 ? iniSpeedMax : 20.0f, iniRotMax > 0 ? iniRotMax : 60.0f, 35.0f);
+        instrumentPanel->setScales(iniSpeedMax > 0 ? iniSpeedMax : 35.0f, iniRotMax > 0 ? iniRotMax : 60.0f, 35.0f);
 
         //Only instruments in the console: the rudder pumps are set and read in CONTROLES (and a
         //failed pump shows in the alert list), RADAR is on the command bar

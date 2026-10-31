@@ -286,7 +286,7 @@ namespace irr
         GUIInstrumentPanel::GUIInstrumentPanel(IGUIEnvironment* environment, IGUIElement* parent, s32 id, const core::rect<s32>& rectangle)
             : IGUIElement(EGUIET_ELEMENT, environment, parent, id, rectangle),
             fitRudder(true), fitRot(false), fitGPS(true), fitSounder(true), fitTide(false),
-            maxSounderDepth(1000.0f), speedMax(20.0f), rotMax(60.0f), rudderMax(35.0f),
+            maxSounderDepth(1000.0f), speedMax(35.0f), rotMax(60.0f), rudderMax(35.0f),
             statusWidth(0), gaugeD(0)
         {
             for (int k = 0; k < 4; k++) { for (int b = 0; b < 120; b++) { peakBuckets[k][b] = 0.0f; } } //KYARA HOULE
