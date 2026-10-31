@@ -807,6 +807,7 @@ int main(int argc, char** argv)
     if (frictionCoefficient < 0) { frictionCoefficient = 0; }
     if (frictionCoefficient > 1) { frictionCoefficient = 1; }
     irr::f32 stoppingTime = IniFile::iniFileTof32(iniFilename, "stopping_time", 0); //seconds, 0 = off
+    const bool radarThread = (IniFile::iniFileTou32(iniFilename, "radar_thread", 1) == 1); //radar worked out on its own thread
     if (stoppingTime < 0) { stoppingTime = 0; }
     if (tanhFrictionFactor < 0) { tanhFrictionFactor = 0; }
 
@@ -1620,6 +1621,7 @@ int main(int argc, char** argv)
     modelParameters.vrMode = vr3dMode;
     modelParameters.reflectionMode = reflectionMode;
     modelParameters.viewAngle = viewAngle;
+    modelParameters.radarThread = radarThread;
     modelParameters.lookAngle = lookAngle;
     modelParameters.cameraMinDistance = cameraMinDistance;
     modelParameters.cameraMaxDistance = cameraMaxDistance;
@@ -1906,6 +1908,9 @@ int main(int argc, char** argv)
             //       renderProfile.tic();
         } {
             IPROF("Render");
+            //The radar's next picture is worked out on its own thread while the 3D view is drawn. (Not
+            //on the full-screen radar: no 3D view to draw meanwhile, so it is worked out as before.)
+            if (!fullScreenRadar) { model.startRadarJob(); }
             const std::chrono::steady_clock::time_point renderStart = std::chrono::steady_clock::now();
             if (renderBenchmarkOn) {
                 renderBenchmark.beforeRender(smgr, std::chrono::duration<double>(renderStart - benchmarkClockStart).count());
@@ -1969,6 +1974,10 @@ int main(int argc, char** argv)
 
             if (renderBenchmarkOn) {
                 renderBenchmark.afterRender(1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - renderStart).count());
+            }
+            {
+                IPROF("Radar worker (waiting)");
+                model.finishRadarJob();
             }
 
             //       renderProfile.toc();

@@ -31,6 +31,18 @@ class Buoys;
 class OtherShips;
 struct RadarData;
 
+//What the radar needs of the own ship, copied on the main thread so that the radar can be worked out
+//on a thread of its own (SimulationModel's radar worker) without reading the live scene. The same
+//names as OwnShip's, so the radar's code reads it the same way.
+struct RadarOwnShip {
+    irr::core::vector3df position;
+    irr::f32 heading = 0, cog = 0, sog = 0;
+    irr::core::vector3df getPosition() const { return position; }
+    irr::f32 getHeading() const { return heading; }
+    irr::f32 getCOG() const { return cog; }
+    irr::f32 getSOG() const { return sog; }
+};
+
 enum ARPA_CONTACT_TYPE {
     CONTACT_NONE,
     CONTACT_NORMAL,
@@ -289,6 +301,12 @@ public:
     bool getCoastline() const;
 
     void update(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown);
+    //update() in two halves. gather(): on the main thread, the own ship and the echoes of the other
+    //ships and buoys, copied. compute(): the scan, ARPA and the picture from that copy alone (and the
+    //terrain's heights, which do not change) - it may run on another thread, while nothing else
+    //uses this object.
+    static void gather(const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, RadarOwnShip& own, std::vector<RadarData>& contacts);
+    void compute(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, const std::vector<RadarData>& contacts, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown);
 
 private:
     irr::IrrlichtDevice* device;
@@ -363,9 +381,9 @@ private:
     irr::u32 currentRadarColourChoice;
 
     std::vector<irr::f32> radarRangeNm;
-    void scan(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime);
-    void updateARPA(irr::core::vector3d<int64_t> offsetPosition, const OwnShip& ownShip, uint64_t absoluteTime);
-    void updateArpaEstimate(ARPAContact& thisArpaContact, int contactID, const OwnShip& ownShip, irr::core::vector3d<int64_t> absolutePosition, uint64_t absoluteTime);
+    void scan(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, const std::vector<RadarData>& radarData, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime);
+    void updateARPA(irr::core::vector3d<int64_t> offsetPosition, const RadarOwnShip& ownShip, uint64_t absoluteTime);
+    void updateArpaEstimate(ARPAContact& thisArpaContact, int contactID, const RadarOwnShip& ownShip, irr::core::vector3d<int64_t> absolutePosition, uint64_t absoluteTime);
     irr::f32 radarNoise(irr::f32 radarNoiseLevel, irr::f32 radarSeaClutter, irr::f32 radarRainClutter, irr::f32 weather, irr::f32 radarRange, irr::f32 radarBrgDeg, irr::f32 windDirectionDeg, irr::f32 radarInclinationAngle, irr::f32 rainIntensity);
     void render(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::f32 ownShipHeading, irr::f32 ownShipSpeed, irr::core::vector3d<int64_t> absolutePosition);
     irr::f32 rangeAtAngle(irr::f32 checkAngle, irr::f32 centreX, irr::f32 centreZ, irr::f32 heading);
@@ -402,7 +420,7 @@ private:
     std::vector<irr::f32> coastSegments;
     irr::f32 coastCentreX = 0, coastCentreZ = 0, coastRangeNm = 0, coastTide = -1000;
     uint64_t coastTime = 0;
-    void updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime);
+    void updateCoastline(irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const RadarOwnShip& ownShip, irr::f32 tideHeight, uint64_t absoluteTime);
     uint64_t lastAbsoluteTime = 0;
     irr::f32 ownCogDeg = 0, ownSogMps = 0;  //own ship's last course and speed over ground (trial manoeuvre)
     irr::f32 pendingAcquireXNm = 0, pendingAcquireYNm = 0;
