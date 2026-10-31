@@ -526,8 +526,9 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 	//The sonar's loudspeaker sounds, made here (no files), on a 1.4 kHz tone as a search sonar's audio:
 	//0 the transmission's ping (struck, dying away over half a second, the water's reverberation
 	//after it); 1 a hull or a wreck (one hard surface: short, sharp, clean); 2 a fish school (many
-	//small echoes: rough, fluttering, longer); 3 the ground or the coast (spread out: lower, muffled,
-	//long rumble); 4 the fish alarm (an electronic double beep).
+	//fish at slightly different ranges and speeds: still a tone, softer, wavering and smeared, longer);
+	//3 the ground or the coast (spread out: lower, muffled, long rumble); 4 the fish alarm (an
+	//electronic double beep).
 	{
 		const double rate = (double)data.infoEngine.samplerate;
 		const double pi = 3.14159265358979;
@@ -568,8 +569,32 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 		sonarSounds[1] = tone(0.4, 1400.0, 0.0, 0.002, 0.045, 0.12, 0.08, 0.0, 0.0);
 		reverb(sonarSounds[1], 0.05, 0.11, 0.2, 0.12f, 0.06f, 0.03f);
 		normalise(sonarSounds[1], 0.8f);
-		sonarSounds[2] = tone(0.9, 1400.0, 30.0, 0.03, 0.18, 0.4, 0.4, 0.75, 0.25);
-		reverb(sonarSounds[2], 0.04, 0.09, 0.17, 0.35f, 0.25f, 0.15f);
+		{
+			//The school: the tone from several groups of fish, each a little higher or lower (their
+			//own movement) and a few milliseconds later (their range), added up - they beat against
+			//each other, so the echo wavers; a soft start, a long tail, hardly any noise
+			const size_t n = (size_t)(1.1 * rate);
+			sonarSounds[2].assign(n, 0.0f);
+			const int groups = 6;
+			for (int g = 0; g < groups; g++) {
+				const double detune = 1.0 + 0.012 * uni(rng);            //+-1.2 %
+				const double delay = 0.004 + 0.035 * (0.5 + 0.5 * uni(rng));
+				const double amp = 0.6 + 0.4 * (0.5 + 0.5 * uni(rng));
+				double phase = 2.0 * pi * (0.5 + 0.5 * uni(rng));
+				for (size_t i = (size_t)(delay * rate); i < n; i++) {
+					const double t = i / rate - delay;
+					phase += 2.0 * pi * 1400.0 * detune / rate;
+					const double env = std::min(t / 0.02, 1.0) * (std::exp(-t / 0.16) + 0.35 * std::exp(-t / 0.42));
+					sonarSounds[2][i] += (float)(amp * std::sin(phase) * env);
+				}
+			}
+			double noiseState = 0.0;
+			for (size_t i = 0; i < n; i++) {   //(a breath of reverberation under it)
+				noiseState = 0.9 * noiseState + 0.1 * uni(rng);
+				sonarSounds[2][i] += (float)(0.04 * noiseState * std::exp(-(double)i / rate / 0.3));
+			}
+		}
+		reverb(sonarSounds[2], 0.05, 0.11, 0.2, 0.25f, 0.15f, 0.08f);
 		normalise(sonarSounds[2], 0.7f);
 		sonarSounds[3] = tone(1.3, 1150.0, 80.0, 0.05, 0.3, 0.7, 0.5, 0.3, 0.6);
 		reverb(sonarSounds[3], 0.09, 0.2, 0.36, 0.4f, 0.28f, 0.16f);
