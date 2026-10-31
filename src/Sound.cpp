@@ -525,7 +525,8 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 
 	//The sonar's loudspeaker sounds, made here (no files). As a search sonar's audio (and the reference
 	//recording they were matched to): a pure tone of about 1 kHz, struck and fading slowly, the water's
-	//reverberation a soft hiss under its tail; every echo is that same tone, weaker.
+	//reverberation a soft hiss under its tail and a light repeating echo (every 0.13 s, each repeat
+	//8 dB down); every echo is that same tone, weaker.
 	//0 the transmission's ping: 1030 Hz, no harmonics, up in 40 ms, -10 dB at 0.7 s, -20 dB at 1.2 s,
 	//  about 2.5 s in all; 1 a hull or a wreck: the same tone, shorter and clean; 2 a fish school (many
 	//  fish at slightly different ranges and speeds): the tone softer, wavering and smeared, longer;
@@ -568,6 +569,24 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 				x[i] += (float)(level * state * std::min(t / 0.05, 1.0) * std::exp(-t / tau));
 			}
 		};
+		//A light repeating echo, as in the reference recording: a repeat every 'delay', each 'g' of the
+		//one before, and each a little off pitch (+-0.8 %, as sound back from moving water), so that it
+		//beats against the tone still sounding and is heard as an echo rather than merging into it
+		auto echoes = [&](std::vector<float>& x, double delay, float g) {
+			const std::vector<float> dry(x);
+			float gain = 1.0f;
+			for (int r = 1; r <= 5; r++) {
+				gain *= g;
+				const double ratio = 1.0 + ((r % 2) ? 0.008 : -0.008);
+				const size_t off = (size_t)(r * delay * rate);
+				for (size_t i = off; i < x.size(); i++) {
+					const double p = (double)(i - off) * ratio;
+					const size_t i0 = (size_t)p;
+					if (i0 + 1 >= dry.size()) { break; }
+					x[i] += gain * (float)(dry[i0] + (dry[i0 + 1] - dry[i0]) * (p - (double)i0));
+				}
+			}
+		};
 		auto normalise = [&](std::vector<float>& x, float peakWanted) {
 			float peak = 0.0f;
 			for (size_t i = 0; i < x.size(); i++) { peak = std::max(peak, std::fabs(x[i])); }
@@ -575,10 +594,12 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 		};
 		sonarSounds[0] = pure(2.6, TONE, 0.04, 0.52, 0.08, 0.0);
 		diffuse(sonarSounds[0], 10, 0.25, 0.10f);
+		echoes(sonarSounds[0], 0.13, 0.4f);
 		hiss(sonarSounds[0], 0.06f, 0.7);
 		normalise(sonarSounds[0], 0.8f);
 		sonarSounds[1] = pure(1.4, TONE, 0.015, 0.28, 0.0, 0.0);
 		diffuse(sonarSounds[1], 6, 0.15, 0.06f);
+		echoes(sonarSounds[1], 0.13, 0.35f);
 		normalise(sonarSounds[1], 0.8f);
 		{
 			//The school: the tone from several groups of fish, each a little higher or lower (their own
@@ -595,6 +616,7 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 				for (size_t i = 0; i < one.size() && off + i < sonarSounds[2].size(); i++) { sonarSounds[2][off + i] += (float)amp * one[i]; }
 			}
 			diffuse(sonarSounds[2], 6, 0.15, 0.08f);
+			echoes(sonarSounds[2], 0.13, 0.3f);
 			normalise(sonarSounds[2], 0.7f);
 		}
 		sonarSounds[3].assign((size_t)(1.0 * rate), 0.0f);
