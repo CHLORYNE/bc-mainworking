@@ -378,6 +378,12 @@ private:
     std::vector<irr::video::SColor> radarBackgroundColours;
     std::vector<irr::video::SColor> radarForegroundColours;
     std::vector<irr::video::SColor> radarSurroundColours;
+    //Each palette's echo colours, weakest to strongest: (echo strength 0..1, colour) stops. Two stops
+    //(background, foreground) for a one-colour palette; more for the multicolour ones.
+    std::vector<std::vector<std::pair<irr::f32, irr::video::SColor> > > radarEchoGradients;
+    std::vector<std::string> radarPaletteNames;
+    irr::video::SColor echoColours[256]; //the current palette's colour for each echo strength
+    void buildEchoColours();
     irr::u32 currentRadarColourChoice;
 
     std::vector<irr::f32> radarRangeNm;

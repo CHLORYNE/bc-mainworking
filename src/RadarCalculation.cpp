@@ -96,6 +96,7 @@ RadarCalculation::RadarCalculation() : rangeResolution(128), angularResolution(3
     radarSeaClutterReduction = 0;
 
     currentRadarColourChoice = 0;
+    buildEchoColours();
 
     eblBrg[0] = 0;     eblBrg[1] = 0;
     vrmRangeNm[0] = 0; vrmRangeNm[1] = 0;
@@ -205,6 +206,8 @@ void RadarCalculation::load(std::string radarConfigFile, irr::IrrlichtDevice* de
     radarBackgroundColours.clear();
     radarForegroundColours.clear();
     radarSurroundColours.clear();
+    radarEchoGradients.clear();
+    radarPaletteNames.clear();
 
     // helper: foreground (blip) RGB, then background (scope interior) RGB
     auto addPalette = [&](irr::u32 fR, irr::u32 fG, irr::u32 fB,
@@ -212,7 +215,25 @@ void RadarCalculation::load(std::string radarConfigFile, irr::IrrlichtDevice* de
             radarForegroundColours.push_back(irr::video::SColor(255, fR, fG, fB));
             radarBackgroundColours.push_back(irr::video::SColor(255, bR, bG, bB));
             radarSurroundColours.push_back(deepGreenSurround);
+            std::vector<std::pair<irr::f32, irr::video::SColor> > gradient;
+            gradient.push_back(std::make_pair(0.0f, irr::video::SColor(255, bR, bG, bB)));
+            gradient.push_back(std::make_pair(1.0f, irr::video::SColor(255, fR, fG, fB)));
+            radarEchoGradients.push_back(gradient);
+            radarPaletteNames.push_back("");
         };
+    // helper for the palettes of real radars: name, range rings and scale, scope background, then the
+    // echo colours from weakest to strongest (the background at 0 is added)
+    auto addRealPalette = [&](const char* name, irr::video::SColor marks, irr::video::SColor background,
+        std::vector<std::pair<irr::f32, irr::video::SColor> > echoes) {
+            radarForegroundColours.push_back(marks);
+            radarBackgroundColours.push_back(background);
+            radarSurroundColours.push_back(deepGreenSurround);
+            echoes.insert(echoes.begin(), std::make_pair(0.0f, background));
+            radarEchoGradients.push_back(echoes);
+            radarPaletteNames.push_back(name);
+        };
+    typedef irr::video::SColor C;
+    typedef std::pair<irr::f32, irr::video::SColor> Stop;
 
     addPalette(255, 200, 0, 0, 0, 0); // 1: amber on black
     addPalette(255, 120, 0, 0, 0, 0); // 2: orange on black
@@ -226,7 +247,31 @@ void RadarCalculation::load(std::string radarConfigFile, irr::IrrlichtDevice* de
     // 6: Red foreground (255,0,0) on Blue background (0,0,255)
     addPalette(176, 255, 0, 0, 0, 154);
 
+    // --- As on real radars (the "Colour" button goes on to these) ---
+    const C navy(255, 0, 18, 64);
+    const C black(255, 0, 0, 0);
+    // 7: yellow echoes on navy blue, cyan rings (Furuno's day presentation)
+    addRealPalette("jaune sur bleu nuit", C(255, 0, 200, 220), navy,
+        { Stop(1.0f, C(255, 255, 230, 0)) });
+    // 8: echoes coloured by strength, weak to strong: blue, green, yellow, red (the "multicolour" echo
+    // setting of Furuno and JRC radars), on black
+    addRealPalette("multicolore sur noir", C(255, 170, 170, 170), black,
+        { Stop(0.10f, C(255, 0, 40, 150)), Stop(0.30f, C(255, 0, 170, 60)), Stop(0.60f, C(255, 255, 220, 0)), Stop(1.0f, C(255, 255, 30, 0)) });
+    // 9: the same on navy blue, for daylight
+    addRealPalette("multicolore sur bleu nuit", C(255, 0, 200, 220), navy,
+        { Stop(0.10f, C(255, 0, 60, 170)), Stop(0.30f, C(255, 0, 180, 70)), Stop(0.60f, C(255, 255, 220, 0)), Stop(1.0f, C(255, 255, 30, 0)) });
+    // 10: white echoes on dark blue, cyan rings (JRC)
+    addRealPalette("blanc sur bleu", C(255, 0, 190, 210), C(255, 0, 10, 50),
+        { Stop(1.0f, C(255, 235, 235, 235)) });
+    // 11: night: dim orange echoes and darker rings on black, to keep the watch's night vision
+    addRealPalette("nuit", C(255, 110, 50, 0), black,
+        { Stop(1.0f, C(255, 190, 80, 0)) });
+    // 12: two levels: weak echoes green, strong ones amber, on black
+    addRealPalette("ambre et vert", C(255, 200, 150, 0), black,
+        { Stop(0.35f, C(255, 0, 150, 50)), Stop(0.65f, C(255, 255, 170, 0)), Stop(1.0f, C(255, 255, 200, 40)) });
+
     currentRadarColourChoice = 0;
+    buildEchoColours();
 
     //initialise scanArray size (angularResolution x rangeResolution points per scan)
     scanArray.resize(angularResolution, std::vector<irr::f32>(rangeResolution, 0.0));
@@ -868,7 +913,30 @@ void RadarCalculation::changeRadarColourChoice()
         //We check size of both before using currentRadarColourChoice
         currentRadarColourChoice = 0;
     }
+    buildEchoColours();
     radarScreenStale = true;
+    if (device && currentRadarColourChoice < radarPaletteNames.size() && !radarPaletteNames[currentRadarColourChoice].empty()) {
+        device->getLogger()->log(("Radar colours: " + radarPaletteNames[currentRadarColourChoice]).c_str());
+    }
+}
+
+//The current palette's colour for each echo strength (0..255), between its gradient's stops
+void RadarCalculation::buildEchoColours()
+{
+    if (currentRadarColourChoice >= radarEchoGradients.size() || radarEchoGradients[currentRadarColourChoice].empty()) {
+        for (int i = 0; i < 256; i++) { echoColours[i] = getRadarForegroundColour().getInterpolated(getRadarBackgroundColour(), i / 255.0f); }
+        return;
+    }
+    const std::vector<std::pair<irr::f32, irr::video::SColor> >& stops = radarEchoGradients[currentRadarColourChoice];
+    for (int i = 0; i < 256; i++) {
+        const irr::f32 v = i / 255.0f;
+        size_t k = 0;
+        while (k + 1 < stops.size() && stops[k + 1].first < v) { k++; }
+        if (k + 1 >= stops.size()) { echoColours[i] = stops.back().second; continue; }
+        const irr::f32 span = stops[k + 1].first - stops[k].first;
+        const irr::f32 t = span > 0 ? (v - stops[k].first) / span : 1.0f;
+        echoColours[i] = stops[k + 1].second.getInterpolated(stops[k].second, irr::core::clamp(t, 0.0f, 1.0f));
+    }
 }
 
 void RadarCalculation::update(irr::video::IImage* radarImage, irr::video::IImage* radarImageOverlaid, irr::core::vector3d<int64_t> offsetPosition, const Terrain& terrain, const OwnShip& ownShip, const Buoys& buoys, const OtherShips& otherShips, irr::f32 weather, irr::f32 rain, irr::f32 tideHeight, irr::f32 deltaTime, uint64_t absoluteTime, irr::core::vector2di mouseRelPosition, bool isMouseDown)
@@ -2004,8 +2072,9 @@ void RadarCalculation::render(irr::video::IImage* radarImage, irr::video::IImage
                     if (pixelColour > 1.0) { pixelColour = 1.0; }
                     if (pixelColour < 0) { pixelColour = 0; }
 
-                    //Interpolate colour between foreground and background
-                    irr::video::SColor thisColour = getRadarForegroundColour().getInterpolated(getRadarBackgroundColour(), pixelColour);
+                    //The palette's colour for this echo strength (between background and foreground, or by
+                    //strength on the multicolour palettes)
+                    irr::video::SColor thisColour = echoColours[(int)(pixelColour * 255.0f + 0.5f)];
                     drawSector(radarImage,
                         originX,
                         originY,
