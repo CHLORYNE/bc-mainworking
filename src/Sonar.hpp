@@ -213,7 +213,7 @@ private:
     std::vector<irr::s16> targetOwner;
     std::vector<irr::f32> targetOwnerEcho;
     void addEchoSound(int b, int i, irr::f32 level);
-    //The loudspeaker pings at most every AUDIO_PING_INTERVAL seconds (not at every transmission:
+    //The loudspeaker pings at most every AUDIO_PING_INTERVAL (3.5) seconds (not at every transmission:
     //at short ranges they follow each other in well under a second); for a transmission it pings,
     //the one echo it plays is the strongest target in the listening beam, when the front reaches it
     irr::f32 audioClock = 1000.0f;   //seconds since the last ping heard

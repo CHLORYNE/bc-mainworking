@@ -153,7 +153,7 @@ void Sonar::addEchoSound(int b, int i, irr::f32 level)
     //Closing speed: positive when the echo's source and the ship come together
     const irr::f32 closing = -((vx - ownVx) * ux + (vz - ownVz) * uz);
     const irr::f32 TX_FREQUENCY = 26000.0f;   //a search sonar's (Hz)
-    const irr::f32 AUDIO_TONE = 1030.0f;      //the loudspeaker's ping (Sound)
+    const irr::f32 AUDIO_TONE = 1039.0f;      //the loudspeaker's ping (Sound)
     const irr::f32 shift = 2.0f * closing / SOUND_SPEED * TX_FREQUENCY;
     AudioEvent e;
     e.gain = level;
@@ -423,7 +423,7 @@ void Sonar::startTransmission()
 {
     //The ping, in the loudspeaker (at most every AUDIO_PING_INTERVAL); a scanning listening beam moves
     //on by its width at each ping heard
-    const irr::f32 AUDIO_PING_INTERVAL = 2.5f;
+    const irr::f32 AUDIO_PING_INTERVAL = 3.5f;
     txAudible = audioClock >= AUDIO_PING_INTERVAL;
     echoPending = false;
     if (txAudible) {
