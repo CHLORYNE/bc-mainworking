@@ -213,8 +213,13 @@ private:
     std::vector<irr::s16> targetOwner;
     std::vector<irr::f32> targetOwnerEcho;
     void addEchoSound(int b, int i, irr::f32 level);
-    bool audioArmed = true;   //an echo sounds when the level in the listening beam rises; armed again when it falls
-    int audioEchoes = 0;      //echoes sounded for the transmission under way
+    //The loudspeaker pings at most every AUDIO_PING_INTERVAL seconds (not at every transmission:
+    //at short ranges they follow each other in well under a second); for a transmission it pings,
+    //the one echo it plays is the strongest target in the listening beam, when the front reaches it
+    irr::f32 audioClock = 1000.0f;   //seconds since the last ping heard
+    bool txAudible = false;
+    bool echoPending = false;
+    int echoBeam = 0, echoBin = 0;
     //The transmission under way
     bool txStarted;
     irr::f32 txTime, txRange, txTilt;

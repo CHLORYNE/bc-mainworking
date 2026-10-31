@@ -137,7 +137,7 @@ private:
     //Layout of the current frame
     irr::f32 k;               //scale (1 at a height of 1000 pixels)
     irr::f32 rk = 1;          //the settings rows' height scale: k, or less when they would not all fit
-    int echoVolume = 5;       //the loudspeaker, 0 (off) .. 10
+    int echoVolume = 0;       //the loudspeaker, 0 (off, the default) .. 10
     int listenMode = 0;       //its listening beam: Sonar::LISTEN_AHEAD, _MARKER or _SCAN
     irr::core::rect<irr::f32> header, panel, area360, areaEcho, picEcho, scaleEcho, ascopeEcho;
     irr::core::vector2df centre360;

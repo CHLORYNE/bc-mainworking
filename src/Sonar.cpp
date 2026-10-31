@@ -153,7 +153,7 @@ void Sonar::addEchoSound(int b, int i, irr::f32 level)
     //Closing speed: positive when the echo's source and the ship come together
     const irr::f32 closing = -((vx - ownVx) * ux + (vz - ownVz) * uz);
     const irr::f32 TX_FREQUENCY = 26000.0f;   //a search sonar's (Hz)
-    const irr::f32 AUDIO_TONE = 1400.0f;      //the loudspeaker's ping (Sound)
+    const irr::f32 AUDIO_TONE = 1030.0f;      //the loudspeaker's ping (Sound)
     const irr::f32 shift = 2.0f * closing / SOUND_SPEED * TX_FREQUENCY;
     AudioEvent e;
     e.gain = level;
@@ -393,31 +393,14 @@ void Sonar::update(irr::f32 dt)
     for (int i = frontBin; i < want; i++) {
         for (int b = 0; b < BEAMS; b++) { computeCell(b, i); }
     }
-    //The loudspeaker: the strongest echo in the listening beam at the front, as it comes in. An echo
-    //sounds when that rises past a threshold (a school, a hull, a wreck, the ground), as loud as it
-    //is strong; the front has to fall back before the next one sounds. Outside the beam: silence.
-    {
-        const irr::f32 listen = listenBearingNow();
-        for (int i = frontBin; i < want; i++) {
-            if (i < BINS / 30) { continue; }   //(the transmission itself, round the ship)
-            irr::f32 level = 0;
-            int strongest = -1;
-            for (int b = 0; b < BEAMS; b++) {
-                const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
-                if (std::fabs(angleDiff(bearing, listen)) > 0.5f * listenBeamWidth()) { continue; }
-                const irr::f32 v = beams[b * BINS + i] / 255.0f;
-                if (v > level) { level = v; strongest = b; }
-            }
-            if (audioArmed && level > 0.45f && audioEchoes < 4 && strongest >= 0) {
-                addEchoSound(strongest, i, level);
-                audioArmed = false;
-                audioEchoes++;
-            }
-            else if (level < 0.25f) {
-                audioArmed = true;
-            }
-        }
+    //The loudspeaker: the one echo of this transmission, as the front reaches it, as loud as it shows
+    //(gain, TVG and echo level included); a target too weak on the picture is not heard
+    if (echoPending && echoBin < want) {
+        echoPending = false;
+        const irr::f32 level = beams[echoBeam * BINS + echoBin] / 255.0f;
+        if (level > 0.3f) { addEchoSound(echoBeam, echoBin, level); }
     }
+    audioClock += dt;
     alarmBeepTimer = irr::core::max_(0.0f, alarmBeepTimer - dt);
     if (want > frontBin) { serial360++; }
     frontBin = irr::core::max_(frontBin, want);
@@ -438,17 +421,20 @@ void Sonar::update(irr::f32 dt)
 //-------------------------------------------------------------------------------------------------
 void Sonar::startTransmission()
 {
-    //The ping, in the loudspeaker; a scanning listening beam moves on by its width
-    {
+    //The ping, in the loudspeaker (at most every AUDIO_PING_INTERVAL); a scanning listening beam moves
+    //on by its width at each ping heard
+    const irr::f32 AUDIO_PING_INTERVAL = 2.5f;
+    txAudible = audioClock >= AUDIO_PING_INTERVAL;
+    echoPending = false;
+    if (txAudible) {
+        audioClock = 0.0f;
         AudioEvent e;
         e.gain = 1.0f;
         e.pitch = 1.0f;
         e.kind = SOUND_PING;
         audioEvents.push_back(e);
+        if (listenMode == LISTEN_SCAN) { scanBearing = std::fmod(scanBearing + listenBeamWidth(), 360.0f); }
     }
-    if (listenMode == LISTEN_SCAN) { scanBearing = std::fmod(scanBearing + listenBeamWidth(), 360.0f); }
-    audioArmed = true;
-    audioEchoes = 0;
     txStarted = true;
     txTime = 0;
     frontBin = 0;
@@ -548,6 +534,21 @@ void Sonar::startTransmission()
                 const irr::f32 shadow = t.wreckHeight * slant / irr::core::max_(t.wreckBottom, 2.0f);
                 const int n = irr::core::min_((int)(shadow / binLen) + 2, (int)BINS);
                 for (int i = i1 + 1; i < BINS && i <= i1 + n; i++) { shadowMask[b * BINS + i] = 1; }
+            }
+        }
+    }
+
+    //The echo the loudspeaker will play: the strongest target in the listening beam (not hidden behind
+    //a wreck), past the transmission round the ship
+    if (txAudible) {
+        const irr::f32 listen = listenBearingNow();
+        irr::f32 best = 0.05f;
+        for (int b = 0; b < BEAMS; b++) {
+            const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
+            if (std::fabs(angleDiff(bearing, listen)) > 0.5f * listenBeamWidth()) { continue; }
+            for (int i = BINS / 30; i < BINS; i++) {
+                const int cell = b * BINS + i;
+                if (!shadowMask[cell] && targetEcho[cell] > best) { best = targetEcho[cell]; echoBeam = b; echoBin = i; echoPending = true; }
             }
         }
     }

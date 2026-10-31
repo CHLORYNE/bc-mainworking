@@ -108,7 +108,7 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
     sonar.setLevel360((int)IniFile::iniFileTou32(placementFile, "Level360", 5));
     sonar.setSounderTvg((int)IniFile::iniFileTou32(placementFile, "TvgSounder", 5));
     sonar.setSounderLevel((int)IniFile::iniFileTou32(placementFile, "LevelSounder", 5));
-    echoVolume = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "EchoVolume", 5), 0, 10);
+    echoVolume = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "EchoVolume", 0), 0, 10);
     listenMode = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Listen", 0), 0, 2);
     sonar.setFishAlarm(IniFile::iniFileTou32(placementFile, "FishAlarm", 0) == 1);
     sonar.setFishAlarmBand(IniFile::iniFileTof32(placementFile, "FishAlarmFrom", 5.0f), IniFile::iniFileTof32(placementFile, "FishAlarmTo", 15.0f));

@@ -523,39 +523,49 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 		return;
 	}
 
-	//The sonar's loudspeaker sounds, made here (no files), on a 1.4 kHz tone as a search sonar's audio:
-	//0 the transmission's ping (struck, dying away over half a second, the water's reverberation
-	//after it); 1 a hull or a wreck (one hard surface: short, sharp, clean); 2 a fish school (many
-	//fish at slightly different ranges and speeds: still a tone, softer, wavering and smeared, longer);
-	//3 the ground or the coast (spread out: lower, muffled, long rumble); 4 the fish alarm (an
-	//electronic double beep).
+	//The sonar's loudspeaker sounds, made here (no files). As a search sonar's audio (and the reference
+	//recording they were matched to): a pure tone of about 1 kHz, struck and fading slowly, the water's
+	//reverberation a soft hiss under its tail; every echo is that same tone, weaker.
+	//0 the transmission's ping: 1030 Hz, no harmonics, up in 40 ms, -10 dB at 0.7 s, -20 dB at 1.2 s,
+	//  about 2.5 s in all; 1 a hull or a wreck: the same tone, shorter and clean; 2 a fish school (many
+	//  fish at slightly different ranges and speeds): the tone softer, wavering and smeared, longer;
+	//3 (not played) a soft hiss; 4 the fish alarm (an electronic double beep).
 	{
 		const double rate = (double)data.infoEngine.samplerate;
 		const double pi = 3.14159265358979;
+		const double TONE = 1030.0;
 		std::mt19937 rng(7);
 		std::uniform_real_distribution<double> uni(-1.0, 1.0);
-		auto tone = [&](double seconds, double f0, double fall, double attack, double tau1, double tau2, double mix2,
-			double flutter, double noise) {
+		//A pure tone: rise in 'attack', fall as exp(-t / tau), a slow slight waver (the water)
+		auto pure = [&](double seconds, double f, double attack, double tau, double waver, double startPhase) {
 			const size_t n = (size_t)(seconds * rate);
 			std::vector<float> out(n, 0.0f);
-			double phase = 0.0, am = 1.0, noiseState = 0.0;
+			double phase = startPhase;
 			for (size_t i = 0; i < n; i++) {
 				const double t = i / rate;
-				phase += 2.0 * pi * (f0 - fall * std::min(t / 0.3, 1.0)) / rate;
-				const double env = std::min(t / attack, 1.0) * (std::exp(-t / tau1) + mix2 * std::exp(-t / tau2));
-				if (flutter > 0.0 && (i % (size_t)(rate / 180.0)) == 0) { am = 1.0 - flutter * (0.5 + 0.5 * uni(rng)); } //rough: a new grain 180 times a second
-				noiseState = 0.85 * noiseState + 0.15 * uni(rng);                                                   //(dull noise)
-				out[i] = (float)((std::sin(phase) * am + noise * noiseState) * env);
+				phase += 2.0 * pi * f / rate;
+				const double env = std::min(t / attack, 1.0) * std::exp(-t / tau) * (1.0 - waver * (0.5 + 0.5 * std::sin(2.0 * pi * 3.1 * t)));
+				out[i] = (float)(std::sin(phase) * env);
 			}
 			return out;
 		};
-		auto reverb = [&](std::vector<float>& x, double d1, double d2, double d3, float g1, float g2, float g3) {
-			const double delays[3] = { d1, d2, d3 };
-			const float gains[3] = { g1, g2, g3 };
+		//Diffuse reverberation: many small late copies, fading, so the tail is smooth (no distinct repeats)
+		auto diffuse = [&](std::vector<float>& x, int taps, double maxDelay, float level) {
 			std::vector<float> dry(x);
-			for (int d = 0; d < 3; d++) {
-				const size_t off = (size_t)(delays[d] * rate);
-				for (size_t i = off; i < x.size(); i++) { x[i] += gains[d] * dry[i - off]; }
+			for (int d = 0; d < taps; d++) {
+				const double delay = 0.02 + maxDelay * (0.5 + 0.5 * uni(rng));
+				const float g = level * (float)std::exp(-delay / (0.6 * maxDelay)) * (float)(0.6 + 0.4 * (0.5 + 0.5 * uni(rng)));
+				const size_t off = (size_t)(delay * rate);
+				for (size_t i = off; i < x.size(); i++) { x[i] += g * dry[i - off]; }
+			}
+		};
+		//The water's hiss under a sound: soft, dull, fading with it
+		auto hiss = [&](std::vector<float>& x, float level, double tau) {
+			double state = 0.0;
+			for (size_t i = 0; i < x.size(); i++) {
+				state = 0.92 * state + 0.08 * uni(rng);
+				const double t = i / rate;
+				x[i] += (float)(level * state * std::min(t / 0.05, 1.0) * std::exp(-t / tau));
 			}
 		};
 		auto normalise = [&](std::vector<float>& x, float peakWanted) {
@@ -563,42 +573,32 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 			for (size_t i = 0; i < x.size(); i++) { peak = std::max(peak, std::fabs(x[i])); }
 			if (peak > 0.0f) { for (size_t i = 0; i < x.size(); i++) { x[i] *= peakWanted / peak; } }
 		};
-		sonarSounds[0] = tone(1.2, 1400.0, 60.0, 0.004, 0.11, 0.45, 0.25, 0.0, 0.0);
-		reverb(sonarSounds[0], 0.075, 0.16, 0.29, 0.32f, 0.18f, 0.09f);
+		sonarSounds[0] = pure(2.6, TONE, 0.04, 0.52, 0.08, 0.0);
+		diffuse(sonarSounds[0], 10, 0.25, 0.10f);
+		hiss(sonarSounds[0], 0.06f, 0.7);
 		normalise(sonarSounds[0], 0.8f);
-		sonarSounds[1] = tone(0.4, 1400.0, 0.0, 0.002, 0.045, 0.12, 0.08, 0.0, 0.0);
-		reverb(sonarSounds[1], 0.05, 0.11, 0.2, 0.12f, 0.06f, 0.03f);
+		sonarSounds[1] = pure(1.4, TONE, 0.015, 0.28, 0.0, 0.0);
+		diffuse(sonarSounds[1], 6, 0.15, 0.06f);
 		normalise(sonarSounds[1], 0.8f);
 		{
-			//The school: the tone from several groups of fish, each a little higher or lower (their
-			//own movement) and a few milliseconds later (their range), added up - they beat against
-			//each other, so the echo wavers; a soft start, a long tail, hardly any noise
-			const size_t n = (size_t)(1.1 * rate);
-			sonarSounds[2].assign(n, 0.0f);
+			//The school: the tone from several groups of fish, each a little higher or lower (their own
+			//movement) and a few milliseconds later (their range), added up - they beat against each
+			//other, so the echo wavers; a soft start, a long tail
 			const int groups = 6;
+			sonarSounds[2].assign((size_t)(2.0 * rate), 0.0f);
 			for (int g = 0; g < groups; g++) {
-				const double detune = 1.0 + 0.012 * uni(rng);            //+-1.2 %
-				const double delay = 0.004 + 0.035 * (0.5 + 0.5 * uni(rng));
+				const double detune = 1.0 + 0.008 * uni(rng);
+				const double delay = 0.004 + 0.04 * (0.5 + 0.5 * uni(rng));
 				const double amp = 0.6 + 0.4 * (0.5 + 0.5 * uni(rng));
-				double phase = 2.0 * pi * (0.5 + 0.5 * uni(rng));
-				for (size_t i = (size_t)(delay * rate); i < n; i++) {
-					const double t = i / rate - delay;
-					phase += 2.0 * pi * 1400.0 * detune / rate;
-					const double env = std::min(t / 0.02, 1.0) * (std::exp(-t / 0.16) + 0.35 * std::exp(-t / 0.42));
-					sonarSounds[2][i] += (float)(amp * std::sin(phase) * env);
-				}
+				const std::vector<float> one = pure(2.0 - delay, TONE * detune, 0.04, 0.4, 0.0, 2.0 * pi * (0.5 + 0.5 * uni(rng)));
+				const size_t off = (size_t)(delay * rate);
+				for (size_t i = 0; i < one.size() && off + i < sonarSounds[2].size(); i++) { sonarSounds[2][off + i] += (float)amp * one[i]; }
 			}
-			double noiseState = 0.0;
-			for (size_t i = 0; i < n; i++) {   //(a breath of reverberation under it)
-				noiseState = 0.9 * noiseState + 0.1 * uni(rng);
-				sonarSounds[2][i] += (float)(0.04 * noiseState * std::exp(-(double)i / rate / 0.3));
-			}
+			diffuse(sonarSounds[2], 6, 0.15, 0.08f);
+			normalise(sonarSounds[2], 0.7f);
 		}
-		reverb(sonarSounds[2], 0.05, 0.11, 0.2, 0.25f, 0.15f, 0.08f);
-		normalise(sonarSounds[2], 0.7f);
-		sonarSounds[3] = tone(1.3, 1150.0, 80.0, 0.05, 0.3, 0.7, 0.5, 0.3, 0.6);
-		reverb(sonarSounds[3], 0.09, 0.2, 0.36, 0.4f, 0.28f, 0.16f);
-		normalise(sonarSounds[3], 0.6f);
+		sonarSounds[3].assign((size_t)(1.0 * rate), 0.0f);
+		hiss(sonarSounds[3], 0.3f, 0.4);
 		{
 			const size_t n = (size_t)(0.42 * rate);
 			sonarSounds[4].assign(n, 0.0f);
