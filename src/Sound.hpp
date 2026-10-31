@@ -12,6 +12,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <atomic>
 
 class Sound
 {
@@ -82,6 +83,11 @@ public:
 	//slower, which is what a heavy landing sounds like).
 	void triggerSlam(float gain, float pitch);
 	bool hasSlamSound() const;
+	//The sonar's loudspeaker: a ping made at start-up (no file), played once per trigger with its own
+	//loudness (0..1) and pitch (playback rate). Several at once: a transmission and its echoes overlap.
+	void setVolumeSonar(float vol);
+	float getVolumeSonar() const;
+	void triggerSonar(float gain, float pitch);
 	//Radar CPA/TCPA ("dangerous target") alarm: its own looping sound, distinct from the guard
 	//zone alarm, and started from the beginning of its pattern each time it sounds.
 	void loadCpaAlarmSound(std::string cpaAlarmFile);
@@ -257,6 +263,16 @@ private:
 	static float slamPitchPlaying;
 	static double slamPhase;                 // fractional frame index, as for the engine channel
 	static std::vector<float> slamScratch;   // raw frames, reused between callbacks (no allocation)
+	//Sonar loudspeaker. Triggers go through a small ring: written by the main thread (the count last,
+	//released), read by the callback, which owns the voices.
+	static std::vector<float> sonarPing;     // mono, at the engine sound's rate, made in load()
+	static float sonarVolume;
+	struct SonarRequest { float gain, pitch; };
+	static SonarRequest sonarRequests[16];
+	static std::atomic<unsigned> sonarRequestsWritten;
+	static unsigned sonarRequestsRead;
+	struct SonarVoice { bool on; double pos; float rate, gain; };
+	static SonarVoice sonarVoices[6];
 	//KYARA ENGINE PITCH: resampling state for the engine channel. enginePhase is the
 	//fractional read position (in frames) into a rolling scratch buffer of raw engine
 	//samples; engineScratch holds the most recently decoded raw frames so we can
@@ -838,6 +854,40 @@ private:
 			}
 		}
 
+		//Sonar loudspeaker: new pings into free voices (or over the quietest), then all voices mixed
+		std::vector<float> sonarBuffer(frameCount, 0.0f);
+		bool playSonar = false;
+		if (!sonarPing.empty()) {
+			const unsigned written = sonarRequestsWritten.load(std::memory_order_acquire);
+			if (written - sonarRequestsRead > 16) { sonarRequestsRead = written - 16; }
+			while (sonarRequestsRead != written) {
+				const SonarRequest r = sonarRequests[sonarRequestsRead % 16];
+				sonarRequestsRead++;
+				int v = 0;
+				for (int k = 0; k < 6; k++) {
+					if (!sonarVoices[k].on) { v = k; break; }
+					if (sonarVoices[k].gain < sonarVoices[v].gain) { v = k; }
+				}
+				sonarVoices[v].on = true;
+				sonarVoices[v].pos = 0.0;
+				sonarVoices[v].rate = r.pitch;
+				sonarVoices[v].gain = r.gain;
+			}
+			const double last = (double)sonarPing.size() - 1;
+			for (int k = 0; k < 6; k++) {
+				SonarVoice& voice = sonarVoices[k];
+				if (!voice.on) { continue; }
+				for (unsigned long n = 0; n < frameCount; n++) {
+					if (voice.pos >= last) { voice.on = false; break; }
+					const size_t i0 = (size_t)voice.pos;
+					const float frac = (float)(voice.pos - (double)i0);
+					sonarBuffer[n] += voice.gain * (sonarPing[i0] + (sonarPing[i0 + 1] - sonarPing[i0]) * frac);
+					voice.pos += voice.rate;
+				}
+				playSonar = true;
+			}
+		}
+
 		//Copy into output buffer, with mixing
 		for (int i = 0; i < frameCount * p_data->infoEngine.channels; i++) { //(every buffer is in the engine sound's format)
 			out[i] = engineVolume * engineBuffer[i] * 0.33;
@@ -888,6 +938,8 @@ private:
 			}
 			//abandon ship volume   
 			if (playAbandonAlarm) { out[i] += abandonAlarmVolume * abandonAlarmBuffer[i] * 1.0; }
+			//Sonar loudspeaker (mono, to every channel)
+			if (playSonar) { out[i] += sonarVolume * sonarBuffer[i / p_data->infoEngine.channels] * 0.6f; }
 			//KYARA SLAM: per-impact gain on top of the channel volume
 			if (playSlam) {
 				out[i] += slamVolume * slamGainPlaying * slamBuffer[i] * 0.9f;

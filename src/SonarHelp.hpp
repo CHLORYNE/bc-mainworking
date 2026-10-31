@@ -57,6 +57,9 @@ namespace sonarhelp {
             B(L"Clic gauche sur l'image : marqueur, avec le rel\u00E8vement, la distance horizontale et la profondeur estim\u00E9e (distance oblique \u00D7 sin(inclinaison) + immersion du transducteur). Clic droit : effacer le marqueur.");
             B(L"Port\u00E9e : 100 m \u00E0 2 km ; la molette sur l'image la change aussi.");
             B(L"Gain : sensibilit\u00E9 du r\u00E9cepteur. R\u00E9gler jusqu'\u00E0 voir un l\u00E9ger bruit de fond, puis le diminuer un peu.");
+            B(L"TVG (gain variable avec la distance) : au-dessus de 5, les \u00E9chos lointains sont renforc\u00E9s et les \u00E9chos proches (surface, eau autour du navire) att\u00E9nu\u00E9s ; au-dessous de 5, l'inverse. 5 : neutre.");
+            B(L"Niveau \u00E9cho : au-dessus de 5, les \u00E9chos faibles sont affich\u00E9s plus forts ; au-dessous de 5, ils s'effacent et seuls les \u00E9chos forts restent. 5 : neutre.");
+            B(L"Volume \u00E9cho : le haut-parleur du sonar. Chaque \u00E9mission fait un \u00AB ping \u00BB ; un \u00E9cho fort (banc, coque, \u00E9pave, fond) revient en \u00E9cho, d'autant plus fort que la cible est forte, au moment o\u00F9 le front de l'image l'atteint. Le haut-parleur \u00E9coute vers le marqueur s'il est pos\u00E9, sinon droit devant. 0 : coup\u00E9.");
             B(L"Compensation de houle : le faisceau est stabilis\u00E9, l'anneau de fond ne bouge pas avec le roulis et le pilonnement.");
         }
         else if (tab == TAB_SOUNDER) {
@@ -79,6 +82,8 @@ namespace sonarhelp {
             H(L"R\u00E9glages");
             B(L"\u00C9chelle : profondeur affich\u00E9e. En automatique, le fond reste dans la partie basse de l'\u00E9cran.");
             B(L"Gain : sensibilit\u00E9. Anti-parasites : supprime les \u00E9chos les plus faibles (bruit, parasites).");
+            B(L"TVG : au-dessus de 5, les \u00E9chos profonds sont renforc\u00E9s et ceux pr\u00E8s de la surface att\u00E9nu\u00E9s ; au-dessous de 5, l'inverse. 5 : neutre.");
+            B(L"Niveau \u00E9cho : au-dessus de 5, les \u00E9chos faibles sont affich\u00E9s plus forts ; au-dessous de 5, ils s'effacent. 5 : neutre.");
             B(L"D\u00E9filement : vitesse d'avance de l'image.");
             B(L"Ligne blanche : le bord sup\u00E9rieur de l'\u00E9cho de fond est trac\u00E9 en blanc, pour distinguer les poissons pos\u00E9s sur le fond.");
             B(L"Compensation de houle : corrige le pilonnement du navire, comme un capteur de mouvements. Sans elle, le fond ondule avec la mer et la profondeur affich\u00E9e varie.");

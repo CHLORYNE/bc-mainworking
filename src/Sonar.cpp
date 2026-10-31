@@ -52,6 +52,20 @@ namespace {
         return a;
     }
 
+    //TVG: the receiver's gain at a fraction f (0..1) of the range, for a setting 0..10 (5: 1 everywhere)
+    inline irr::f32 tvgFactor(int tvg, irr::f32 f)
+    {
+        return std::exp((tvg - 5) * 0.25f * (f - 0.3f));
+    }
+    //Echo level: the shown strength of an echo v (0..1), for a setting 0..10 (5: v itself). Above 5 the
+    //weak echoes are lifted (v^0.5 at 10), below 5 they are pushed down (v^2 at 0); 0 and 1 stay.
+    inline irr::f32 echoLevel(int level, irr::f32 v)
+    {
+        v = irr::core::clamp(v, 0.0f, 1.0f);
+        if (level == 5 || v <= 0.0f) { return v; }
+        return std::pow(v, std::pow(2.0f, (5 - level) / 5.0f));
+    }
+
     inline irr::f32 angleDiff(irr::f32 a, irr::f32 b) //a - b, -180..180
     {
         irr::f32 d = std::fmod(a - b + 540.0f, 360.0f) - 180.0f;
@@ -91,6 +105,8 @@ irr::f32 Sonar::range360m() const { return range360Value(range360); }
 void Sonar::setRangeIndex360(int i) { range360 = irr::core::clamp(i, 0, RANGE_COUNT - 1); clear360(); txStarted = false; }
 void Sonar::setTilt(irr::f32 deg) { tiltDeg = irr::core::clamp(deg, -5.0f, 90.0f); }
 void Sonar::setGain360(int g) { gain360v = irr::core::clamp(g, 0, 10); }
+void Sonar::setTvg360(int t) { tvg360v = irr::core::clamp(t, 0, 10); }
+void Sonar::setLevel360(int l) { level360v = irr::core::clamp(l, 0, 10); }
 void Sonar::clear360() { std::fill(beams.begin(), beams.end(), (irr::u8)0); serial360++; }
 
 irr::f32 Sonar::sounderRangeValue(int i) { return RANGES_SOUNDER[irr::core::clamp(i, 0, SOUNDER_RANGE_COUNT - 1)]; }
@@ -101,6 +117,8 @@ void Sonar::setSounderRangeIndex(int i)
     sounderRangeIdx = i;
 }
 void Sonar::setSounderGain(int g) { gainSounder = irr::core::clamp(g, 0, 10); }
+void Sonar::setSounderTvg(int t) { tvgSounderv = irr::core::clamp(t, 0, 10); }
+void Sonar::setSounderLevel(int l) { levelSounderv = irr::core::clamp(l, 0, 10); }
 void Sonar::setScrollSpeed(int pingsPerColumn) { scrollDiv = (pingsPerColumn >= 4) ? 4 : ((pingsPerColumn >= 2) ? 2 : 1); }
 void Sonar::setClutter(int c) { clutterLevel = irr::core::clamp(c, 0, 10); }
 
@@ -331,6 +349,29 @@ void Sonar::update(irr::f32 dt)
     for (int i = frontBin; i < want; i++) {
         for (int b = 0; b < BEAMS; b++) { computeCell(b, i); }
     }
+    //The loudspeaker: the strongest echo in the listening beam (16 degrees wide) at the front, as it
+    //comes in. An echo sounds when that rises past a threshold (a school, a hull, a wreck, the
+    //ground), as loud as it is strong; the front has to fall back before the next one sounds.
+    {
+        const irr::f32 listen = listenOn ? listenBearing : ownHeading;
+        for (int i = frontBin; i < want; i++) {
+            if (i < BINS / 30) { continue; }   //(the transmission itself, round the ship)
+            irr::f32 level = 0;
+            for (int b = 0; b < BEAMS; b++) {
+                const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
+                if (std::fabs(angleDiff(bearing, listen)) > 8.0f) { continue; }
+                level = irr::core::max_(level, beams[b * BINS + i] / 255.0f);
+            }
+            if (audioArmed && level > 0.45f && audioEchoes < 4) {
+                audioEvents.push_back(std::make_pair(level, 0.96f));
+                audioArmed = false;
+                audioEchoes++;
+            }
+            else if (level < 0.25f) {
+                audioArmed = true;
+            }
+        }
+    }
     if (want > frontBin) { serial360++; }
     frontBin = irr::core::max_(frontBin, want);
     if (frontBin >= BINS && txTime >= echoTime + 0.25f) { startTransmission(); }
@@ -350,6 +391,10 @@ void Sonar::update(irr::f32 dt)
 //-------------------------------------------------------------------------------------------------
 void Sonar::startTransmission()
 {
+    //The ping, in the loudspeaker
+    audioEvents.push_back(std::make_pair(1.0f, 1.0f));
+    audioArmed = true;
+    audioEchoes = 0;
     txStarted = true;
     txTime = 0;
     frontBin = 0;
@@ -452,8 +497,8 @@ void Sonar::computeCell(int b, int i)
         //length of the pulse), then only the receiver's noise
         const irr::f32 tailBins = irr::core::max_(3.0f, BINS * 0.05f);
         const irr::f32 fade = beamTail[b] * std::exp(-(irr::f32)(i - beamBlocked[b] + 1) / tailBins);
-        const irr::f32 v = fade * (0.8f + 0.4f * random01()) * gain + 0.03f * gain * random01();
-        beams[b * BINS + i] = (irr::u8)(irr::core::clamp(v, 0.0f, 1.0f) * 255.0f);
+        const irr::f32 v = (fade * (0.8f + 0.4f * random01()) * gain + 0.03f * gain * random01()) * tvgFactor(tvg360v, (i + 0.5f) / BINS);
+        beams[b * BINS + i] = (irr::u8)(echoLevel(level360v, v) * 255.0f);
         return;
     }
     const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
@@ -500,8 +545,8 @@ void Sonar::computeCell(int b, int i)
     }
     v += targetEcho[b * BINS + i];
     if (shadowMask[b * BINS + i]) { v *= 0.12f; }
-    v = v * gain + 0.03f * gain * random01();
-    beams[b * BINS + i] = (irr::u8)(irr::core::clamp(v, 0.0f, 1.0f) * 255.0f);
+    v = (v * gain + 0.03f * gain * random01()) * tvgFactor(tvg360v, (i + 0.5f) / BINS);
+    beams[b * BINS + i] = (irr::u8)(echoLevel(level360v, v) * 255.0f);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -696,8 +741,8 @@ void Sonar::computeColumn(int f, irr::f32 R, std::vector<irr::f32>& col, irr::s1
     const irr::f32 gain = 0.35f + 0.13f * gainSounder;
     const irr::f32 engineNoise = (ownSpeed > 3.0f && random01() < 0.1f) ? (low ? 0.07f : 0.04f) * (ownSpeed / 8.0f) : 0.0f;
     for (int r = 0; r < ROWS; r++) {
-        irr::f32 v = col[r] * gain + (noise + engineNoise) * gain * random01();
+        irr::f32 v = (col[r] * gain + (noise + engineNoise) * gain * random01()) * tvgFactor(tvgSounderv, (r + 0.5f) / ROWS);
         v -= 0.035f * clutterLevel;
-        col[r] = irr::core::clamp(v, 0.0f, 1.0f);
+        col[r] = echoLevel(levelSounderv, v);
     }
 }

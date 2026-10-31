@@ -3015,6 +3015,11 @@ void SimulationModel::setRadarHeadUp()
     radarCalculation.setHeadUp();
 }
 
+void SimulationModel::playSonarSound(irr::f32 gain, irr::f32 pitch)
+{
+    if (sound) { sound->triggerSonar(gain, pitch); }
+}
+
 void SimulationModel::changeRadarColourChoice()
 {
     radarCalculation.changeRadarColourChoice();

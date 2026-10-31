@@ -52,7 +52,9 @@ private:
         A_RANGE_DOWN, A_RANGE_UP, A_TILT_DOWN, A_TILT_UP, A_GAIN360_DOWN, A_GAIN360_UP, A_NORTH_UP, A_HEAD_UP, A_CLEAR_MARKER,
         A_SRANGE_DOWN, A_SRANGE_UP, A_SAUTO, A_SGAIN_DOWN, A_SGAIN_UP, A_FREQ50, A_FREQ200, A_SCROLL_SLOWER, A_SCROLL_FASTER,
         A_CLUTTER_DOWN, A_CLUTTER_UP, A_FREQBOTH, A_WHITELINE_ON, A_WHITELINE_OFF, A_BG_PREV, A_BG_NEXT, A_COL_PREV, A_COL_NEXT,
-        A_FADE_DOWN, A_FADE_UP, A_HEAVE_ON, A_HEAVE_OFF, A_HELP, A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2
+        A_FADE_DOWN, A_FADE_UP, A_HEAVE_ON, A_HEAVE_OFF, A_HELP, A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2,
+        A_TVG360_DOWN, A_TVG360_UP, A_LEVEL360_DOWN, A_LEVEL360_UP, A_VOLUME_DOWN, A_VOLUME_UP,
+        A_STVG_DOWN, A_STVG_UP, A_SLEVEL_DOWN, A_SLEVEL_UP
     };
     struct Button {
         irr::core::rect<irr::f32> r;
@@ -132,6 +134,8 @@ private:
 
     //Layout of the current frame
     irr::f32 k;               //scale (1 at a height of 1000 pixels)
+    irr::f32 rk = 1;          //the settings rows' height scale: k, or less when they would not all fit
+    int echoVolume = 5;       //the loudspeaker, 0 (off) .. 10
     irr::core::rect<irr::f32> header, panel, area360, areaEcho, picEcho, scaleEcho, ascopeEcho;
     irr::core::vector2df centre360;
     irr::f32 radius360;

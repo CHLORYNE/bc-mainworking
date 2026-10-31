@@ -55,6 +55,9 @@ void Sound::setVolumeSlam(float vol) {}
 float Sound::getVolumeSlam() const { return 0; }
 void Sound::triggerSlam(float gain, float pitch) {}
 bool Sound::hasSlamSound() const { return false; }
+void Sound::setVolumeSonar(float vol) {}
+float Sound::getVolumeSonar() const { return 0; }
+void Sound::triggerSonar(float gain, float pitch) {}
 float Sound::getVolumeWave() const { return 0; }
 float Sound::getVolumeEngine() const { return 0; }
 float Sound::getVolumeHorn() const { return 0; }
@@ -122,6 +125,12 @@ float Sound::slamGainPlaying = 1.0f;
 float Sound::slamPitchPlaying = 1.0f;
 double Sound::slamPhase = 0.0;
 std::vector<float> Sound::slamScratch;
+std::vector<float> Sound::sonarPing;
+float Sound::sonarVolume = 1.0f;
+Sound::SonarRequest Sound::sonarRequests[16];
+std::atomic<unsigned> Sound::sonarRequestsWritten(0);
+unsigned Sound::sonarRequestsRead = 0;
+Sound::SonarVoice Sound::sonarVoices[6] = {};
 //SOUND OUTSIDE AND INSIDE BOAT KYARA
 float Sound::insideVolume = 0.0;
 float Sound::outsideVolume = 0.0;
@@ -513,6 +522,36 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 		return;
 	}
 
+	//The sonar's ping, made here (no file): a 1.4 kHz tone falling slightly in pitch, struck and dying
+	//away over half a second, with the water's reverberation after it - as a search sonar's
+	//loudspeaker sounds. Echoes are the same sound, quieter and a little lower.
+	{
+		const double rate = (double)data.infoEngine.samplerate;
+		const size_t n = (size_t)(1.2 * rate);
+		sonarPing.assign(n, 0.0f);
+		const double pi = 3.14159265358979;
+		double phase = 0.0;
+		for (size_t i = 0; i < n; i++) {
+			const double t = i / rate;
+			const double f = 1400.0 - 60.0 * std::min(t / 0.3, 1.0);
+			phase += 2.0 * pi * f / rate;
+			const double attack = std::min(t / 0.004, 1.0);
+			const double body = std::exp(-t / 0.11) + 0.25 * std::exp(-t / 0.45);
+			sonarPing[i] = (float)(std::sin(phase) * attack * body);
+		}
+		//Reverberation: later, quieter copies
+		const double delays[3] = { 0.075, 0.16, 0.29 };
+		const float gains[3] = { 0.32f, 0.18f, 0.09f };
+		std::vector<float> dry(sonarPing);
+		for (int d = 0; d < 3; d++) {
+			const size_t off = (size_t)(delays[d] * rate);
+			for (size_t i = off; i < n; i++) { sonarPing[i] += gains[d] * dry[i - off]; }
+		}
+		float peak = 0.0f;
+		for (size_t i = 0; i < n; i++) { peak = std::max(peak, std::fabs(sonarPing[i])); }
+		if (peak > 0.0f) { for (size_t i = 0; i < n; i++) { sonarPing[i] *= 0.8f / peak; } }
+	}
+
 	soundLoaded = true; // All OK if we've got here
 	std::cout << "Sound::load succeeded" << std::endl;
 }
@@ -813,6 +852,24 @@ void Sound::setVolumeSlam(float vol) {
 
 float Sound::getVolumeSlam() const {
 	return Sound::slamVolume;
+}
+
+void Sound::setVolumeSonar(float vol) {
+	if (vol >= 0.0f && vol <= 1.0f) {
+		Sound::sonarVolume = vol;
+	}
+}
+
+float Sound::getVolumeSonar() const {
+	return Sound::sonarVolume;
+}
+
+void Sound::triggerSonar(float gain, float pitch) {
+	if (!soundLoaded) { return; }
+	const unsigned w = sonarRequestsWritten.load(std::memory_order_relaxed);
+	sonarRequests[w % 16].gain = std::max(0.0f, std::min(gain, 1.0f));
+	sonarRequests[w % 16].pitch = std::max(0.25f, std::min(pitch, 4.0f));
+	sonarRequestsWritten.store(w + 1, std::memory_order_release);
 }
 
 void Sound::triggerSlam(float gain, float pitch) {

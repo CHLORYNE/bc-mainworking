@@ -63,6 +63,19 @@ public:
     void setTilt(irr::f32 deg);
     int gain360() const { return gain360v; }
     void setGain360(int g);
+    //TVG (time varied gain), 0..10, 5 neutral: above it, far echoes are raised and near ones lowered
+    //(the surface and the water close to the ship); below it, the other way round
+    int tvg360() const { return tvg360v; }
+    void setTvg360(int t);
+    //Echo level, 0..10, 5 neutral: above it, weak echoes are shown stronger; below it, they fade
+    //from the picture and only the strong ones stay
+    int level360() const { return level360v; }
+    void setLevel360(int l);
+    //The sonar's loudspeaker listens in this direction (true bearing; useBearing false: dead ahead)
+    void setListenBearing(bool useBearing, irr::f32 trueDeg) { listenOn = useBearing; listenBearing = trueDeg; }
+    //What the loudspeaker plays since the last call: (loudness 0..1, pitch) for each sound, the
+    //transmission's ping, then each echo as the front of the picture reaches it
+    void takeAudio(std::vector<std::pair<irr::f32, irr::f32> >& out) { out.swap(audioEvents); audioEvents.clear(); }
     void clear360();
     irr::f32 transducerDepth() const { return TRANSDUCER_DEPTH; }
 
@@ -90,6 +103,10 @@ public:
     irr::f32 sounderRange() const { return sounderRangeValue(sounderRangeIdx); }
     int sounderGain() const { return gainSounder; }
     void setSounderGain(int g);
+    int sounderTvg() const { return tvgSounderv; }     //as tvg360(), with depth
+    void setSounderTvg(int t);
+    int sounderLevel() const { return levelSounderv; } //as level360()
+    void setSounderLevel(int l);
 
     int scrollSpeed() const { return scrollDiv; }   //pings per column: 1 (fast), 2 or 4 (slow)
     void setScrollSpeed(int pingsPerColumn);
@@ -164,7 +181,14 @@ private:
     int range360;
     irr::f32 tiltDeg;
     int gain360v;
+    int tvg360v = 5, level360v = 5;
     irr::u32 serial360;
+    //The loudspeaker
+    bool listenOn = false;
+    irr::f32 listenBearing = 0;
+    std::vector<std::pair<irr::f32, irr::f32> > audioEvents;
+    bool audioArmed = true;   //an echo sounds when the level in the listening beam rises; armed again when it falls
+    int audioEchoes = 0;      //echoes sounded for the transmission under way
     //The transmission under way
     bool txStarted;
     irr::f32 txTime, txRange, txTilt;
@@ -183,6 +207,7 @@ private:
     bool autoRange;
     int sounderRangeIdx;
     int gainSounder;
+    int tvgSounderv = 5, levelSounderv = 5;
     int scrollDiv;
     int clutterLevel;
     irr::f32 pingTimer;
