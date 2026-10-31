@@ -71,11 +71,20 @@ public:
     //from the picture and only the strong ones stay
     int level360() const { return level360v; }
     void setLevel360(int l);
-    //The sonar's loudspeaker listens in this direction (true bearing; useBearing false: dead ahead)
-    void setListenBearing(bool useBearing, irr::f32 trueDeg) { listenOn = useBearing; listenBearing = trueDeg; }
-    //What the loudspeaker plays since the last call: (loudness 0..1, pitch) for each sound, the
-    //transmission's ping, then each echo as the front of the picture reaches it
-    void takeAudio(std::vector<std::pair<irr::f32, irr::f32> >& out) { out.swap(audioEvents); audioEvents.clear(); }
+    //The loudspeaker's listening beam (16 degrees wide), as a search sonar's audio train: ahead, towards
+    //the marker (markerOn: there is one, at markerBearing, true degrees), or scanning round the ship
+    //one beam width per transmission. Echoes outside it are not heard.
+    enum { LISTEN_AHEAD = 0, LISTEN_MARKER, LISTEN_SCAN };
+    void setListen(int mode, bool markerOn, irr::f32 markerBearing) { listenMode = mode; listenMarkerOn = markerOn; listenMarkerBearing = markerBearing; }
+    int listenModeNow() const { return listenMode; }
+    irr::f32 listenBearingNow() const;   //true degrees
+    static irr::f32 listenBeamWidth() { return 16.0f; }
+    //What the loudspeaker plays since the last call: the transmission's ping, then each echo as the
+    //front of the picture reaches it (as loud as it is strong, its pitch moved by the target's
+    //closing speed, its sound by its kind), and the sounder's fish alarm
+    enum { SOUND_PING = 0, SOUND_HULL, SOUND_SCHOOL, SOUND_GROUND, SOUND_ALARM, SOUND_KINDS };
+    struct AudioEvent { irr::f32 gain, pitch; int kind; };
+    void takeAudio(std::vector<AudioEvent>& out) { out.swap(audioEvents); audioEvents.clear(); }
     void clear360();
     irr::f32 transducerDepth() const { return TRANSDUCER_DEPTH; }
 
@@ -107,6 +116,13 @@ public:
     void setSounderTvg(int t);
     int sounderLevel() const { return levelSounderv; } //as level360()
     void setSounderLevel(int l);
+    //Fish alarm: a beep when fish (not the bottom) show between two depths below the surface
+    bool fishAlarm() const { return fishAlarmOn; }
+    void setFishAlarm(bool on) { fishAlarmOn = on; fishAlarmActive = false; }
+    irr::f32 fishAlarmMin() const { return alarmMin; }
+    irr::f32 fishAlarmMax() const { return alarmMax; }
+    void setFishAlarmBand(irr::f32 minDepth, irr::f32 maxDepth);
+    bool fishAlarmSounding() const { return fishAlarmOn && fishAlarmActive; }
 
     int scrollSpeed() const { return scrollDiv; }   //pings per column: 1 (fast), 2 or 4 (slow)
     void setScrollSpeed(int pingsPerColumn);
@@ -131,7 +147,7 @@ private:
     };
     struct WakePoint { irr::f32 x, z, t, strength; };
     struct Wreck { irr::f32 x, z, length, height, heading; std::wstring name; };
-    struct Ship { irr::f32 x, z, y, heading, length, breadth, draft; };
+    struct Ship { irr::f32 x, z, y, heading, length, breadth, draft, speed; };
 
     //The world, absolute coordinates (those of the scene plus the re-centring offset)
     void readWorld();
@@ -161,6 +177,7 @@ private:
     irr::f32 tide;
     irr::f32 seaState;            //0..12
     irr::f32 ownHeading, ownSpeed;
+    irr::f32 ownCourse = 0;       //course over ground, degrees (the own velocity, for the Doppler)
     bool heaveComp;
     irr::f32 heave;               //the transducer's rise on the waves, metres
     irr::f32 stillDepth;          //depth under the ship in still water (the bridge echo sounder's)
@@ -184,9 +201,18 @@ private:
     int tvg360v = 5, level360v = 5;
     irr::u32 serial360;
     //The loudspeaker
-    bool listenOn = false;
-    irr::f32 listenBearing = 0;
-    std::vector<std::pair<irr::f32, irr::f32> > audioEvents;
+    int listenMode = LISTEN_AHEAD;
+    bool listenMarkerOn = false;
+    irr::f32 listenMarkerBearing = 0;
+    irr::f32 scanBearing = 0;     //relative to the bow, for LISTEN_SCAN
+    std::vector<AudioEvent> audioEvents;
+    //What sent the echo in each cell of the transmission under way: the strongest target there
+    //(index into txTargets, -1: none), for the loudspeaker's sound and Doppler
+    struct TxTarget { int kind; irr::f32 x, z, vx, vz; };
+    std::vector<TxTarget> txTargets;
+    std::vector<irr::s16> targetOwner;
+    std::vector<irr::f32> targetOwnerEcho;
+    void addEchoSound(int b, int i, irr::f32 level);
     bool audioArmed = true;   //an echo sounds when the level in the listening beam rises; armed again when it falls
     int audioEchoes = 0;      //echoes sounded for the transmission under way
     //The transmission under way
@@ -208,6 +234,9 @@ private:
     int sounderRangeIdx;
     int gainSounder;
     int tvgSounderv = 5, levelSounderv = 5;
+    bool fishAlarmOn = false, fishAlarmActive = false;
+    irr::f32 alarmMin = 5.0f, alarmMax = 15.0f;
+    irr::f32 alarmBeepTimer = 0;
     int scrollDiv;
     int clutterLevel;
     irr::f32 pingTimer;

@@ -617,8 +617,9 @@ public:
     void setRadarCourseUp();
     void setRadarHeadUp();
     void changeRadarColourChoice();
-    //The sonar window's loudspeaker: one ping or echo, loudness 0..1 (its volume included), pitch
-    void playSonarSound(irr::f32 gain, irr::f32 pitch);
+    //The sonar window's loudspeaker: one ping, echo or alarm, loudness 0..1 (its volume included),
+    //pitch, kind (Sonar's SOUND_*)
+    void playSonarSound(irr::f32 gain, irr::f32 pitch, int kind);
     int getArpaMode() const;
     void setArpaMode(int mode);
     void setRadarHeadingMode(bool useReal);

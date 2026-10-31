@@ -109,6 +109,9 @@ SonarWindow::SonarWindow(irr::IrrlichtDevice* device, SimulationModel* model, ir
     sonar.setSounderTvg((int)IniFile::iniFileTou32(placementFile, "TvgSounder", 5));
     sonar.setSounderLevel((int)IniFile::iniFileTou32(placementFile, "LevelSounder", 5));
     echoVolume = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "EchoVolume", 5), 0, 10);
+    listenMode = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "Listen", 0), 0, 2);
+    sonar.setFishAlarm(IniFile::iniFileTou32(placementFile, "FishAlarm", 0) == 1);
+    sonar.setFishAlarmBand(IniFile::iniFileTof32(placementFile, "FishAlarmFrom", 5.0f), IniFile::iniFileTof32(placementFile, "FishAlarmTo", 15.0f));
     freqMode = irr::core::clamp((int)IniFile::iniFileTou32(placementFile, "FreqMode", 0), 0, 2);
     whiteLine = IniFile::iniFileTou32(placementFile, "WhiteLine", 0) == 1;
     sonar.setHeaveCompensation(IniFile::iniFileTou32(placementFile, "HeaveCompensation", 1) == 1);
@@ -241,6 +244,10 @@ void SonarWindow::savePlacement(bool isOpenNow)
     f << "TvgSounder=" << sonar.sounderTvg() << std::endl;
     f << "LevelSounder=" << sonar.sounderLevel() << std::endl;
     f << "EchoVolume=" << echoVolume << std::endl;
+    f << "Listen=" << listenMode << std::endl;
+    f << "FishAlarm=" << (sonar.fishAlarm() ? 1 : 0) << std::endl;
+    f << "FishAlarmFrom=" << sonar.fishAlarmMin() << std::endl;
+    f << "FishAlarmTo=" << sonar.fishAlarmMax() << std::endl;
     f << "FreqMode=" << freqMode << std::endl;
     f << "WhiteLine=" << (whiteLine ? 1 : 0) << std::endl;
     f << "HeaveCompensation=" << (sonar.heaveCompensation() ? 1 : 0) << std::endl;
@@ -303,15 +310,19 @@ void SonarWindow::render()
     handleInput();
     if (!isOpen()) { return; }
     window->keepAboveSimulator();
-    sonar.setListenBearing(markerOn, markerBearing);   //the loudspeaker listens towards the marker, or ahead
+    sonar.setListen(listenMode, markerOn, markerBearing);
     sonar.update(dt);
     {
-        //The loudspeaker: the 360 sonar's pings and echoes, when its picture is shown
-        std::vector<std::pair<irr::f32, irr::f32> > sounds;
+        //The loudspeaker: the 360 sonar's pings and echoes when its picture is shown, at its volume;
+        //the sounder's fish alarm whatever is shown
+        std::vector<Sonar::AudioEvent> sounds;
         sonar.takeAudio(sounds);
-        if (echoVolume > 0 && mode != MODE_SOUNDER) {
-            for (size_t i = 0; i < sounds.size(); i++) {
-                model->playSonarSound(sounds[i].first * echoVolume / 10.0f, sounds[i].second);
+        for (size_t i = 0; i < sounds.size(); i++) {
+            if (sounds[i].kind == Sonar::SOUND_ALARM) {
+                model->playSonarSound(0.8f, 1.0f, Sonar::SOUND_ALARM);
+            }
+            else if (echoVolume > 0 && mode != MODE_SOUNDER) {
+                model->playSonarSound(sounds[i].gain * echoVolume / 10.0f, sounds[i].pitch, sounds[i].kind);
             }
         }
     }
@@ -512,6 +523,18 @@ void SonarWindow::act(Action a)
     case A_STVG_UP: sonar.setSounderTvg(sonar.sounderTvg() + 1); break;
     case A_SLEVEL_DOWN: sonar.setSounderLevel(sonar.sounderLevel() - 1); break;
     case A_SLEVEL_UP: sonar.setSounderLevel(sonar.sounderLevel() + 1); break;
+    case A_LISTEN_AHEAD: listenMode = Sonar::LISTEN_AHEAD; break;
+    case A_LISTEN_MARKER: listenMode = Sonar::LISTEN_MARKER; break;
+    case A_LISTEN_SCAN: listenMode = Sonar::LISTEN_SCAN; break;
+    case A_ALARM_ON: sonar.setFishAlarm(true); break;
+    case A_ALARM_OFF: sonar.setFishAlarm(false); break;
+    case A_ALARM_MIN_DOWN: sonar.setFishAlarmBand(sonar.fishAlarmMin() - (sonar.fishAlarmMin() > 20.0f ? 5.0f : 1.0f), sonar.fishAlarmMax()); break;
+    case A_ALARM_MIN_UP:
+        sonar.setFishAlarmBand(sonar.fishAlarmMin() + (sonar.fishAlarmMin() >= 20.0f ? 5.0f : 1.0f),
+            irr::core::max_(sonar.fishAlarmMax(), sonar.fishAlarmMin() + (sonar.fishAlarmMin() >= 20.0f ? 5.0f : 1.0f) + 1.0f));
+        break;
+    case A_ALARM_MAX_DOWN: sonar.setFishAlarmBand(sonar.fishAlarmMin(), sonar.fishAlarmMax() - (sonar.fishAlarmMax() > 20.0f ? 5.0f : 1.0f)); break;
+    case A_ALARM_MAX_UP: sonar.setFishAlarmBand(sonar.fishAlarmMin(), sonar.fishAlarmMax() + (sonar.fishAlarmMax() >= 20.0f ? 5.0f : 1.0f)); break;
     default: break;
     }
 }
@@ -807,8 +830,8 @@ void SonarWindow::drawPanel()
     //The rows' height: as designed (k), or less when they would not all fit the panel
     {
         int rows = 3, sections = 1;                                      //the display: 3 rows (and its swatch)
-        if (mode != MODE_SOUNDER) { rows += 7 + (markerOn ? 1 : 0); sections++; }
-        if (mode != MODE_360) { rows += 10; sections++; }
+        if (mode != MODE_SOUNDER) { rows += 8 + (markerOn ? 1 : 0); sections++; }
+        if (mode != MODE_360) { rows += 11 + (sonar.fishAlarm() ? 2 : 0); sections++; }
         const irr::f32 needed = 16 + sections * 40 + rows * 38 + 42;    //at a scale of 1
         rk = k * irr::core::min_(1.0f, (panel.getHeight() - 16 * k) / (needed * k));
     }
@@ -838,6 +861,17 @@ void SonarWindow::drawPanel()
         y = panelRow(y, L"TVG", fmt(L"%.0f", sonar.tvg360()), A_TVG360_DOWN, A_TVG360_UP);
         y = panelRow(y, L"Niveau \u00E9cho", fmt(L"%.0f", sonar.level360()), A_LEVEL360_DOWN, A_LEVEL360_UP);
         y = panelRow(y, L"Volume \u00E9cho", echoVolume > 0 ? fmt(L"%.0f", echoVolume) : std::wstring(L"coup\u00E9"), A_VOLUME_DOWN, A_VOLUME_UP);
+        {
+            //The loudspeaker's listening beam: ahead, towards the marker, or scanning round
+            const irr::f32 h = 32 * rk;
+            const irr::f32 labelW = (x1 - x0) * 0.42f;
+            fontText->drawIn(L"\u00C9coute", irr::core::rect<irr::f32>(x0, y, x0 + labelW, y + h), DIM, HudFont::Left);
+            const irr::f32 kx = x0 + labelW, kw = (x1 - kx - 8 * k) / 3;
+            addButton(irr::core::rect<irr::f32>(kx, y, kx + kw, y + h), A_LISTEN_AHEAD, L"AVANT", listenMode == Sonar::LISTEN_AHEAD);
+            addButton(irr::core::rect<irr::f32>(kx + kw + 4 * k, y, kx + 2 * kw + 4 * k, y + h), A_LISTEN_MARKER, L"MARQ.", listenMode == Sonar::LISTEN_MARKER);
+            addButton(irr::core::rect<irr::f32>(kx + 2 * kw + 8 * k, y, x1, y + h), A_LISTEN_SCAN, L"BALAY.", listenMode == Sonar::LISTEN_SCAN);
+            y += h + 6 * rk;
+        }
         twoKeys(L"Orientation", L"NORD", A_NORTH_UP, !headUp, L"CAP", A_HEAD_UP, headUp);
         if (markerOn) {
             const irr::f32 h = 32 * rk;
@@ -875,6 +909,11 @@ void SonarWindow::drawPanel()
         const int sc = sonar.scrollSpeed();
         y = panelRow(y, L"D\u00E9filement", (sc == 1) ? L"rapide" : ((sc == 2) ? L"moyen" : L"lent"), A_SCROLL_SLOWER, A_SCROLL_FASTER);
         y = panelRow(y, L"Anti-parasites", fmt(L"%.0f", sonar.clutter()), A_CLUTTER_DOWN, A_CLUTTER_UP);
+        twoKeys(L"Alarme poisson", L"OUI", A_ALARM_ON, sonar.fishAlarm(), L"NON", A_ALARM_OFF, !sonar.fishAlarm());
+        if (sonar.fishAlarm()) {
+            y = panelRow(y, L"Alarme de", fmt(L"%.0f m", sonar.fishAlarmMin()), A_ALARM_MIN_DOWN, A_ALARM_MIN_UP);
+            y = panelRow(y, L"Alarme \u00E0", fmt(L"%.0f m", sonar.fishAlarmMax()), A_ALARM_MAX_DOWN, A_ALARM_MAX_UP);
+        }
         y += 8 * rk;
     }
 
@@ -967,6 +1006,21 @@ void SonarWindow::draw360()
         line(tip.X, tip.Y, l.X, l.Y, shipCol);
         line(l.X, l.Y, r.X, r.Y, shipCol);
         line(r.X, r.Y, tip.X, tip.Y, shipCol);
+    }
+    //The loudspeaker's listening beam: its two edges, faint, from the ship to the edge of the picture
+    if (echoVolume > 0) {
+        const irr::f32 listen = sonar.listenBearingNow();
+        const irr::video::SColor beamCol(150, 120, 255, 190);
+        for (int side = -1; side <= 1; side += 2) {
+            const irr::f32 a = (listen + side * 0.5f * Sonar::listenBeamWidth() - rot) * irr::core::DEGTORAD;
+            for (int d = 0; d < 20; d += 2) {   //dashed
+                const irr::f32 r0 = R * d / 20.0f, r1 = R * (d + 1) / 20.0f;
+                line(cx + r0 * std::sin(a), cy - r0 * std::cos(a), cx + r1 * std::sin(a), cy - r1 * std::cos(a), beamCol);
+            }
+        }
+        const irr::f32 a = (listen - rot) * irr::core::DEGTORAD;
+        const std::wstring tag = (listenMode == Sonar::LISTEN_SCAN) ? L"\u00C9COUTE BALAYAGE" : L"\u00C9COUTE";
+        fontSmall->draw(tag, cx + 0.93f * R * std::sin(a) - 0.5f * fontSmall->width(tag), cy - 0.93f * R * std::cos(a) - 8 * k, beamCol);
     }
     //The marker: bearing, slant range, horizontal distance and estimated depth
     if (markerOn) {
@@ -1080,6 +1134,26 @@ void SonarWindow::drawSounder()
         }
     }
     driver->draw2DRectangleOutline(toInt(ascopeEcho), CARD_LINE);
+
+    //Fish alarm: its band, and the alarm itself, flashing, while fish are in it
+    if (sonar.fishAlarm()) {
+        const irr::video::SColor bandCol(220, 255, 170, 40);
+        const irr::f32 ya = top + hgt * irr::core::min_(sonar.fishAlarmMin() / R, 1.0f);
+        const irr::f32 yb = top + hgt * irr::core::min_(sonar.fishAlarmMax() / R, 1.0f);
+        for (irr::f32 x = picEcho.UpperLeftCorner.X; x < picEcho.LowerRightCorner.X; x += 14 * k) {
+            const irr::f32 xe = irr::core::min_(x + 8 * k, picEcho.LowerRightCorner.X);
+            line(x, ya, xe, ya, bandCol);
+            line(x, yb, xe, yb, bandCol);
+        }
+        line(picEcho.LowerRightCorner.X - 4 * k, ya, picEcho.LowerRightCorner.X - 4 * k, yb, bandCol);
+        if (sonar.fishAlarmSounding() && (device->getTimer()->getRealTime() / 400) % 2 == 0) {
+            const std::wstring t = L"ALARME POISSON";
+            const irr::f32 tw = fontText->width(t) + 24 * k;
+            const irr::core::rect<irr::f32> box(picEcho.getCenter().X - tw / 2, top + 10 * k, picEcho.getCenter().X + tw / 2, top + 44 * k);
+            driver->draw2DRectangle(irr::video::SColor(230, 200, 30, 30), toInt(box));
+            fontText->drawIn(t, box, irr::video::SColor(255, 255, 255, 255), HudFont::Centre);
+        }
+    }
 
     //Depth now, big, over the picture
     {

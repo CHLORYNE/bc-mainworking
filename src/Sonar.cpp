@@ -119,6 +119,48 @@ void Sonar::setSounderRangeIndex(int i)
 void Sonar::setSounderGain(int g) { gainSounder = irr::core::clamp(g, 0, 10); }
 void Sonar::setSounderTvg(int t) { tvgSounderv = irr::core::clamp(t, 0, 10); }
 void Sonar::setSounderLevel(int l) { levelSounderv = irr::core::clamp(l, 0, 10); }
+void Sonar::setFishAlarmBand(irr::f32 minDepth, irr::f32 maxDepth)
+{
+    alarmMin = irr::core::clamp(minDepth, 0.0f, 1000.0f);
+    alarmMax = irr::core::clamp(maxDepth, alarmMin + 1.0f, 1200.0f);
+}
+
+irr::f32 Sonar::listenBearingNow() const
+{
+    if (listenMode == LISTEN_MARKER && listenMarkerOn) { return listenMarkerBearing; }
+    if (listenMode == LISTEN_SCAN) { return std::fmod(ownHeading + scanBearing + 360.0f, 360.0f); }
+    return ownHeading;
+}
+
+//The loudspeaker's echo from cell (b, i), at a shown strength 'level': its kind (the target that
+//sent most of it, else the ground) and its pitch, moved by the closing speed as a real sonar's audio
+//is (the received frequency shifted by 2 v / c of the transmitted one, heard on the audio tone)
+void Sonar::addEchoSound(int b, int i, irr::f32 level)
+{
+    const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS) * irr::core::DEGTORAD;
+    const irr::f32 ux = std::sin(bearing), uz = std::cos(bearing);   //towards the echo
+    const irr::f32 ownVx = ownSpeed * std::sin(ownCourse * irr::core::DEGTORAD);
+    const irr::f32 ownVz = ownSpeed * std::cos(ownCourse * irr::core::DEGTORAD);
+    int kind = SOUND_GROUND;
+    irr::f32 vx = 0, vz = 0;
+    const int cell = b * BINS + i;
+    const int owner = targetOwner.empty() ? -1 : targetOwner[cell];
+    if (owner >= 0 && owner < (int)txTargets.size() && targetOwnerEcho[cell] > 0.1f) {
+        kind = txTargets[owner].kind;
+        vx = txTargets[owner].vx;
+        vz = txTargets[owner].vz;
+    }
+    //Closing speed: positive when the echo's source and the ship come together
+    const irr::f32 closing = -((vx - ownVx) * ux + (vz - ownVz) * uz);
+    const irr::f32 TX_FREQUENCY = 26000.0f;   //a search sonar's (Hz)
+    const irr::f32 AUDIO_TONE = 1400.0f;      //the loudspeaker's ping (Sound)
+    const irr::f32 shift = 2.0f * closing / SOUND_SPEED * TX_FREQUENCY;
+    AudioEvent e;
+    e.gain = level;
+    e.pitch = irr::core::clamp((AUDIO_TONE + shift) / AUDIO_TONE, 0.75f, 1.3f);
+    e.kind = kind;
+    audioEvents.push_back(e);
+}
 void Sonar::setScrollSpeed(int pingsPerColumn) { scrollDiv = (pingsPerColumn >= 4) ? 4 : ((pingsPerColumn >= 2) ? 2 : 1); }
 void Sonar::setClutter(int c) { clutterLevel = irr::core::clamp(c, 0, 10); }
 
@@ -150,6 +192,7 @@ void Sonar::readWorld()
     seaState = model->getWeather();
     ownHeading = model->getHeading();
     ownSpeed = model->getSOG();
+    ownCourse = model->getCOG();
     simTime = model->getTimeDelta();
 
     const irr::u32 n = model->getNumberOfOtherShips();
@@ -164,6 +207,7 @@ void Sonar::readWorld()
         s.length = irr::core::max_(model->getOtherShipLength((int)i), 4.0f);
         s.breadth = irr::core::max_(model->getOtherShipBreadth((int)i), 2.0f);
         s.draft = irr::core::clamp(0.055f * s.length + 0.8f, 1.0f, 12.0f);
+        s.speed = model->getOtherShipSpeed((int)i);
     }
 }
 
@@ -349,21 +393,23 @@ void Sonar::update(irr::f32 dt)
     for (int i = frontBin; i < want; i++) {
         for (int b = 0; b < BEAMS; b++) { computeCell(b, i); }
     }
-    //The loudspeaker: the strongest echo in the listening beam (16 degrees wide) at the front, as it
-    //comes in. An echo sounds when that rises past a threshold (a school, a hull, a wreck, the
-    //ground), as loud as it is strong; the front has to fall back before the next one sounds.
+    //The loudspeaker: the strongest echo in the listening beam at the front, as it comes in. An echo
+    //sounds when that rises past a threshold (a school, a hull, a wreck, the ground), as loud as it
+    //is strong; the front has to fall back before the next one sounds. Outside the beam: silence.
     {
-        const irr::f32 listen = listenOn ? listenBearing : ownHeading;
+        const irr::f32 listen = listenBearingNow();
         for (int i = frontBin; i < want; i++) {
             if (i < BINS / 30) { continue; }   //(the transmission itself, round the ship)
             irr::f32 level = 0;
+            int strongest = -1;
             for (int b = 0; b < BEAMS; b++) {
                 const irr::f32 bearing = (b + 0.5f) * (360.0f / BEAMS);
-                if (std::fabs(angleDiff(bearing, listen)) > 8.0f) { continue; }
-                level = irr::core::max_(level, beams[b * BINS + i] / 255.0f);
+                if (std::fabs(angleDiff(bearing, listen)) > 0.5f * listenBeamWidth()) { continue; }
+                const irr::f32 v = beams[b * BINS + i] / 255.0f;
+                if (v > level) { level = v; strongest = b; }
             }
-            if (audioArmed && level > 0.45f && audioEchoes < 4) {
-                audioEvents.push_back(std::make_pair(level, 0.96f));
+            if (audioArmed && level > 0.45f && audioEchoes < 4 && strongest >= 0) {
+                addEchoSound(strongest, i, level);
                 audioArmed = false;
                 audioEchoes++;
             }
@@ -372,6 +418,7 @@ void Sonar::update(irr::f32 dt)
             }
         }
     }
+    alarmBeepTimer = irr::core::max_(0.0f, alarmBeepTimer - dt);
     if (want > frontBin) { serial360++; }
     frontBin = irr::core::max_(frontBin, want);
     if (frontBin >= BINS && txTime >= echoTime + 0.25f) { startTransmission(); }
@@ -391,8 +438,15 @@ void Sonar::update(irr::f32 dt)
 //-------------------------------------------------------------------------------------------------
 void Sonar::startTransmission()
 {
-    //The ping, in the loudspeaker
-    audioEvents.push_back(std::make_pair(1.0f, 1.0f));
+    //The ping, in the loudspeaker; a scanning listening beam moves on by its width
+    {
+        AudioEvent e;
+        e.gain = 1.0f;
+        e.pitch = 1.0f;
+        e.kind = SOUND_PING;
+        audioEvents.push_back(e);
+    }
+    if (listenMode == LISTEN_SCAN) { scanBearing = std::fmod(scanBearing + listenBeamWidth(), 360.0f); }
     audioArmed = true;
     audioEchoes = 0;
     txStarted = true;
@@ -407,10 +461,17 @@ void Sonar::startTransmission()
     //The targets, laid into every beam they are in: round echoes, strongest at their centre
     struct Target { irr::f32 h, bearing, radius, zTop, zBottom, strength; bool wreck; irr::f32 wreckBottom, wreckHeight; };
     std::vector<Target> targets;
-    auto add = [&](irr::f32 tx, irr::f32 tz, irr::f32 radius, irr::f32 zTop, irr::f32 zBottom, irr::f32 strength, bool wreck) {
+    txTargets.clear();
+    targetOwner.assign(BEAMS * BINS, (irr::s16)-1);
+    targetOwnerEcho.assign(BEAMS * BINS, 0.0f);
+    //(kind: the loudspeaker's sound for it; vx, vz: its velocity, m/s, for the Doppler)
+    auto add = [&](irr::f32 tx, irr::f32 tz, irr::f32 radius, irr::f32 zTop, irr::f32 zBottom, irr::f32 strength, bool wreck,
+        int kind = SOUND_SCHOOL, irr::f32 vx = 0, irr::f32 vz = 0) {
         const irr::f32 dx = tx - ownX, dz = tz - ownZ;
         const irr::f32 h = std::sqrt(dx * dx + dz * dz);
         if (h > txRange * 1.05f + radius || strength <= 0.0f) { return; }
+        TxTarget tt = { kind, tx, tz, vx, vz };
+        txTargets.push_back(tt);
         Target t;
         t.h = h;
         t.bearing = std::atan2(dx, dz) * irr::core::RADTODEG;
@@ -426,12 +487,14 @@ void Sonar::startTransmission()
     for (size_t k = 0; k < fish.size(); k++) {
         const Fish& f = fish[k];
         const irr::f32 z = transducerY - (tide - f.depth);
-        add(f.x, f.z, f.school ? f.radius : 0.6f, z - f.thick, z + f.thick, f.school ? 0.8f * f.strength : 0.4f * f.strength, false);
+        add(f.x, f.z, f.school ? f.radius : 0.6f, z - f.thick, z + f.thick, f.school ? 0.8f * f.strength : 0.4f * f.strength, false,
+            SOUND_SCHOOL, f.speed * std::sin(f.heading * irr::core::DEGTORAD), f.speed * std::cos(f.heading * irr::core::DEGTORAD));
     }
     for (size_t k = 0; k < ships.size(); k++) {
         const Ship& sh = ships[k];
         const irr::f32 top = transducerY - sh.y;
-        add(sh.x, sh.z, 0.4f * sh.length, top, top + sh.draft, 1.0f, false);
+        add(sh.x, sh.z, 0.4f * sh.length, top, top + sh.draft, 1.0f, false,
+            SOUND_HULL, sh.speed * std::sin(sh.heading * irr::core::DEGTORAD), sh.speed * std::cos(sh.heading * irr::core::DEGTORAD));
     }
     for (size_t k = 0; k < wakes.size(); k++) {
         for (size_t j = 0; j < wakes[k].size(); j++) {
@@ -444,7 +507,7 @@ void Sonar::startTransmission()
     for (size_t k = 0; k < wrecks.size(); k++) {
         const Wreck& w = wrecks[k];
         const irr::f32 bottom = transducerY - seabedY(w.x, w.z);
-        add(w.x, w.z, 0.4f * w.length, bottom - w.height, bottom, 1.1f, true);
+        add(w.x, w.z, 0.4f * w.length, bottom - w.height, bottom, 1.1f, true, SOUND_HULL);
     }
 
     const irr::f32 binLen = txRange / BINS;
@@ -476,7 +539,9 @@ void Sonar::startTransmission()
             for (int i = i0; i <= i1; i++) {
                 const irr::f32 u = ((i + 0.5f) * binLen - slant) / rad;
                 const irr::f32 rw = irr::core::max_(0.0f, 1.0f - u * u);
-                targetEcho[b * BINS + i] += t.strength * lw * rw * vfrac * (0.8f + 0.4f * random01());
+                const irr::f32 e = t.strength * lw * rw * vfrac * (0.8f + 0.4f * random01());
+                targetEcho[b * BINS + i] += e;
+                if (e > targetOwnerEcho[b * BINS + i]) { targetOwnerEcho[b * BINS + i] = e; targetOwner[b * BINS + i] = (irr::s16)k; }
             }
             if (t.wreck) {
                 //Its acoustic shadow on the bottom behind it: longer the lower the beam grazes
@@ -586,10 +651,29 @@ void Sonar::ping()
 
     std::vector<irr::f32> col(ROWS);
     irr::s16 bottomRow[2] = { -1, -1 };
+    bool fishInBand = false;
     for (int f = 0; f < 2; f++) {
         computeColumn(f, R, col, bottomRow[f]);
+        //Fish alarm: an echo in the band, clear of the bottom (a metre above its first edge)
+        if (fishAlarmOn) {
+            const irr::f32 rowLen = R / ROWS;
+            int r0 = (int)(alarmMin / rowLen), r1 = (int)(alarmMax / rowLen);   //(the echogram's depth scale)
+            if (bottomRow[f] >= 0) { r1 = irr::core::min_(r1, bottomRow[f] - 1 - (int)(1.0f / rowLen)); }
+            r0 = irr::core::max_(r0, 6);   //(not the transmission's line at the top)
+            r1 = irr::core::min_(r1, ROWS - 1);
+            for (int r = r0; r <= r1 && !fishInBand; r++) { fishInBand = col[r] > 0.45f; }
+        }
         //Into the column being made (several pings per column when scrolling slowly: the strongest)
         for (int r = 0; r < ROWS; r++) { accumulated[f][r] = (pingsInColumn == 0) ? col[r] : irr::core::max_(accumulated[f][r], col[r]); }
+    }
+    fishAlarmActive = fishInBand;
+    if (fishInBand && alarmBeepTimer <= 0.0f) {
+        AudioEvent e;
+        e.gain = 1.0f;
+        e.pitch = 1.0f;
+        e.kind = SOUND_ALARM;
+        audioEvents.push_back(e);
+        alarmBeepTimer = 1.5f;   //beeping while the fish stay in the band
     }
     pingsInColumn++;
     if (pingsInColumn < scrollDiv) { return; }

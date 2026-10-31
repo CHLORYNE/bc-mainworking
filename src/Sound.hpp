@@ -83,11 +83,13 @@ public:
 	//slower, which is what a heavy landing sounds like).
 	void triggerSlam(float gain, float pitch);
 	bool hasSlamSound() const;
-	//The sonar's loudspeaker: a ping made at start-up (no file), played once per trigger with its own
+	//The sonar's loudspeaker: sounds made at start-up (no files), played once per trigger with their own
 	//loudness (0..1) and pitch (playback rate). Several at once: a transmission and its echoes overlap.
+	//kind: 0 the transmission's ping, 1 a hull or wreck (sharp, clean), 2 a fish school (rough,
+	//longer), 3 the ground or coast (low rumble), 4 the fish alarm (double beep) - as Sonar's SOUND_*.
 	void setVolumeSonar(float vol);
 	float getVolumeSonar() const;
-	void triggerSonar(float gain, float pitch);
+	void triggerSonar(float gain, float pitch, int kind = 0);
 	//Radar CPA/TCPA ("dangerous target") alarm: its own looping sound, distinct from the guard
 	//zone alarm, and started from the beginning of its pattern each time it sounds.
 	void loadCpaAlarmSound(std::string cpaAlarmFile);
@@ -265,13 +267,14 @@ private:
 	static std::vector<float> slamScratch;   // raw frames, reused between callbacks (no allocation)
 	//Sonar loudspeaker. Triggers go through a small ring: written by the main thread (the count last,
 	//released), read by the callback, which owns the voices.
-	static std::vector<float> sonarPing;     // mono, at the engine sound's rate, made in load()
+	enum { SONAR_SOUNDS = 5 };
+	static std::vector<float> sonarSounds[SONAR_SOUNDS];   // mono, at the engine sound's rate, made in load()
 	static float sonarVolume;
-	struct SonarRequest { float gain, pitch; };
+	struct SonarRequest { float gain, pitch; int kind; };
 	static SonarRequest sonarRequests[16];
 	static std::atomic<unsigned> sonarRequestsWritten;
 	static unsigned sonarRequestsRead;
-	struct SonarVoice { bool on; double pos; float rate, gain; };
+	struct SonarVoice { bool on; double pos; float rate, gain; int kind; };
 	static SonarVoice sonarVoices[6];
 	//KYARA ENGINE PITCH: resampling state for the engine channel. enginePhase is the
 	//fractional read position (in frames) into a rolling scratch buffer of raw engine
@@ -857,7 +860,7 @@ private:
 		//Sonar loudspeaker: new pings into free voices (or over the quietest), then all voices mixed
 		std::vector<float> sonarBuffer(frameCount, 0.0f);
 		bool playSonar = false;
-		if (!sonarPing.empty()) {
+		if (!sonarSounds[0].empty()) {
 			const unsigned written = sonarRequestsWritten.load(std::memory_order_acquire);
 			if (written - sonarRequestsRead > 16) { sonarRequestsRead = written - 16; }
 			while (sonarRequestsRead != written) {
@@ -872,16 +875,18 @@ private:
 				sonarVoices[v].pos = 0.0;
 				sonarVoices[v].rate = r.pitch;
 				sonarVoices[v].gain = r.gain;
+				sonarVoices[v].kind = (r.kind >= 0 && r.kind < SONAR_SOUNDS && !sonarSounds[r.kind].empty()) ? r.kind : 0;
 			}
-			const double last = (double)sonarPing.size() - 1;
 			for (int k = 0; k < 6; k++) {
 				SonarVoice& voice = sonarVoices[k];
 				if (!voice.on) { continue; }
+				const std::vector<float>& sample = sonarSounds[voice.kind];
+				const double last = (double)sample.size() - 1;
 				for (unsigned long n = 0; n < frameCount; n++) {
 					if (voice.pos >= last) { voice.on = false; break; }
 					const size_t i0 = (size_t)voice.pos;
 					const float frac = (float)(voice.pos - (double)i0);
-					sonarBuffer[n] += voice.gain * (sonarPing[i0] + (sonarPing[i0 + 1] - sonarPing[i0]) * frac);
+					sonarBuffer[n] += voice.gain * (sample[i0] + (sample[i0 + 1] - sample[i0]) * frac);
 					voice.pos += voice.rate;
 				}
 				playSonar = true;

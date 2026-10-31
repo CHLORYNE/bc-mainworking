@@ -54,7 +54,9 @@ private:
         A_CLUTTER_DOWN, A_CLUTTER_UP, A_FREQBOTH, A_WHITELINE_ON, A_WHITELINE_OFF, A_BG_PREV, A_BG_NEXT, A_COL_PREV, A_COL_NEXT,
         A_FADE_DOWN, A_FADE_UP, A_HEAVE_ON, A_HEAVE_OFF, A_HELP, A_HELP_TAB0, A_HELP_TAB1, A_HELP_TAB2,
         A_TVG360_DOWN, A_TVG360_UP, A_LEVEL360_DOWN, A_LEVEL360_UP, A_VOLUME_DOWN, A_VOLUME_UP,
-        A_STVG_DOWN, A_STVG_UP, A_SLEVEL_DOWN, A_SLEVEL_UP
+        A_STVG_DOWN, A_STVG_UP, A_SLEVEL_DOWN, A_SLEVEL_UP,
+        A_LISTEN_AHEAD, A_LISTEN_MARKER, A_LISTEN_SCAN, A_ALARM_ON, A_ALARM_OFF,
+        A_ALARM_MIN_DOWN, A_ALARM_MIN_UP, A_ALARM_MAX_DOWN, A_ALARM_MAX_UP
     };
     struct Button {
         irr::core::rect<irr::f32> r;
@@ -136,6 +138,7 @@ private:
     irr::f32 k;               //scale (1 at a height of 1000 pixels)
     irr::f32 rk = 1;          //the settings rows' height scale: k, or less when they would not all fit
     int echoVolume = 5;       //the loudspeaker, 0 (off) .. 10
+    int listenMode = 0;       //its listening beam: Sonar::LISTEN_AHEAD, _MARKER or _SCAN
     irr::core::rect<irr::f32> header, panel, area360, areaEcho, picEcho, scaleEcho, ascopeEcho;
     irr::core::vector2df centre360;
     irr::f32 radius360;

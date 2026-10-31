@@ -1,4 +1,5 @@
 #include "Sound.hpp"
+#include <random>
 
 #ifndef WITH_SOUND
 //Dummy implementation of public interface
@@ -57,7 +58,7 @@ void Sound::triggerSlam(float gain, float pitch) {}
 bool Sound::hasSlamSound() const { return false; }
 void Sound::setVolumeSonar(float vol) {}
 float Sound::getVolumeSonar() const { return 0; }
-void Sound::triggerSonar(float gain, float pitch) {}
+void Sound::triggerSonar(float gain, float pitch, int kind) {}
 float Sound::getVolumeWave() const { return 0; }
 float Sound::getVolumeEngine() const { return 0; }
 float Sound::getVolumeHorn() const { return 0; }
@@ -125,7 +126,7 @@ float Sound::slamGainPlaying = 1.0f;
 float Sound::slamPitchPlaying = 1.0f;
 double Sound::slamPhase = 0.0;
 std::vector<float> Sound::slamScratch;
-std::vector<float> Sound::sonarPing;
+std::vector<float> Sound::sonarSounds[Sound::SONAR_SOUNDS];
 float Sound::sonarVolume = 1.0f;
 Sound::SonarRequest Sound::sonarRequests[16];
 std::atomic<unsigned> Sound::sonarRequestsWritten(0);
@@ -522,34 +523,68 @@ void Sound::load(std::string engineSoundFile, std::string waveSoundFile, std::st
 		return;
 	}
 
-	//The sonar's ping, made here (no file): a 1.4 kHz tone falling slightly in pitch, struck and dying
-	//away over half a second, with the water's reverberation after it - as a search sonar's
-	//loudspeaker sounds. Echoes are the same sound, quieter and a little lower.
+	//The sonar's loudspeaker sounds, made here (no files), on a 1.4 kHz tone as a search sonar's audio:
+	//0 the transmission's ping (struck, dying away over half a second, the water's reverberation
+	//after it); 1 a hull or a wreck (one hard surface: short, sharp, clean); 2 a fish school (many
+	//small echoes: rough, fluttering, longer); 3 the ground or the coast (spread out: lower, muffled,
+	//long rumble); 4 the fish alarm (an electronic double beep).
 	{
 		const double rate = (double)data.infoEngine.samplerate;
-		const size_t n = (size_t)(1.2 * rate);
-		sonarPing.assign(n, 0.0f);
 		const double pi = 3.14159265358979;
-		double phase = 0.0;
-		for (size_t i = 0; i < n; i++) {
-			const double t = i / rate;
-			const double f = 1400.0 - 60.0 * std::min(t / 0.3, 1.0);
-			phase += 2.0 * pi * f / rate;
-			const double attack = std::min(t / 0.004, 1.0);
-			const double body = std::exp(-t / 0.11) + 0.25 * std::exp(-t / 0.45);
-			sonarPing[i] = (float)(std::sin(phase) * attack * body);
+		std::mt19937 rng(7);
+		std::uniform_real_distribution<double> uni(-1.0, 1.0);
+		auto tone = [&](double seconds, double f0, double fall, double attack, double tau1, double tau2, double mix2,
+			double flutter, double noise) {
+			const size_t n = (size_t)(seconds * rate);
+			std::vector<float> out(n, 0.0f);
+			double phase = 0.0, am = 1.0, noiseState = 0.0;
+			for (size_t i = 0; i < n; i++) {
+				const double t = i / rate;
+				phase += 2.0 * pi * (f0 - fall * std::min(t / 0.3, 1.0)) / rate;
+				const double env = std::min(t / attack, 1.0) * (std::exp(-t / tau1) + mix2 * std::exp(-t / tau2));
+				if (flutter > 0.0 && (i % (size_t)(rate / 180.0)) == 0) { am = 1.0 - flutter * (0.5 + 0.5 * uni(rng)); } //rough: a new grain 180 times a second
+				noiseState = 0.85 * noiseState + 0.15 * uni(rng);                                                   //(dull noise)
+				out[i] = (float)((std::sin(phase) * am + noise * noiseState) * env);
+			}
+			return out;
+		};
+		auto reverb = [&](std::vector<float>& x, double d1, double d2, double d3, float g1, float g2, float g3) {
+			const double delays[3] = { d1, d2, d3 };
+			const float gains[3] = { g1, g2, g3 };
+			std::vector<float> dry(x);
+			for (int d = 0; d < 3; d++) {
+				const size_t off = (size_t)(delays[d] * rate);
+				for (size_t i = off; i < x.size(); i++) { x[i] += gains[d] * dry[i - off]; }
+			}
+		};
+		auto normalise = [&](std::vector<float>& x, float peakWanted) {
+			float peak = 0.0f;
+			for (size_t i = 0; i < x.size(); i++) { peak = std::max(peak, std::fabs(x[i])); }
+			if (peak > 0.0f) { for (size_t i = 0; i < x.size(); i++) { x[i] *= peakWanted / peak; } }
+		};
+		sonarSounds[0] = tone(1.2, 1400.0, 60.0, 0.004, 0.11, 0.45, 0.25, 0.0, 0.0);
+		reverb(sonarSounds[0], 0.075, 0.16, 0.29, 0.32f, 0.18f, 0.09f);
+		normalise(sonarSounds[0], 0.8f);
+		sonarSounds[1] = tone(0.4, 1400.0, 0.0, 0.002, 0.045, 0.12, 0.08, 0.0, 0.0);
+		reverb(sonarSounds[1], 0.05, 0.11, 0.2, 0.12f, 0.06f, 0.03f);
+		normalise(sonarSounds[1], 0.8f);
+		sonarSounds[2] = tone(0.9, 1400.0, 30.0, 0.03, 0.18, 0.4, 0.4, 0.75, 0.25);
+		reverb(sonarSounds[2], 0.04, 0.09, 0.17, 0.35f, 0.25f, 0.15f);
+		normalise(sonarSounds[2], 0.7f);
+		sonarSounds[3] = tone(1.3, 1150.0, 80.0, 0.05, 0.3, 0.7, 0.5, 0.3, 0.6);
+		reverb(sonarSounds[3], 0.09, 0.2, 0.36, 0.4f, 0.28f, 0.16f);
+		normalise(sonarSounds[3], 0.6f);
+		{
+			const size_t n = (size_t)(0.42 * rate);
+			sonarSounds[4].assign(n, 0.0f);
+			for (size_t i = 0; i < n; i++) {
+				const double t = i / rate;
+				const bool on = (t < 0.13) || (t > 0.21 && t < 0.34);
+				if (!on) { continue; }
+				const double s = std::sin(2.0 * pi * 2400.0 * t);
+				sonarSounds[4][i] = (float)(0.6 * (s + 0.3 * std::sin(6.0 * pi * 2400.0 * t)));   //(a buzzer's edge)
+			}
 		}
-		//Reverberation: later, quieter copies
-		const double delays[3] = { 0.075, 0.16, 0.29 };
-		const float gains[3] = { 0.32f, 0.18f, 0.09f };
-		std::vector<float> dry(sonarPing);
-		for (int d = 0; d < 3; d++) {
-			const size_t off = (size_t)(delays[d] * rate);
-			for (size_t i = off; i < n; i++) { sonarPing[i] += gains[d] * dry[i - off]; }
-		}
-		float peak = 0.0f;
-		for (size_t i = 0; i < n; i++) { peak = std::max(peak, std::fabs(sonarPing[i])); }
-		if (peak > 0.0f) { for (size_t i = 0; i < n; i++) { sonarPing[i] *= 0.8f / peak; } }
 	}
 
 	soundLoaded = true; // All OK if we've got here
@@ -864,11 +899,12 @@ float Sound::getVolumeSonar() const {
 	return Sound::sonarVolume;
 }
 
-void Sound::triggerSonar(float gain, float pitch) {
+void Sound::triggerSonar(float gain, float pitch, int kind) {
 	if (!soundLoaded) { return; }
 	const unsigned w = sonarRequestsWritten.load(std::memory_order_relaxed);
 	sonarRequests[w % 16].gain = std::max(0.0f, std::min(gain, 1.0f));
 	sonarRequests[w % 16].pitch = std::max(0.25f, std::min(pitch, 4.0f));
+	sonarRequests[w % 16].kind = kind;
 	sonarRequestsWritten.store(w + 1, std::memory_order_release);
 }
 
