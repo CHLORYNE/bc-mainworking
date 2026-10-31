@@ -32,6 +32,7 @@ public:
     irr::core::vector2df getLocalNormals(irr::f32 relPosX, irr::f32 relPosZ) const;
     irr::core::vector3df getPosition() const;
     void setVisible(bool visible);
+    void setColumn(irr::s32 c); //triple screen: the view about to be drawn (0 left, 1 middle, 2 right)
     //No sea drawn inside the own ship's hull: her node's position and rotation, and the outline and
     //waterline measured from her model (see OwnShip::getHullWaterline). on = false: off.
     void setHullMask(irr::core::vector3df nodePosition, irr::core::vector3df nodeRotationDeg, irr::f32 zMin, irr::f32 zMax, irr::f32 waterlineY, const irr::f32* halfWidths24, const irr::f32* centres24, bool on);

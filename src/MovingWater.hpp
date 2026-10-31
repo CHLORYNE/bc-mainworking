@@ -59,6 +59,10 @@ namespace scene
 
 		void OnSetConstants(video::IMaterialRendererServices* services, s32 userData);
 
+		//Triple screen: the view (0 left, 1 middle, 2 right) about to be drawn. Each view keeps a
+		//reflection of its own, refreshed in turn (water_reflection 2 and 4: not all on one frame).
+		void setColumn(s32 c);
+
 		//! Update mesh
 		//virtual void setMesh(IMesh* mesh);
 		void setMesh(IMesh* mesh);
@@ -126,6 +130,9 @@ namespace scene
 
         irr::scene::ICameraSceneNode* _camera; //Local camera for reflections
         irr::video::ITexture* _reflectionMap;
+        irr::video::ITexture* columnMaps[3];   //triple screen: each view's reflection (0: the first map)
+        s32 column;                            //view being drawn, -1 for a single view
+        u32 columnFrame;                       //frames drawn in views
 
         irr::u32 segments;
 		irr::u32 reflectionEveryN;   // KYARA: reflection RTT update cadence
@@ -140,6 +147,8 @@ namespace scene
 		f32 gloom;                  // KYARA METEO: value sent to the shader (eased)
 		f32 gloomTarget;            // KYARA METEO: value asked for by Water::update
 		u32 lastGloomTimeMs;        // KYARA METEO
+		bool wavesValid = false;    // the waves were worked out for wavesTimeMs (and the current parameters)
+		u32 wavesTimeMs = 0;
 		bool gloomInitialised;      // KYARA METEO: first frame jumps straight to the target
 
 		f32 tileWidth;

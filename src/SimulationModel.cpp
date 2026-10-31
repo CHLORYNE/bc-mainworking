@@ -342,7 +342,7 @@ SimulationModel::SimulationModel(irr::IrrlichtDevice* dev,
     if (modelParameters.vrMode == true) {
         waterReflection = false;
     }
-    irr::u32 reflectionEveryN = (modelParameters.reflectionMode == 1) ? 2 : 1; // half vs full
+    irr::u32 reflectionEveryN = (modelParameters.reflectionMode == 1) ? 2 : ((modelParameters.reflectionMode == 3) ? 3 : 1); // half, a third, full
     water.load(smgr, ownShip.getSceneNode(), weather, modelParameters.disableShaders, waterReflection, modelParameters.waterSegments, reflectionEveryN);
     // KYARA HOULE: the swell is drawn by the water vertex shader. With shaders off it could not be
     // seen, so keep the physics flat too - the ship must never move on water that isn't there.
@@ -3149,6 +3149,7 @@ void SimulationModel::updateViewport(irr::f32 aspect)
 void SimulationModel::renderMainColumn(irr::f32 columnAspect, irr::f32 columnHFOVdeg, irr::f32 yawOffsetDeg, irr::f32 shiftY)
 {
     camera.renderColumn(columnAspect, irr::core::degToRad(columnHFOVdeg) / currentZoom, yawOffsetDeg, shiftY);
+    water.setColumn(yawOffsetDeg < 0 ? 0 : (yawOffsetDeg > 0 ? 2 : 1));
 }
 //Radar worker -------------------------------------------------------------------------------------
 void SimulationModel::computeRadarJob()

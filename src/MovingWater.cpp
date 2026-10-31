@@ -145,6 +145,9 @@ namespace scene
     //Create local camera for reflections
     _camera = 0;
     _reflectionMap = 0;
+    columnMaps[0] = columnMaps[1] = columnMaps[2] = 0;
+    column = -1;
+    columnFrame = 0;
     
 	if (!disableShaders) {
 		if (withReflection) {
@@ -154,6 +157,7 @@ namespace scene
             //huge fraction of the screen, so this saves real fill on every frame.
             _reflectionMap = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256));
 		}
+		columnMaps[0] = _reflectionMap;
 		
 		irr::video::ITexture* bumpTexture = driver->getTexture("media/waterbump.png");
 
@@ -237,6 +241,7 @@ MovingWaterSceneNode::~MovingWaterSceneNode()
 		_camera = NULL;
 	}
 
+	if (columnMaps[0]) { _reflectionMap = columnMaps[0]; }   //(the map this node made itself; the views' others are the driver's)
 	if (_reflectionMap)
 	{
 		_reflectionMap->drop();
@@ -288,6 +293,7 @@ void MovingWaterSceneNode::setGloom(f32 target)
 void MovingWaterSceneNode::resetParameters(float A, vector2 w, float seaState)
 {
     ocean->resetParameters(A,w);
+    wavesValid = false;   //new waves, even if the time has not moved (paused)
     this->seaState = seaState;
 }
 
@@ -457,6 +463,13 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
         lightColour[2] = ambientLight.b / maxC;
 		const irr::f32 time = timeMs / 1000.f;
 
+        //The waves once per frame. OnAnimate comes with every drawing of the scene, and a frame draws
+        //it several times (the triple screen's three views, each with the sea's reflection: six), all
+        //at the same time: the waves and the mesh are worked out at the first, kept for the others.
+        if (!wavesValid || timeMs != wavesTimeMs) {
+        wavesValid = true;
+        wavesTimeMs = timeMs;
+
                 //Update the FFT Calculation
                 ocean->evaluateWavesFFT(time);
                 vertex_ocean* vertices = ocean->getVertices();
@@ -551,6 +564,7 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
 
 
 		mesh->setDirty(scene::EBT_VERTEX);
+        } //(once per frame)
 	}
 
 	IMeshSceneNode::OnAnimate(timeMs);
@@ -571,6 +585,9 @@ void MovingWaterSceneNode::OnAnimate(irr::u32 timeMs)
         const irr::u32 reflectionEveryNsafe = (reflectionEveryN < 1) ? 1 : reflectionEveryN;
         static irr::u32 reflectionFrameCounter = 0;
         bool updateReflectionThisFrame = ((reflectionFrameCounter++ % reflectionEveryNsafe) == 0);
+        //Triple screen: each view its own reflection, refreshed every N frames in turn (with N = 3, one
+        //view a frame), so that the cost is spread and a view always shows its own reflection
+        if (column >= 0) { updateReflectionThisFrame = ((columnFrame + (u32)column) % reflectionEveryNsafe) == 0; }
 
         if (withReflection && updateReflectionThisFrame) {
             //fixes glitches with incomplete refraction
@@ -783,6 +800,25 @@ void MovingWaterSceneNode::setMesh(IMesh* mesh)
     //std::cout << "In setMesh()" << std::endl;
 }
 
+
+void MovingWaterSceneNode::setColumn(s32 c)
+{
+    if (c < 0 || c > 2) { return; }
+    column = c;
+    if (c == 0) { columnFrame++; }
+    if (!withReflection || disableShaders || !_reflectionMap || !mesh) { return; }
+    if (!columnMaps[c]) {
+        columnMaps[c] = driver->addRenderTargetTexture(irr::core::dimension2d<irr::u32>(256, 256), ("water-reflection-" + std::to_string(c)).c_str());
+        if (!columnMaps[c]) { columnMaps[c] = columnMaps[0]; }
+    }
+    if (_reflectionMap != columnMaps[c]) {
+        _reflectionMap = columnMaps[c];
+        for (irr::u32 i = 0; i < mesh->getMeshBufferCount(); ++i) {
+            scene::IMeshBuffer* mb = mesh->getMeshBuffer(i);
+            if (mb) { mb->getMaterial().setTexture(1, _reflectionMap); }
+        }
+    }
+}
 
 void MovingWaterSceneNode::render()
 {

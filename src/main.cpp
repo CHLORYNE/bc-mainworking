@@ -767,11 +767,13 @@ int main(int argc, char** argv)
         waterSegments = 32;
     }
     // KYARA: water reflection quality tri-state.
-    //   ini water_reflection: 1 = full (every frame), 2 = half (every 2nd frame), 3 = off.
+    //   ini water_reflection: 1 = full (every frame), 2 = half (every 2nd frame), 3 = off,
+    //   4 = a third (every 3rd frame: on the triple screen, one view's reflection a frame).
     //   Missing/0 -> full, so existing installs are unchanged.
     irr::u32 reflectionIni = IniFile::iniFileTou32(iniFilename, "water_reflection");
-    irr::u32 reflectionMode; // internal: 0 full, 1 half, 2 off
-    if (reflectionIni == 3) { reflectionMode = 2; }
+    irr::u32 reflectionMode; // internal: 0 full, 1 half, 2 off, 3 a third
+    if (reflectionIni == 4) { reflectionMode = 3; }
+    else if (reflectionIni == 3) { reflectionMode = 2; }
     else if (reflectionIni == 2) { reflectionMode = 1; }
     else { reflectionMode = 0; } // 0 (unset) or 1
 

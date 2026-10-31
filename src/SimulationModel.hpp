@@ -84,7 +84,7 @@ public:
         irr::f32 cameraMaxDistance;
         irr::u32 disableShaders;
         irr::u32 waterSegments;
-        irr::u32 reflectionMode;   // KYARA: 0 full, 1 half (every 2nd frame), 2 off
+        irr::u32 reflectionMode;   // KYARA: 0 full, 1 half (every 2nd frame), 2 off, 3 a third (every 3rd frame)
         irr::core::vector3di numberOfContactPoints;
         irr::f32 minContactPointSpacing;
         irr::f32 contactStiffnessFactor;
